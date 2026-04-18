@@ -8,6 +8,13 @@ from uuid import UUID
 
 import fitz
 
+from bidded.documents.chunk_embeddings import (
+    ChunkEmbeddingAdapter,
+    ChunkEmbeddingError,
+    DocumentChunkEmbeddingResult,
+    populate_document_chunk_embeddings,
+)
+
 DEMO_TENANT_KEY = "demo"
 PDF_TEXT_EXTRACTION_NON_GOAL_MESSAGE = (
     "Only text-based PDF ingestion is supported; OCR and DOCX are non-goals "
@@ -85,6 +92,7 @@ class PdfIngestionResult:
     page_count: int
     chunk_count: int
     chunks: list[PdfDocumentChunk]
+    embedding_result: DocumentChunkEmbeddingResult | None = None
 
 
 def ingest_tender_pdf_document(
@@ -93,6 +101,8 @@ def ingest_tender_pdf_document(
     document_id: UUID | str,
     bucket_name: str,
     max_chunk_chars: int = DEFAULT_MAX_CHUNK_CHARS,
+    embedding_adapter: ChunkEmbeddingAdapter | None = None,
+    require_embeddings: bool = False,
 ) -> PdfIngestionResult:
     """Parse a registered tender text-PDF and persist page-referenced chunks."""
 
@@ -137,27 +147,37 @@ def ingest_tender_pdf_document(
             )
 
         _replace_document_chunks(client, normalized_document_id, chunks)
+        embedding_result = _populate_chunk_embeddings(
+            client,
+            document_id=normalized_document_id,
+            embedding_adapter=embedding_adapter,
+            require_embeddings=require_embeddings,
+        )
+        parsed_metadata: dict[str, Any] = {
+            **source_metadata,
+            "parser": {
+                "status": "parsed",
+                "parser": "pymupdf",
+                "page_count": len(pages),
+                "chunk_count": len(chunks),
+                "chunking_strategy": CHUNKING_STRATEGY,
+                "non_goals": ["ocr", "docx"],
+            },
+        }
+        if embedding_result is not None:
+            parsed_metadata["embedding"] = embedding_result.parser_metadata()
         _update_document_parse_status(
             client,
             document_id=normalized_document_id,
             parse_status="parsed",
-            metadata={
-                **source_metadata,
-                "parser": {
-                    "status": "parsed",
-                    "parser": "pymupdf",
-                    "page_count": len(pages),
-                    "chunk_count": len(chunks),
-                    "chunking_strategy": CHUNKING_STRATEGY,
-                    "non_goals": ["ocr", "docx"],
-                },
-            },
+            metadata=parsed_metadata,
         )
         return PdfIngestionResult(
             document_id=normalized_document_id,
             page_count=len(pages),
             chunk_count=len(chunks),
             chunks=chunks,
+            embedding_result=embedding_result,
         )
     except PdfIngestionError as exc:
         _update_document_parse_status(
@@ -175,6 +195,31 @@ def ingest_tender_pdf_document(
             },
         )
         raise
+
+
+def _populate_chunk_embeddings(
+    client: SupabasePdfIngestionClient,
+    *,
+    document_id: UUID,
+    embedding_adapter: ChunkEmbeddingAdapter | None,
+    require_embeddings: bool,
+) -> DocumentChunkEmbeddingResult | None:
+    if embedding_adapter is None:
+        if require_embeddings:
+            raise PdfIngestionError(
+                "Embedding adapter is required when embeddings are required."
+            )
+        return None
+
+    try:
+        return populate_document_chunk_embeddings(
+            client,
+            document_id=document_id,
+            embedding_adapter=embedding_adapter,
+            require_embeddings=require_embeddings,
+        )
+    except ChunkEmbeddingError as exc:
+        raise PdfIngestionError(str(exc)) from exc
 
 
 def build_document_chunks(

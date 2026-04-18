@@ -24,8 +24,8 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Agent tool policies | Immutable policy contracts finns under `src/bidded/agents/tool_policy.py` för LLM-agenternas läs/skrivgränser och orchestratorns side effects. |
 | Agent output schemas | Strict Pydantic schemas finns under `src/bidded/agents/schemas.py` för Evidence Scout, Round 1 motions, Round 2 rebuttals, Judge decisions, evidence-claim validation, nullable `RequirementType` och kravtypade Judge-detaljer för blockers, risker, missing info och actions. |
 | Seedat demo-bolag och demo-tender | `bidded seed-demo-company` upsertar en större syntetisk IT-konsultprofil, `bidded register-demo-tender` registrerar en lokal text-PDF, och `bidded.evidence` kan konvertera profilfakta till idempotenta `company_profile` evidence rows. |
-| PDF-ingestion | `bidded.documents` kan ladda ned registrerade tender-PDF:er från Storage, extrahera text med PyMuPDF, ersätta deterministiska sidrefererade `document_chunks` och uppdatera `documents.parse_status`. |
-| Retrieval | `bidded.retrieval` kan hämta top-K `document_chunks` med deterministisk keyword fallback, en mockad embedding-adapter och ett fast 1536-dimensioners embeddingkontrakt för pgvector-ready tester. |
+| PDF-ingestion | `bidded.documents` kan ladda ned registrerade tender-PDF:er från Storage, extrahera text med PyMuPDF, ersätta deterministiska sidrefererade `document_chunks`, optionalt generera och lagra chunk embeddings i Python, och uppdatera `documents.parse_status`. |
+| Retrieval | `bidded.retrieval` kan hämta top-K `document_chunks` med deterministisk keyword fallback, den delade mockade embedding-adaptern och ett fast 1536-dimensioners embeddingkontrakt för pgvector-ready tester. |
 | Tender evidence board | `bidded.evidence` kan föreslå, klassificera, validera, deduplicera, upserta och slå upp `tender_document` evidence rows från retrieved chunks med stabila citation keys, deterministisk nullable `requirement_type` och regulatory-glossary metadata. |
 | Evidence Scout node | `bidded.orchestration.evidence_scout` skapar sex kategoribundna retrieval-frågor, validerar mockade Claude-output mot resolved evidence IDs och låter graphen append:a `evidence_scout`/`evidence` agent_outputs endast för giltiga scoutfakta. |
 | Specialist motion node | `bidded.orchestration.specialist_motions` bygger evidence-locked Round 1 requests utan peer motions eller privat context, skickar kravtypad glossary-context, validerar strict `Round1Motion` output och tillåter formella Compliance-blockers bara för exclusion/qualification-evidens. |
@@ -291,16 +291,18 @@ Pending run och worker-körning:
 | Variabel | Används av | Kommentar |
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | Ralph/Claude CLI via Makefile | Finns i `.env.example`. Behövs för `make ralph`. |
+| `SUPABASE_URL` | Python CLI/worker | Hosted Supabase demo project. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Python CLI/worker | Server-side access för demo worker. Ska inte exponeras i frontend. |
+| `SUPABASE_STORAGE_BUCKET` | PDF registration/ingestion | Bucket för uppladdade upphandlingsdokument. |
+| `OPENAI_API_KEY` | Live chunk embeddings | Krävs bara när `EMBEDDING_MODE=live` och provider är `openai`. |
+| `EMBEDDING_MODE` | Ingestion/retrieval | Default är `mock`; använd `live` först när live embeddings uttryckligen ska köras. |
+| `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS` | Ingestion/retrieval | Låser v1-kontraktet till `openai`, `text-embedding-3-small` och 1536 dimensioner. |
 
-### Planerade Enligt PRD
+### Kommande Live-Agent Användning
 
 | Variabel | Används av | Kommentar |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | Python worker / Claude | LLM-körning för agentflödet. |
-| `SUPABASE_URL` | Python worker | Hosted Supabase demo project. |
-| `SUPABASE_SERVICE_ROLE_KEY` | Python worker | Server-side access för demo worker. Ska inte exponeras i frontend. |
-| `SUPABASE_STORAGE_BUCKET` | PDF registration | Bucket för uppladdade upphandlingsdokument. |
-| `EMBEDDING_PROVIDER` | Retrieval | Optional. Saknas den ska keyword/full-text fallback fortfarande fungera. |
+| `ANTHROPIC_API_KEY` | Python worker / Claude | Behövs när mockade agent handlers ersätts med live Claude-anrop. |
 
 ## Utvecklingsflöde Idag
 
@@ -327,7 +329,7 @@ python3 -m venv .venv
 .venv/bin/ruff check .
 ```
 
-Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandot, tenderregistreringen, PDF-ingestionen, evidence builders, graph routing shell, worker lifecycle CLI och mocked end-to-end coverage finns; övriga operator- och demo-kommandon byggs i senare stories.
+Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandot, tenderregistreringen, PDF-ingestion med optional chunk embeddings, evidence builders, graph routing shell, worker lifecycle CLI och mocked end-to-end coverage finns; övriga operator- och demo-kommandon byggs i senare stories.
 
 ## Teststrategi
 

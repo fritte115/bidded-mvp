@@ -13,7 +13,7 @@ Started: 2026-04-18
 - **Bidded Quality Gates**: Use deterministic pytest tests and Ruff for story completion; live smoke checks are optional unless a story explicitly requires them.
 - **Bidded Supabase Migrations**: Keep hosted Supabase SQL under `supabase/migrations/` with deterministic pytest contract tests, demo `tenant_key = 'demo'` checks, and no Auth/RLS unless a story adds it.
 - **Bidded CLI Boundary**: Keep CLI help/package imports free of live client construction; create external clients only inside real command execution paths and keep command services injectable for tests.
-- **Bidded Document Pipeline Contract**: Keep tender registration and PDF ingestion in `src/bidded/documents`; registered text-PDFs use mocked Storage, PyMuPDF extraction, deterministic page chunks, and parser status metadata.
+- **Bidded Document Pipeline Contract**: Keep tender registration, PDF ingestion, and chunk embedding persistence in `src/bidded/documents`; registered text-PDFs use mocked Storage, PyMuPDF extraction, deterministic page chunks, optional Python-owned embeddings, and parser status metadata.
 - **Bidded Pending Run Contract**: Create `agent_runs` through an orchestration service that validates demo company, tender, and tender document rows, inserts `pending`, and leaves processing for later graph steps.
 - **Bidded Agent Audit Contract**: `agent_outputs` are immutable rows keyed by `agent_role`, `round_name`, and `output_type`; Judge `bid_decisions` surface evidence IDs and link source agent outputs through metadata.
 - **Bidded Graph State/Routing Contract**: `BidRunState.apply_node_update` enforces node ownership and reducers; `src/bidded/orchestration/graph.py` owns the fixed LangGraph shell, preflight checks, Evidence Scout audit append, explicit edge table, bounded retry/stop policy, mocked handlers, and terminal routing.
@@ -178,4 +178,9 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added the fixed embedding model contract with settings validation, deterministic metadata helpers, mock adapter metadata, env docs, and contract tests.
 - **Files**: src/bidded/embeddings.py, src/bidded/config/settings.py, src/bidded/retrieval/__init__.py, tests/test_embedding_contract.py, tests/test_document_chunk_retrieval.py, tests/test_project_scaffold.py, .env.example, README.md, ralph/progress.md, ralph/CLAUDE.md, ralph/prd.json, ralph/state.json
 - **Key learnings**: Keep embedding provider/model/dimension validation separate from retrieval so ingestion and pgvector search can share the same 1536-dimension contract.
+---
+## 2026-04-19 01:19 CEST - US-030
+- **Implemented**: Added Python-owned document chunk embedding generation, live adapter construction with mocked-call coverage, idempotent metadata skips, ingestion integration, and keyword fallback behavior.
+- **Files**: src/bidded/embeddings.py, src/bidded/documents/chunk_embeddings.py, src/bidded/documents/pdf_ingestion.py, src/bidded/documents/__init__.py, src/bidded/retrieval/__init__.py, tests/test_chunk_embedding_generation.py, tests/test_embedding_contract.py, tests/test_pdf_ingestion.py, tests/test_document_chunk_retrieval.py, README.md, ralph/progress.md, ralph/CLAUDE.md, ralph/prd.json, ralph/state.json
+- **Key learnings**: Store chunk embedding provenance under `document_chunks.metadata.embedding` and treat generation failures as keyword fallback unless embeddings are required.
 ---

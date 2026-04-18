@@ -462,8 +462,8 @@
         "Tests cover live adapter mocked calls, idempotent skips, fallback behavior, metadata updates, and no live network dependency; pytest and ruff check pass."
       ],
       "priority": 30,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added Python-owned chunk embedding generation, live/mock adapters, ingestion persistence, idempotent metadata skips, and keyword fallback. Complete."
     },
     {
       "id": "US-031",

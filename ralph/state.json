@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-030",
-  "storyTitle": "Generate and store chunk embeddings",
+  "currentStory": "US-031",
+  "storyTitle": "Add Supabase pgvector search",
   "nextAction": "implement",
-  "progressTokens": 2715,
+  "progressTokens": 2790,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

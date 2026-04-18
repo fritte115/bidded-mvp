@@ -4,20 +4,11 @@ import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from hashlib import sha256
 from math import sqrt
 from typing import Any, Protocol
 from uuid import UUID
 
-from bidded.embeddings import (
-    DEFAULT_EMBEDDING_MODE,
-    DEFAULT_LIVE_EMBEDDING_MODEL,
-    DEFAULT_LIVE_EMBEDDING_PROVIDER,
-    DOCUMENT_CHUNK_EMBEDDING_DIMENSIONS,
-    EMBEDDING_CONTRACT_VERSION,
-    EmbeddingContract,
-    build_embedding_metadata,
-)
+from bidded.embeddings import MockEmbeddingAdapter
 
 DEMO_TENANT_KEY = "demo"
 
@@ -43,42 +34,6 @@ class EmbeddingAdapter(Protocol):
     dimensions: int
 
     def embed_text(self, text: str) -> list[float]: ...
-
-
-@dataclass(frozen=True)
-class MockEmbeddingAdapter:
-    dimensions: int = DOCUMENT_CHUNK_EMBEDDING_DIMENSIONS
-    name: str = "mock_embedding"
-    provider: str = DEFAULT_LIVE_EMBEDDING_PROVIDER
-    model: str = DEFAULT_LIVE_EMBEDDING_MODEL
-    mode: str = DEFAULT_EMBEDDING_MODE
-    version: str = EMBEDDING_CONTRACT_VERSION
-
-    def embed_text(self, text: str) -> list[float]:
-        """Create deterministic token vectors without a hosted embedding service."""
-
-        if self.dimensions <= 0:
-            raise RetrievalError("embedding dimensions must be greater than zero.")
-
-        vector = [0.0 for _ in range(self.dimensions)]
-        for token, count in Counter(_tokens(text)).items():
-            digest = sha256(token.encode("utf-8")).digest()
-            vector_index = int.from_bytes(digest[:4], byteorder="big") % (
-                self.dimensions
-            )
-            vector[vector_index] += float(count)
-        return _normalize_vector(vector)
-
-    def embedding_metadata(self) -> dict[str, Any]:
-        return build_embedding_metadata(
-            EmbeddingContract(
-                provider=self.provider,
-                model=self.model,
-                dimensions=self.dimensions,
-                mode=self.mode,
-                version=self.version,
-            )
-        )
 
 
 @dataclass(frozen=True)
@@ -308,13 +263,6 @@ def _cosine_similarity(left: list[float], right: list[float]) -> float:
         for left_value, right_value in zip(left, right, strict=True)
     )
     return dot_product / (left_norm * right_norm)
-
-
-def _normalize_vector(vector: list[float]) -> list[float]:
-    norm = sqrt(sum(value * value for value in vector))
-    if norm == 0:
-        return vector
-    return [value / norm for value in vector]
 
 
 def _metadata(value: object) -> dict[str, Any]:

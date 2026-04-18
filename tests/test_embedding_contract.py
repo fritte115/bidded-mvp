@@ -7,7 +7,9 @@ from bidded.config import BiddedSettings
 from bidded.embeddings import (
     DOCUMENT_CHUNK_EMBEDDING_DIMENSIONS,
     EMBEDDING_CONTRACT_VERSION,
+    OpenAIEmbeddingAdapter,
     build_embedding_metadata,
+    embedding_adapter_from_settings,
 )
 
 
@@ -82,3 +84,54 @@ def test_embedding_metadata_records_provider_model_dimensions_and_version() -> N
         "mode": "mock",
         "version": EMBEDDING_CONTRACT_VERSION,
     }
+
+
+def test_embedding_adapter_factory_defaults_to_deterministic_mock() -> None:
+    adapter = embedding_adapter_from_settings(_settings())
+
+    assert adapter is not None
+    assert adapter.embedding_metadata() == {
+        "provider": "openai",
+        "model": "text-embedding-3-small",
+        "dimensions": DOCUMENT_CHUNK_EMBEDDING_DIMENSIONS,
+        "mode": "mock",
+        "version": EMBEDDING_CONTRACT_VERSION,
+    }
+    assert adapter.embed_text("ISO 27001 security") == adapter.embed_text(
+        "ISO 27001 security"
+    )
+
+
+def test_openai_embedding_adapter_uses_injected_client_without_network() -> None:
+    class FakeEmbeddings:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def create(self, **kwargs: object) -> object:
+            self.calls.append(kwargs)
+            vector = [0.0 for _ in range(DOCUMENT_CHUNK_EMBEDDING_DIMENSIONS)]
+            vector[0] = 1.0
+            return type(
+                "EmbeddingResponse",
+                (),
+                {"data": [type("EmbeddingData", (), {"embedding": vector})()]},
+            )()
+
+    class FakeOpenAIClient:
+        def __init__(self) -> None:
+            self.embeddings = FakeEmbeddings()
+
+    client = FakeOpenAIClient()
+    adapter = OpenAIEmbeddingAdapter(api_key="test-openai-key", client=client)
+
+    embedding = adapter.embed_text("Supplier must provide ISO 27001 certification.")
+
+    assert embedding[0] == 1.0
+    assert len(embedding) == DOCUMENT_CHUNK_EMBEDDING_DIMENSIONS
+    assert client.embeddings.calls == [
+        {
+            "model": "text-embedding-3-small",
+            "input": "Supplier must provide ISO 27001 certification.",
+        }
+    ]
+    assert adapter.embedding_metadata()["mode"] == "live"

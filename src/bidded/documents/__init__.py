@@ -1,5 +1,11 @@
 """Text-PDF document registration, extraction, and chunking boundaries."""
 
+from bidded.documents.chunk_embeddings import (
+    ChunkEmbeddingAdapter,
+    ChunkEmbeddingError,
+    DocumentChunkEmbeddingResult,
+    populate_document_chunk_embeddings,
+)
 from bidded.documents.pdf_ingestion import (
     ExtractedPdfPage,
     PdfDocumentChunk,
@@ -15,6 +21,9 @@ from bidded.documents.tender_registration import (
 )
 
 __all__ = [
+    "ChunkEmbeddingAdapter",
+    "ChunkEmbeddingError",
+    "DocumentChunkEmbeddingResult",
     "ExtractedPdfPage",
     "PdfDocumentChunk",
     "PdfIngestionError",
@@ -23,5 +32,6 @@ __all__ = [
     "TenderPdfRegistrationResult",
     "build_document_chunks",
     "ingest_tender_pdf_document",
+    "populate_document_chunk_embeddings",
     "register_demo_tender_pdf",
 ]

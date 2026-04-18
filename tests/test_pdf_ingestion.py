@@ -7,8 +7,41 @@ import fitz
 import pytest
 
 from bidded.documents import PdfIngestionError, ingest_tender_pdf_document
+from bidded.embeddings import (
+    DOCUMENT_CHUNK_EMBEDDING_DIMENSIONS,
+    EMBEDDING_CONTRACT_VERSION,
+)
 
 DOCUMENT_ID = UUID("44444444-4444-4444-8444-444444444444")
+
+
+class RecordingEmbeddingAdapter:
+    name = "openai_embedding"
+    dimensions = DOCUMENT_CHUNK_EMBEDDING_DIMENSIONS
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def embed_text(self, text: str) -> list[float]:
+        self.calls.append(text)
+        vector = [0.0 for _ in range(self.dimensions)]
+        vector[0] = float(len(self.calls))
+        return vector
+
+    def embedding_metadata(self) -> dict[str, Any]:
+        return {
+            "provider": "openai",
+            "model": "text-embedding-3-small",
+            "dimensions": self.dimensions,
+            "mode": "live",
+            "version": EMBEDDING_CONTRACT_VERSION,
+        }
+
+
+class FailingEmbeddingAdapter(RecordingEmbeddingAdapter):
+    def embed_text(self, text: str) -> list[float]:
+        self.calls.append(text)
+        raise RuntimeError("provider unavailable")
 
 
 class RecordingStorageBucket:
@@ -214,6 +247,82 @@ def test_ingest_tender_pdf_document_extracts_and_persists_page_chunks() -> None:
     assert parsed_metadata["parser"]["page_count"] == 2
     assert parsed_metadata["parser"]["chunk_count"] == 2
     assert "error_message" not in parsed_metadata["parser"]
+
+
+def test_ingest_tender_pdf_populates_chunk_embeddings_when_configured() -> None:
+    adapter = RecordingEmbeddingAdapter()
+    client = RecordingSupabaseClient(
+        pdf_bytes=_text_pdf(["Supplier must provide ISO 27001 certification."]),
+        document_row=_document_row(),
+    )
+
+    result = ingest_tender_pdf_document(
+        client,
+        document_id=DOCUMENT_ID,
+        bucket_name="procurement-fixtures",
+        max_chunk_chars=160,
+        embedding_adapter=adapter,
+    )
+
+    assert adapter.calls == ["Supplier must provide ISO 27001 certification."]
+    assert result.embedding_result is not None
+    assert result.embedding_result.status == "embedded"
+    assert result.embedding_result.embedded_count == 1
+
+    persisted_chunk = client.rows["document_chunks"][0]
+    assert persisted_chunk["embedding"][0] == 1.0
+    assert persisted_chunk["metadata"]["embedding"] == adapter.embedding_metadata()
+
+    parsed_metadata = client.updates["documents"][-1][0]["metadata"]
+    assert parsed_metadata["parser"]["status"] == "parsed"
+    assert parsed_metadata["embedding"]["status"] == "embedded"
+    assert parsed_metadata["embedding"]["model"] == "text-embedding-3-small"
+
+
+def test_ingest_tender_pdf_keeps_parsed_status_when_embeddings_fallback() -> None:
+    adapter = FailingEmbeddingAdapter()
+    client = RecordingSupabaseClient(
+        pdf_bytes=_text_pdf(["Supplier must provide ISO 27001 certification."]),
+        document_row=_document_row(),
+    )
+
+    result = ingest_tender_pdf_document(
+        client,
+        document_id=DOCUMENT_ID,
+        bucket_name="procurement-fixtures",
+        embedding_adapter=adapter,
+    )
+
+    assert result.embedding_result is not None
+    assert result.embedding_result.status == "keyword_fallback"
+    assert client.rows["documents"][0]["parse_status"] == "parsed"
+    assert "embedding" not in client.rows["document_chunks"][0]
+    parsed_metadata = client.updates["documents"][-1][0]["metadata"]
+    assert parsed_metadata["embedding"]["status"] == "keyword_fallback"
+    assert "provider unavailable" in parsed_metadata["embedding"]["error_message"]
+
+
+def test_ingest_tender_pdf_document_fails_when_embeddings_are_required() -> None:
+    adapter = FailingEmbeddingAdapter()
+    client = RecordingSupabaseClient(
+        pdf_bytes=_text_pdf(["Supplier must provide ISO 27001 certification."]),
+        document_row=_document_row(),
+    )
+
+    with pytest.raises(PdfIngestionError, match="provider unavailable"):
+        ingest_tender_pdf_document(
+            client,
+            document_id=DOCUMENT_ID,
+            bucket_name="procurement-fixtures",
+            embedding_adapter=adapter,
+            require_embeddings=True,
+        )
+
+    failed_update = client.updates["documents"][-1][0]
+    assert failed_update["parse_status"] == "parser_failed"
+    assert "provider unavailable" in failed_update["metadata"]["parser"][
+        "error_message"
+    ]
 
 
 def test_ingest_tender_pdf_document_marks_empty_text_pdf_as_parser_failed() -> None:
