@@ -42,10 +42,7 @@ export default function Dashboard() {
 
   return (
     <>
-      <PageHeader
-        title="Dashboard"
-        description="Overview of bid intelligence activity across your tenant."
-      />
+      <PageHeader title="Dashboard" />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Total Procurements" value={stats?.totalProcurements ?? "—"} hint="Registered tenders" icon={FileText} />
@@ -56,10 +53,7 @@ export default function Dashboard() {
 
       <Card className="mt-6">
         <CardHeader className="flex-row items-center justify-between space-y-0">
-          <div>
-            <CardTitle className="text-base">Active analyses</CardTitle>
-            <p className="mt-0.5 text-xs text-muted-foreground">What the agents are working on right now.</p>
-          </div>
+          <CardTitle className="text-base">Active analyses</CardTitle>
           <Button asChild variant="ghost" size="sm" className="text-xs text-primary">
             <Link to="/procurements">View procurements <ArrowRight className="h-3 w-3" /></Link>
           </Button>
