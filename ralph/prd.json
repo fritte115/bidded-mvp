@@ -15,8 +15,8 @@
         "pytest and ruff check pass for the scaffold."
       ],
       "priority": 1,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added pyproject, src/bidded subpackages, Pydantic settings, CLI help, env/dependency docs, and deterministic pytest/Ruff coverage. Complete."
     },
     {
       "id": "US-002",

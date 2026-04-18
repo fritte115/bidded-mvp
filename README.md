@@ -6,16 +6,16 @@ Projektet är byggt kring en enkel princip: inga materiella påståenden utan ev
 
 ## Nuvarande Status
 
-Det här repot är just nu i PRD- och storyfasen. Den faktiska Python-applikationen är ännu inte scaffoldad i root-repot.
+Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i root-repot, medan domänlogik, migrations och agentflöde byggs story för story.
 
 | Del | Status |
 | --- | --- |
-| `ralph/prd.json` | Komplett PRD med 25 user stories för Bidded Swarm Core. Alla stories har `passes: false`. |
-| `ralph/state.json` | Pekar på `US-001`, "Scaffold Python agent core", som nästa implementation. |
+| `ralph/prd.json` | Komplett PRD med 25 user stories för Bidded Swarm Core. Ralph-state styr vilken story som är nästa. |
+| `ralph/state.json` | Pekar på aktuell Ralph-story och nästa action. |
 | `plans/ralph-storie-plan.md` | Äldre plan/sammanfattning. Den behöver läsas som stödmaterial, inte som strikt source of truth. |
-| `Makefile` | Kör Ralph-loop med Claude CLI via `make ralph`. |
-| `.env.example` | Innehåller idag endast `ANTHROPIC_API_KEY` för lokal Ralph/Claude-körning. PRD:n kräver fler appvariabler i `US-001`. |
-| Applikationskod | Inte skapad än. PRD:n anger att paketet ska ligga under `src/bidded`. |
+| `Makefile` | Kör Ralph-loop med Codex CLI via `make ralph`. |
+| `.env.example` | Dokumenterar Claude, Supabase Storage och optional embedding-provider utan secrets. |
+| Applikationskod | Grundpaket finns under `src/bidded` med subpackages för config, db, documents, evidence, agents, orchestration och cli. |
 | Supabase-migrations | Inte skapade än. Schemaarbetet ligger i `US-002`, `US-003` och `US-004`. |
 | Frontend | Ingen frontend i repot. Lovable är planerad som tunn demo-UI ovanpå Supabase i `US-025`. |
 
@@ -64,10 +64,10 @@ Agentartefakter och UI-output ska vara engelska enligt PRD:n, men beslutskontext
 | Område | Teknik | Status |
 | --- | --- | --- |
 | PRD/story-runner | Ralph | Aktivt. `ralph/prd.json`, `ralph/state.json`, `ralph/progress.md` och `ralph/ralph.sh` styr arbetet. |
-| Lokal automation | Make | `make ralph` kör Ralph med Claude CLI. |
-| LLM för implementation | Claude CLI | Makefile sätter `RALPH_CLAUDE_CMD="claude --bare --model ... --print"`. |
-| Miljö | `.env` via Makefile include | `.env.example` dokumenterar bara `ANTHROPIC_API_KEY` idag. |
-| App-runtime | Python/LangGraph/Supabase | Planerad men inte implementerad än. |
+| Lokal automation | Make | `make ralph` kör Ralph med Codex CLI. |
+| LLM för implementation | Codex CLI | Makefile sätter `RALPH_CODEX_CMD="codex exec --model ..."` för Ralph-sessioner. |
+| Miljö | `.env` via Makefile include | `.env.example` dokumenterar runtimevariabler utan secrets. |
+| App-runtime | Python/LangGraph/Supabase | Python-scaffold och dependency-kontrakt finns; live integrations byggs i senare stories. |
 
 ## Arkitektur
 
@@ -264,11 +264,20 @@ make ralph
 
 Makefile använder:
 
-- `RALPH_MODEL ?= claude-opus-4-7`
+- `RALPH_CODEX_MODEL ?= gpt-5.4`
 - `RALPH_SESSIONS ?= 10`
-- `ralph/ralph.sh --tool claude`
+- `ralph/ralph.sh --tool codex`
 
-Eftersom appkoden inte är scaffoldad finns det ännu inga fungerande `pytest`, `ruff`, migrations- eller worker-kommandon i root-projektet.
+För app-scaffolden finns de första deterministiska kvalitetsgrindarna:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e ".[dev]"
+.venv/bin/pytest -q
+.venv/bin/ruff check .
+```
+
+Migrations och worker-kommandon byggs i senare stories.
 
 ## Teststrategi
 
@@ -289,7 +298,7 @@ Live Claude, live embeddings och live Supabase kan användas för demo-smoke, me
 
 ## Roadmap Från PRD
 
-Alla stories är just nu markerade som ej klara i `ralph/prd.json`.
+Roadmapen drivs av `ralph/prd.json`; Ralph-state pekar alltid på nästa ej klara story.
 
 | ID | Story |
 | --- | --- |

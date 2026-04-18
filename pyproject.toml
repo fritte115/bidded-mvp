@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bidded"
+version = "0.1.0"
+description = "Agent core for evidence-backed bid/no-bid decisions in public procurement."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=0.74.0",
+    "langgraph>=0.2.74",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    "pymupdf>=1.24.0",
+    "python-dotenv>=1.0.1",
+    "supabase>=2.11.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "ruff>=0.8.0",
+]
+embeddings = [
+    "openai>=1.59.0",
+]
+
+[project.scripts]
+bidded = "bidded.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 88
+src = ["src", "tests"]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "UP"]

@@ -64,3 +64,4 @@ At the end of every non-compaction story session:
 - **PRD Shape**: Ralph PRD stories live under `.userStories[]`, not `.stories[]`; queries and scripts must select the current story from `.userStories[]`.
 - **Bidded Source Target**: Application code for PRD stories should be scaffolded under `src/bidded` with tests that can run without live external services.
 - **Bidded Gate Baseline**: Until a full `make check` exists, story completion should at minimum satisfy deterministic `pytest` coverage for touched behavior plus `ruff check`.
+- **Bidded CLI Boundary**: Keep CLI help and package imports free of live Supabase/Claude client construction; create external clients only inside real command execution paths.
