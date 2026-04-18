@@ -346,7 +346,7 @@ def test_cli_worker_delegates_to_lifecycle_service(
                 "supabase_service_role_key": "service-role",
                 "anthropic_api_key": None,
                 "bidded_swarm_backend": "evidence_locked",
-                "anthropic_model": "claude-3-5-sonnet-20241022",
+                "bidded_anthropic_model": "claude-3-5-sonnet-20241022",
             },
         )(),
     )

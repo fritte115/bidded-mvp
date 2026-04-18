@@ -13,7 +13,7 @@ def resolve_graph_handlers(settings: BiddedSettings | None = None) -> GraphNodeH
     * ``bidded_swarm_backend=evidence_locked`` (default): deterministic handlers
       (no API calls; reproducible). Read from ``BIDDED_SWARM_BACKEND`` in ``.env``.
     * ``bidded_swarm_backend=anthropic``: Claude via ``ANTHROPIC_API_KEY``.
-      Model id: ``anthropic_model`` / ``BIDDED_ANTHROPIC_MODEL``.
+      Model id: ``BIDDED_ANTHROPIC_MODEL`` (maps to ``bidded_anthropic_model``).
 
     Uses :class:`BiddedSettings` so values in ``.env`` / ``.env.local`` apply even
     when those variables are not exported into ``os.environ`` (fixes silent fallback
@@ -32,7 +32,7 @@ def resolve_graph_handlers(settings: BiddedSettings | None = None) -> GraphNodeH
 
         return anthropic_graph_handlers(
             api_key=s.anthropic_api_key,
-            model=s.anthropic_model,
+            model=s.bidded_anthropic_model,
         )
 
     from bidded.orchestration.evidence_locked_swarm import evidence_locked_graph_handlers
