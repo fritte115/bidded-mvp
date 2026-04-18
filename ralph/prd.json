@@ -430,8 +430,8 @@
         "Tests cover hard exclusion, missing financial proof, SOSFS/quality missing info, submission-document action, and non-gating missing company evidence; pytest and ruff check pass."
       ],
       "priority": 28,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added requirement/glossary request context, typed Judge reasoning details, and formal-blocker gating for exclusion/qualification evidence. Complete."
     },
     {
       "id": "US-029",

@@ -180,7 +180,7 @@ def test_mocked_end_to_end_run_persists_evidence_locked_swarm(
     if scenario.formal_compliance_blocker:
         assert judge_model.requested_verdicts == ["bid"]
         assert persisted_decision["verdict"] == "no_bid"
-        assert "signed data processing agreement" in " ".join(
+        assert "bankruptcy exclusion ground" in " ".join(
             _claim_texts(
                 persisted_decision["final_decision"]["compliance_blockers"]
             )
@@ -255,7 +255,8 @@ def _prepare_pending_evidence_locked_run(
             "Submission deadline is 2026-05-05 at 12:00 CET. "
             "Award evaluation weights quality at 60 percent and price at 40 percent. "
             "The contract includes liability penalties for material delivery delay. "
-            "Submission must include a signed data processing agreement."
+            "Submission must include a signed data processing agreement. "
+            "Supplier must not be bankrupt or subject to insolvency exclusion grounds."
         ),
         "metadata": {"source_label": "Fixture Tender page 1"},
     }
@@ -265,7 +266,7 @@ def _prepare_pending_evidence_locked_run(
         client,
         query=(
             "ISO 27001 security-cleared lead deadline award quality price "
-            "liability signed data processing agreement"
+            "liability signed data processing agreement bankrupt insolvency"
         ),
         document_id=registration.document_id,
         top_k=3,
@@ -381,10 +382,10 @@ class MockedRound1Model:
                 "capabilities.delivery_capacity.security_cleared_consultants"
             ),
         )
-        signed_dpa = _ref_by(
+        exclusion_ground = _ref_by(
             request.evidence_board,
             source_type=EvidenceSourceType.TENDER_DOCUMENT,
-            excerpt_contains="signed data processing agreement",
+            excerpt_contains="bankrupt",
         )
 
         formal_blockers: list[dict[str, Any]] = []
@@ -394,10 +395,10 @@ class MockedRound1Model:
                 formal_blockers.append(
                     {
                         "claim": (
-                            "Submission must include a signed data processing "
-                            "agreement."
+                            "A confirmed bankruptcy exclusion ground blocks "
+                            "submission."
                         ),
-                        "evidence_refs": [signed_dpa],
+                        "evidence_refs": [exclusion_ground],
                     }
                 )
             if self.scenario.potential_missing_company_evidence:

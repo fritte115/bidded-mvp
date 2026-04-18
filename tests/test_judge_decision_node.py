@@ -23,6 +23,7 @@ from bidded.orchestration import (
     run_bidded_graph_shell,
 )
 from bidded.orchestration.judge import JudgeDecisionRequest
+from bidded.requirements import RequirementType
 
 RUN_ID = UUID("11111111-1111-4111-8111-111111111111")
 COMPANY_ID = UUID("22222222-2222-4222-8222-222222222222")
@@ -31,6 +32,10 @@ DOCUMENT_ID = UUID("44444444-4444-4444-8444-444444444444")
 CHUNK_ID = UUID("55555555-5555-4555-8555-555555555555")
 TENDER_EVIDENCE_ID = UUID("66666666-6666-4666-8666-666666666666")
 COMPANY_EVIDENCE_ID = UUID("77777777-7777-4777-8777-777777777777")
+EXCLUSION_EVIDENCE_ID = UUID("78787878-7878-4787-8787-787878787878")
+FINANCIAL_EVIDENCE_ID = UUID("88888888-8888-4888-8888-888888888888")
+QUALITY_EVIDENCE_ID = UUID("99999999-9999-4999-8999-999999999999")
+SUBMISSION_EVIDENCE_ID = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
 
 
 class RecordingJudgeModel:
@@ -59,7 +64,33 @@ class RecordingJudgeModel:
                 "Confirm ISO certificate validity before final bid approval."
             ]
             payload["potential_blockers"] = [
-                _supported_claim("ISO certificate expiry remains unconfirmed.")
+                _supported_claim(
+                    "ISO certificate expiry remains unconfirmed.",
+                    requirement_type=RequirementType.QUALITY_MANAGEMENT,
+                )
+            ]
+            payload["missing_info"] = [
+                "Current financial standing proof is missing.",
+                "SOSFS/quality management proof is missing.",
+            ]
+            payload["missing_info_details"] = [
+                {
+                    "text": "Current financial standing proof is missing.",
+                    "requirement_type": "financial_standing",
+                    "evidence_refs": [_financial_ref()],
+                },
+                {
+                    "text": "SOSFS/quality management proof is missing.",
+                    "requirement_type": "quality_management",
+                    "evidence_refs": [_quality_ref()],
+                },
+            ]
+            payload["recommended_action_details"] = [
+                {
+                    "text": "Prepare a signed data processing agreement attachment.",
+                    "requirement_type": "submission_document",
+                    "evidence_refs": [_submission_ref()],
+                }
             ]
         if self.verdict == "bid":
             payload["cited_memo"] = (
@@ -88,7 +119,9 @@ class ScenarioRound1Model:
             if self.formal_compliance_blocker:
                 formal_blockers = [
                     _supported_claim(
-                        "The tender requires a valid ISO certificate before submission."
+                        "A confirmed bankruptcy exclusion ground blocks submission.",
+                        requirement_type=RequirementType.EXCLUSION_GROUND,
+                        evidence_refs=[_exclusion_ref()],
                     )
                 ]
             if self.potential_compliance_blocker:
@@ -204,8 +237,26 @@ def _ready_state() -> BidRunState:
                 excerpt="The supplier shall provide ISO 27001 certification.",
                 normalized_meaning="ISO 27001 certification is mandatory.",
                 category="shall_requirement",
+                requirement_type=RequirementType.QUALIFICATION_REQUIREMENT,
                 confidence=0.94,
-                source_metadata={"source_label": "Tender page 1"},
+                source_metadata={
+                    "source_label": "Tender page 1",
+                    "regulatory_glossary_ids": ["quality_management_sosfs"],
+                    "regulatory_glossary": [
+                        {
+                            "entry_id": "quality_management_sosfs",
+                            "requirement_type": "quality_management",
+                            "display_label": "Quality management / SOSFS",
+                            "suggested_proof_action": (
+                                "Prepare quality management certificates."
+                            ),
+                            "blocker_hint": (
+                                "Missing mandatory quality-system proof can block "
+                                "qualification."
+                            ),
+                        }
+                    ],
+                },
                 document_id=DOCUMENT_ID,
                 chunk_id=CHUNK_ID,
                 page_start=1,
@@ -222,6 +273,134 @@ def _ready_state() -> BidRunState:
                 source_metadata={"source_label": "Company profile"},
                 company_id=COMPANY_ID,
                 field_path="certifications.iso_27001",
+            ),
+            EvidenceItemState(
+                evidence_id=EXCLUSION_EVIDENCE_ID,
+                evidence_key="TENDER-EXCLUSION-001",
+                source_type=EvidenceSourceType.TENDER_DOCUMENT,
+                excerpt="A bankrupt supplier is subject to mandatory exclusion.",
+                normalized_meaning="Confirmed bankruptcy is an exclusion ground.",
+                category="exclusion_ground",
+                requirement_type=RequirementType.EXCLUSION_GROUND,
+                confidence=0.93,
+                source_metadata={
+                    "source_label": "Tender page 2",
+                    "regulatory_glossary_ids": ["exclusion_grounds"],
+                    "regulatory_glossary": [
+                        {
+                            "entry_id": "exclusion_grounds",
+                            "requirement_type": "exclusion_ground",
+                            "display_label": "Exclusion grounds",
+                            "suggested_proof_action": (
+                                "Confirm no exclusion ground applies."
+                            ),
+                            "blocker_hint": (
+                                "Confirmed exclusion grounds can block bid "
+                                "submission."
+                            ),
+                        }
+                    ],
+                },
+                document_id=DOCUMENT_ID,
+                chunk_id=CHUNK_ID,
+                page_start=2,
+                page_end=2,
+            ),
+            EvidenceItemState(
+                evidence_id=FINANCIAL_EVIDENCE_ID,
+                evidence_key="TENDER-FINANCIAL-001",
+                source_type=EvidenceSourceType.TENDER_DOCUMENT,
+                excerpt="Supplier must submit a current credit report.",
+                normalized_meaning="Financial standing proof is required.",
+                category="qualification_criterion",
+                requirement_type=RequirementType.FINANCIAL_STANDING,
+                confidence=0.9,
+                source_metadata={
+                    "source_label": "Tender page 3",
+                    "regulatory_glossary_ids": ["financial_standing"],
+                    "regulatory_glossary": [
+                        {
+                            "entry_id": "financial_standing",
+                            "requirement_type": "financial_standing",
+                            "display_label": "Financial standing",
+                            "suggested_proof_action": (
+                                "Prepare current credit report."
+                            ),
+                            "blocker_hint": (
+                                "Missing financial standing proof can block "
+                                "qualification."
+                            ),
+                        }
+                    ],
+                },
+                document_id=DOCUMENT_ID,
+                chunk_id=CHUNK_ID,
+                page_start=3,
+                page_end=3,
+            ),
+            EvidenceItemState(
+                evidence_id=QUALITY_EVIDENCE_ID,
+                evidence_key="TENDER-QUALITY-001",
+                source_type=EvidenceSourceType.TENDER_DOCUMENT,
+                excerpt="Supplier must maintain SOSFS 2011:9 quality management.",
+                normalized_meaning="Quality management proof is required.",
+                category="qualification_criterion",
+                requirement_type=RequirementType.QUALITY_MANAGEMENT,
+                confidence=0.9,
+                source_metadata={
+                    "source_label": "Tender page 4",
+                    "regulatory_glossary_ids": ["quality_management_sosfs"],
+                    "regulatory_glossary": [
+                        {
+                            "entry_id": "quality_management_sosfs",
+                            "requirement_type": "quality_management",
+                            "display_label": "Quality management / SOSFS",
+                            "suggested_proof_action": (
+                                "Prepare quality management certificates."
+                            ),
+                            "blocker_hint": (
+                                "Missing mandatory quality-system proof can block "
+                                "qualification."
+                            ),
+                        }
+                    ],
+                },
+                document_id=DOCUMENT_ID,
+                chunk_id=CHUNK_ID,
+                page_start=4,
+                page_end=4,
+            ),
+            EvidenceItemState(
+                evidence_id=SUBMISSION_EVIDENCE_ID,
+                evidence_key="TENDER-SUBMISSION-001",
+                source_type=EvidenceSourceType.TENDER_DOCUMENT,
+                excerpt="Submission must include a signed data processing agreement.",
+                normalized_meaning="A signed DPA attachment is required.",
+                category="required_submission_document",
+                requirement_type=RequirementType.SUBMISSION_DOCUMENT,
+                confidence=0.9,
+                source_metadata={
+                    "source_label": "Tender page 5",
+                    "regulatory_glossary_ids": ["submission_documents"],
+                    "regulatory_glossary": [
+                        {
+                            "entry_id": "submission_documents",
+                            "requirement_type": "submission_document",
+                            "display_label": "Submission documents",
+                            "suggested_proof_action": (
+                                "Create a submission checklist."
+                            ),
+                            "blocker_hint": (
+                                "Missing required submission documents can make "
+                                "the bid invalid."
+                            ),
+                        }
+                    ],
+                },
+                document_id=DOCUMENT_ID,
+                chunk_id=CHUNK_ID,
+                page_start=5,
+                page_end=5,
             ),
         ],
     )
@@ -269,11 +448,33 @@ def test_judge_gates_formal_compliance_blockers_to_no_bid_and_persists() -> None
     assert result.state.final_decision is not None
     assert result.state.final_decision.verdict is Verdict.NO_BID
     assert result.state.final_decision.compliance_blockers == [
-        "The tender requires a valid ISO certificate before submission."
+        "A confirmed bankruptcy exclusion ground blocks submission."
     ]
     assert judge.requests[0].formal_compliance_blockers[0].claim == (
-        "The tender requires a valid ISO certificate before submission."
+        "A confirmed bankruptcy exclusion ground blocks submission."
     )
+    assert judge.requests[0].requirement_context[0].model_dump(mode="json") == {
+        "evidence_key": "TENDER-SHALL-001",
+        "source_type": "tender_document",
+        "evidence_id": str(TENDER_EVIDENCE_ID),
+        "source_label": "Tender page 1",
+        "requirement_type": "qualification_requirement",
+        "regulatory_glossary_ids": ["quality_management_sosfs"],
+        "regulatory_glossary": [
+            {
+                "entry_id": "quality_management_sosfs",
+                "requirement_type": "quality_management",
+                "display_label": "Quality management / SOSFS",
+                "suggested_proof_action": (
+                    "Prepare quality management certificates."
+                ),
+                "blocker_hint": (
+                    "Missing mandatory quality-system proof can block "
+                    "qualification."
+                ),
+            }
+        ],
+    }
     assert "run_context" not in JudgeDecisionRequest.model_fields
     assert "private_context" not in JudgeDecisionRequest.model_fields
 
@@ -293,6 +494,7 @@ def test_judge_gates_formal_compliance_blockers_to_no_bid_and_persists() -> None
     assert judge_payload["evidence_ids"] == [
         str(TENDER_EVIDENCE_ID),
         str(COMPANY_EVIDENCE_ID),
+        str(EXCLUSION_EVIDENCE_ID),
     ]
 
     persisted = client.inserts["bid_decisions"][0]
@@ -302,6 +504,7 @@ def test_judge_gates_formal_compliance_blockers_to_no_bid_and_persists() -> None
     assert persisted["evidence_ids"] == [
         str(TENDER_EVIDENCE_ID),
         str(COMPANY_EVIDENCE_ID),
+        str(EXCLUSION_EVIDENCE_ID),
     ]
     assert persisted["final_decision"]["verdict"] == "no_bid"
     assert {
@@ -356,7 +559,37 @@ def test_potential_blocker_does_not_auto_gate_conditional_bid() -> None:
     assert result.state.final_decision.recommended_actions == [
         "Confirm ISO certificate validity before final bid approval."
     ]
-    assert client.inserts["bid_decisions"][0]["verdict"] == "conditional_bid"
+    persisted_decision = client.inserts["bid_decisions"][0]
+    assert persisted_decision["verdict"] == "conditional_bid"
+    final_payload = persisted_decision["final_decision"]
+    assert final_payload["compliance_matrix"][0]["requirement_type"] == (
+        "qualification_requirement"
+    )
+    assert final_payload["potential_blockers"][0]["requirement_type"] == (
+        "quality_management"
+    )
+    assert final_payload["risk_register"][0]["requirement_type"] == (
+        "quality_management"
+    )
+    assert final_payload["missing_info_details"] == [
+        {
+            "text": "Current financial standing proof is missing.",
+            "requirement_type": "financial_standing",
+            "evidence_refs": [_financial_ref()],
+        },
+        {
+            "text": "SOSFS/quality management proof is missing.",
+            "requirement_type": "quality_management",
+            "evidence_refs": [_quality_ref()],
+        },
+    ]
+    assert final_payload["recommended_action_details"] == [
+        {
+            "text": "Prepare a signed data processing agreement attachment.",
+            "requirement_type": "submission_document",
+            "evidence_refs": [_submission_ref()],
+        }
+    ]
 
 
 @pytest.mark.parametrize(
@@ -414,6 +647,7 @@ def _judge_payload(*, verdict: str, vote_summary: dict[str, int]) -> dict[str, A
         "compliance_matrix": [
             {
                 "requirement": "ISO 27001 certificate",
+                "requirement_type": "qualification_requirement",
                 "status": "met",
                 "assessment": "Tender and company evidence both cite ISO 27001.",
                 "evidence_refs": [_tender_ref(), _company_ref()],
@@ -424,6 +658,7 @@ def _judge_payload(*, verdict: str, vote_summary: dict[str, int]) -> dict[str, A
         "risk_register": [
             {
                 "risk": "Submission could fail if certificate evidence is stale.",
+                "requirement_type": "quality_management",
                 "severity": "medium",
                 "mitigation": "Confirm certificate validity before final approval.",
                 "evidence_refs": [_tender_ref()],
@@ -439,8 +674,19 @@ def _judge_payload(*, verdict: str, vote_summary: dict[str, int]) -> dict[str, A
     }
 
 
-def _supported_claim(claim: str) -> dict[str, Any]:
-    return {"claim": claim, "evidence_refs": [_tender_ref()]}
+def _supported_claim(
+    claim: str,
+    *,
+    requirement_type: RequirementType | None = None,
+    evidence_refs: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    return {
+        "claim": claim,
+        "requirement_type": (
+            requirement_type.value if requirement_type is not None else None
+        ),
+        "evidence_refs": evidence_refs or [_tender_ref()],
+    }
 
 
 def _tender_ref() -> dict[str, str]:
@@ -456,4 +702,36 @@ def _company_ref() -> dict[str, str]:
         "evidence_key": "COMPANY-CERT-001",
         "source_type": "company_profile",
         "evidence_id": str(COMPANY_EVIDENCE_ID),
+    }
+
+
+def _exclusion_ref() -> dict[str, str]:
+    return {
+        "evidence_key": "TENDER-EXCLUSION-001",
+        "source_type": "tender_document",
+        "evidence_id": str(EXCLUSION_EVIDENCE_ID),
+    }
+
+
+def _financial_ref() -> dict[str, str]:
+    return {
+        "evidence_key": "TENDER-FINANCIAL-001",
+        "source_type": "tender_document",
+        "evidence_id": str(FINANCIAL_EVIDENCE_ID),
+    }
+
+
+def _quality_ref() -> dict[str, str]:
+    return {
+        "evidence_key": "TENDER-QUALITY-001",
+        "source_type": "tender_document",
+        "evidence_id": str(QUALITY_EVIDENCE_ID),
+    }
+
+
+def _submission_ref() -> dict[str, str]:
+    return {
+        "evidence_key": "TENDER-SUBMISSION-001",
+        "source_type": "tender_document",
+        "evidence_id": str(SUBMISSION_EVIDENCE_ID),
     }

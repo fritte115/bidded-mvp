@@ -19,6 +19,7 @@ from bidded.orchestration.specialist_motions import (
     Round1SpecialistRequest,
     build_round_1_specialist_handler,
 )
+from bidded.requirements import RequirementType
 
 RUN_ID = UUID("11111111-1111-4111-8111-111111111111")
 COMPANY_ID = UUID("22222222-2222-4222-8222-222222222222")
@@ -27,6 +28,7 @@ DOCUMENT_ID = UUID("44444444-4444-4444-8444-444444444444")
 CHUNK_ID = UUID("55555555-5555-4555-8555-555555555555")
 TENDER_EVIDENCE_ID = UUID("66666666-6666-4666-8666-666666666666")
 COMPANY_EVIDENCE_ID = UUID("77777777-7777-4777-8777-777777777777")
+FINANCIAL_EVIDENCE_ID = UUID("88888888-8888-4888-8888-888888888888")
 
 
 class RecordingRound1Model:
@@ -102,6 +104,21 @@ class InvalidFormalBlockerModel(RecordingRound1Model):
         return payload
 
 
+class FinancialProofFormalBlockerModel(RecordingRound1Model):
+    def draft_motion(self, request: Round1SpecialistRequest) -> dict[str, Any]:
+        payload = super().draft_motion(request)
+        if request.agent_role.value == SpecialistRole.COMPLIANCE.value:
+            payload["formal_blockers"] = [
+                {
+                    "claim": (
+                        "Missing credit report evidence is a hard no-bid blocker."
+                    ),
+                    "evidence_refs": [_financial_ref()],
+                }
+            ]
+        return payload
+
+
 def _ready_state() -> BidRunState:
     return BidRunState(
         run_id=RUN_ID,
@@ -131,8 +148,26 @@ def _ready_state() -> BidRunState:
                 excerpt="The supplier shall provide ISO 27001 certification.",
                 normalized_meaning="ISO 27001 certification is mandatory.",
                 category="shall_requirement",
+                requirement_type=RequirementType.QUALIFICATION_REQUIREMENT,
                 confidence=0.94,
-                source_metadata={"source_label": "Tender page 1"},
+                source_metadata={
+                    "source_label": "Tender page 1",
+                    "regulatory_glossary_ids": ["quality_management_sosfs"],
+                    "regulatory_glossary": [
+                        {
+                            "entry_id": "quality_management_sosfs",
+                            "requirement_type": "quality_management",
+                            "display_label": "Quality management / SOSFS",
+                            "suggested_proof_action": (
+                                "Prepare quality management certificates."
+                            ),
+                            "blocker_hint": (
+                                "Missing mandatory quality-system proof can block "
+                                "qualification."
+                            ),
+                        }
+                    ],
+                },
                 document_id=DOCUMENT_ID,
                 chunk_id=CHUNK_ID,
                 page_start=1,
@@ -151,6 +186,49 @@ def _ready_state() -> BidRunState:
                 field_path="certifications.iso_27001",
             ),
         ],
+    )
+
+
+def _state_with_financial_requirement() -> BidRunState:
+    state = _ready_state()
+    return state.model_copy(
+        update={
+            "evidence_board": [
+                *state.evidence_board,
+                EvidenceItemState(
+                    evidence_id=FINANCIAL_EVIDENCE_ID,
+                    evidence_key="TENDER-FINANCIAL-001",
+                    source_type=EvidenceSourceType.TENDER_DOCUMENT,
+                    excerpt="Supplier must submit a current credit report.",
+                    normalized_meaning="Financial standing proof is required.",
+                    category="qualification_criterion",
+                    requirement_type=RequirementType.FINANCIAL_STANDING,
+                    confidence=0.92,
+                    source_metadata={
+                        "source_label": "Tender page 2",
+                        "regulatory_glossary_ids": ["financial_standing"],
+                        "regulatory_glossary": [
+                            {
+                                "entry_id": "financial_standing",
+                                "requirement_type": "financial_standing",
+                                "display_label": "Financial standing",
+                                "suggested_proof_action": (
+                                    "Prepare current credit report."
+                                ),
+                                "blocker_hint": (
+                                    "Missing financial standing proof can block "
+                                    "qualification."
+                                ),
+                            }
+                        ],
+                    },
+                    document_id=DOCUMENT_ID,
+                    chunk_id=CHUNK_ID,
+                    page_start=2,
+                    page_end=2,
+                ),
+            ]
+        }
     )
 
 
@@ -174,6 +252,38 @@ def test_round_1_specialists_get_evidence_locked_requests_and_persist_rows() -> 
         for request in model.requests
     ] == [expected_evidence_keys] * 4
     assert all(request.scout_output is not None for request in model.requests)
+    compliance_request = next(
+        request
+        for request in model.requests
+        if request.agent_role.value == SpecialistRole.COMPLIANCE.value
+    )
+    assert [
+        context.model_dump(mode="json")
+        for context in compliance_request.requirement_context
+    ] == [
+        {
+            "evidence_key": "TENDER-SHALL-001",
+            "source_type": "tender_document",
+            "evidence_id": str(TENDER_EVIDENCE_ID),
+            "source_label": "Tender page 1",
+            "requirement_type": "qualification_requirement",
+            "regulatory_glossary_ids": ["quality_management_sosfs"],
+            "regulatory_glossary": [
+                {
+                    "entry_id": "quality_management_sosfs",
+                    "requirement_type": "quality_management",
+                    "display_label": "Quality management / SOSFS",
+                    "suggested_proof_action": (
+                        "Prepare quality management certificates."
+                    ),
+                    "blocker_hint": (
+                        "Missing mandatory quality-system proof can block "
+                        "qualification."
+                    ),
+                }
+            ],
+        }
+    ]
 
     request_fields = set(Round1SpecialistRequest.model_fields)
     assert "motions" not in request_fields
@@ -251,3 +361,37 @@ def test_non_compliance_formal_blocker_fails_before_round_1_persistence() -> Non
     )
     assert result.state.validation_errors
     assert "formal_blockers" in result.state.validation_errors[-1].message
+
+
+def test_financial_proof_gap_cannot_be_compliance_formal_blocker() -> None:
+    handlers = replace(
+        default_graph_node_handlers(),
+        round_1_specialist=build_round_1_specialist_handler(
+            FinancialProofFormalBlockerModel()
+        ),
+    )
+
+    result = run_bidded_graph_shell(
+        _state_with_financial_requirement(),
+        handlers=handlers,
+    )
+
+    assert result.state.status is AgentRunStatus.FAILED
+    assert result.state.motions == {}
+    assert not any(
+        output.round_name == "round_1_motion"
+        for output in result.state.agent_outputs
+    )
+    assert result.state.validation_errors
+    assert "formal_blockers" in result.state.validation_errors[-1].field_path
+    assert "exclusion_ground or qualification_requirement" in (
+        result.state.validation_errors[-1].message
+    )
+
+
+def _financial_ref() -> dict[str, str]:
+    return {
+        "evidence_key": "TENDER-FINANCIAL-001",
+        "source_type": "tender_document",
+        "evidence_id": str(FINANCIAL_EVIDENCE_ID),
+    }

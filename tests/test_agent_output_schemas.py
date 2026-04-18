@@ -15,6 +15,7 @@ from bidded.agents import (
     EvidenceScoutOutput,
     FinalVerdict,
     JudgeDecision,
+    RequirementReasoningItem,
     RequirementType,
     RiskRegisterItem,
     Round1Motion,
@@ -56,9 +57,11 @@ def _company_evidence_ref() -> EvidenceReference:
 def _supported_claim(
     claim: str = "ISO 27001 certification is mandatory.",
     evidence_refs: list[EvidenceReference] | None = None,
+    requirement_type: RequirementType | None = None,
 ) -> SupportedClaim:
     return SupportedClaim(
         claim=claim,
+        requirement_type=requirement_type,
         evidence_refs=evidence_refs or [_evidence_ref()],
     )
 
@@ -309,6 +312,7 @@ def test_judge_decision_covers_final_audit_artifact_contract() -> None:
         compliance_matrix=[
             ComplianceMatrixItem(
                 requirement="ISO 27001 certificate",
+                requirement_type=RequirementType.QUALITY_MANAGEMENT,
                 status="unknown",
                 assessment="Requirement is identified but expiry evidence is missing.",
                 evidence_refs=[_evidence_ref()],
@@ -316,21 +320,39 @@ def test_judge_decision_covers_final_audit_artifact_contract() -> None:
         ],
         compliance_blockers=[],
         potential_blockers=[
-            _supported_claim("ISO certificate expiry date is not confirmed.")
+            _supported_claim(
+                "ISO certificate expiry date is not confirmed.",
+                requirement_type=RequirementType.QUALITY_MANAGEMENT,
+            )
         ],
         risk_register=[
             RiskRegisterItem(
                 risk="Submission could be rejected if the certificate has expired.",
+                requirement_type=RequirementType.QUALITY_MANAGEMENT,
                 severity="high",
                 mitigation="Confirm certificate validity before final bid approval.",
                 evidence_refs=[_evidence_ref()],
             )
         ],
         missing_info=["Certificate expiry date."],
+        missing_info_details=[
+            RequirementReasoningItem(
+                text="Certificate expiry date.",
+                requirement_type=RequirementType.QUALITY_MANAGEMENT,
+                evidence_refs=[_evidence_ref()],
+            )
+        ],
         potential_evidence_gaps=[
             "Company evidence lacks a certificate expiry excerpt."
         ],
         recommended_actions=["Verify the certificate with the bid manager."],
+        recommended_action_details=[
+            RequirementReasoningItem(
+                text="Verify the certificate with the bid manager.",
+                requirement_type=RequirementType.QUALITY_MANAGEMENT,
+                evidence_refs=[_evidence_ref()],
+            )
+        ],
         cited_memo="Conditional bid is defensible only if the certificate is valid.",
         evidence_ids=[EVIDENCE_ID],
         evidence_refs=[_evidence_ref()],
@@ -349,6 +371,19 @@ def test_judge_decision_covers_final_audit_artifact_contract() -> None:
     assert payload["potential_evidence_gaps"] == [
         "Company evidence lacks a certificate expiry excerpt."
     ]
+    assert payload["compliance_matrix"][0]["requirement_type"] == (
+        "quality_management"
+    )
+    assert payload["potential_blockers"][0]["requirement_type"] == (
+        "quality_management"
+    )
+    assert payload["risk_register"][0]["requirement_type"] == "quality_management"
+    assert payload["missing_info_details"][0]["requirement_type"] == (
+        "quality_management"
+    )
+    assert payload["recommended_action_details"][0]["requirement_type"] == (
+        "quality_management"
+    )
     assert payload["evidence_ids"] == [str(EVIDENCE_ID)]
     assert JudgeDecision.model_validate(payload) == decision
 

@@ -8,7 +8,7 @@ Started: 2026-04-18
 - **Ralph Directory**: Ralph files live in `ralph/`, not `scripts/ralph/`.
 - **Current PRD Context**: Work from `ralph/state.json`; implement one `ralph/prd.json` story at a time in priority order.
 - **Bidded Runtime Target**: Python package code belongs under `src/bidded`; tests and baseline gates must not require live Claude, live embeddings, or live Supabase.
-- **Bidded Evidence Contract**: Material claims require excerpt-level `evidence_items` with source-specific provenance, `source_metadata.source_label`, and nullable `requirement_type`; unsupported points become assumptions, missing_info, validation errors, or potential blockers.
+- **Bidded Evidence Contract**: Material claims require excerpt-level `evidence_items` with source-specific provenance, `source_metadata.source_label`, and nullable `requirement_type`; formal blockers require exclusion/qualification tender evidence, while unsupported points become assumptions, missing_info, validation errors, or potential blockers.
 - **Bidded Orchestration Contract**: The orchestrator owns Supabase writes, validation, status transitions, worker lifecycle, and persistence; LLM agents produce validated artifacts only.
 - **Bidded Quality Gates**: Use deterministic pytest tests and Ruff for story completion; live smoke checks are optional unless a story explicitly requires them.
 - **Bidded Supabase Migrations**: Keep hosted Supabase SQL under `supabase/migrations/` with deterministic pytest contract tests, demo `tenant_key = 'demo'` checks, and no Auth/RLS unless a story adds it.
@@ -18,7 +18,7 @@ Started: 2026-04-18
 - **Bidded Agent Audit Contract**: `agent_outputs` are immutable rows keyed by `agent_role`, `round_name`, and `output_type`; Judge `bid_decisions` surface evidence IDs and link source agent outputs through metadata.
 - **Bidded Graph State/Routing Contract**: `BidRunState.apply_node_update` enforces node ownership and reducers; `src/bidded/orchestration/graph.py` owns the fixed LangGraph shell, preflight checks, Evidence Scout audit append, explicit edge table, bounded retry/stop policy, mocked handlers, and terminal routing.
 - **Bidded Agent Tool Policy Contract**: `src/bidded/agents/tool_policy.py` is the source of truth for LLM-agent denied tools, bounded retrieval, artifact access, and orchestrator-owned side effects.
-- **Bidded Agent Output Schema Contract**: `src/bidded/agents/schemas.py` is the strict Pydantic surface for RequirementType, Evidence Scout output, motions, rebuttals, Judge decisions, evidence refs, material claim evidence-ID validation, typed evidence gaps, validation errors, specialist role bounds, and Round 1 motion audit rows.
+- **Bidded Agent Output Schema Contract**: `src/bidded/agents/schemas.py` is the strict Pydantic surface for RequirementType, Evidence Scout output, motions, rebuttals, Judge decisions, typed Judge reasoning details, evidence refs, material claim evidence-ID validation, validation errors, and specialist role bounds.
 - **Bidded Evidence Builder Contract**: `src/bidded/evidence` converts company facts and retrieved tender chunks into validated evidence rows with stable upserts, deterministic nullable tender `requirement_type`, and curated glossary metadata.
 
 ## Session Log
@@ -166,4 +166,10 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added a curated regulatory glossary with diacritic-insensitive matching, glossary-first tender classification, and evidence metadata annotations.
 - **Files**: src/bidded/evidence/regulatory_glossary.py, src/bidded/evidence/tender_document.py, src/bidded/evidence/__init__.py, tests/test_regulatory_glossary.py, tests/test_tender_evidence_board.py, README.md, ralph/progress.md, ralph/CLAUDE.md, ralph/prd.json, ralph/state.json
 - **Key learnings**: Keep regulatory glossary matches inside evidence item `metadata` so source provenance remains limited to tender or company evidence.
+---
+
+## 2026-04-18 23:06 CEST - US-028
+- **Implemented**: Added requirement/glossary context to Compliance and Judge requests, typed Judge reasoning details, formal-blocker requirement-type gating, and regression coverage for exclusion, financial, quality/SOSFS, submission-document, and non-gating missing-evidence cases.
+- **Files**: src/bidded/agents/schemas.py, src/bidded/agents/__init__.py, src/bidded/orchestration/requirement_context.py, src/bidded/orchestration/specialist_motions.py, src/bidded/orchestration/judge.py, tests/test_agent_output_schemas.py, tests/test_specialist_motion_node.py, tests/test_judge_decision_node.py, tests/test_mocked_end_to_end_run.py, README.md, ralph/progress.md, ralph/CLAUDE.md, ralph/prd.json, ralph/state.json
+- **Key learnings**: Keep formal no-bid gates tied to typed exclusion or hard qualification tender evidence; route financial, quality, and submission-document gaps through missing info, actions, or potential blockers.
 ---

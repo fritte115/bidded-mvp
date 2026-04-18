@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-028",
-  "storyTitle": "Use requirement types in compliance and Judge reasoning",
+  "currentStory": "US-029",
+  "storyTitle": "Add embedding model contract",
   "nextAction": "implement",
-  "progressTokens": 2535,
+  "progressTokens": 2625,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"

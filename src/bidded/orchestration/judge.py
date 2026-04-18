@@ -22,6 +22,10 @@ from bidded.orchestration.graph import (
     JudgeHandler,
     PersistHandler,
 )
+from bidded.orchestration.requirement_context import (
+    RequirementEvidenceContext,
+    build_requirement_context,
+)
 from bidded.orchestration.state import (
     AgentOutputState,
     BidRunState,
@@ -36,6 +40,7 @@ from bidded.orchestration.state import (
     ValidationIssueState,
     Verdict,
 )
+from bidded.requirements import RequirementType
 
 DEMO_TENANT_KEY = "demo"
 
@@ -62,6 +67,7 @@ class JudgeDecisionRequest(BaseModel):
     tender_id: UUID
     document_ids: tuple[UUID, ...]
     evidence_board: tuple[EvidenceItemState, ...]
+    requirement_context: tuple[RequirementEvidenceContext, ...] = ()
     scout_output: ScoutOutputState
     motions: dict[AgentRole, SpecialistMotionState]
     rebuttals: dict[AgentRole, RebuttalState]
@@ -108,6 +114,14 @@ _AGENT_ROLE_BY_SPECIALIST: dict[SpecialistRole, AgentRole] = {
     SpecialistRole.DELIVERY_CFO: AgentRole.DELIVERY_CFO,
     SpecialistRole.RED_TEAM: AgentRole.RED_TEAM,
 }
+_FORMAL_BLOCKER_REQUIREMENT_TYPES = frozenset(
+    {
+        RequirementType.EXCLUSION_GROUND,
+        RequirementType.QUALIFICATION_REQUIREMENT,
+    }
+)
+
+
 def build_judge_handler(model: JudgeDecisionDrafter) -> JudgeHandler:
     """Build a graph handler from a Claude-like Judge adapter."""
 
@@ -150,6 +164,11 @@ def build_judge_decision_request(state: BidRunState) -> JudgeDecisionRequest:
         evidence_board=state.evidence_board,
         field_path="formal_compliance_blockers",
     )
+    _validate_formal_blocker_requirement_types(
+        formal_blockers,
+        evidence_board=state.evidence_board,
+        field_path="formal_compliance_blockers",
+    )
     _validate_supported_claims(
         potential_blockers,
         evidence_board=state.evidence_board,
@@ -162,6 +181,7 @@ def build_judge_decision_request(state: BidRunState) -> JudgeDecisionRequest:
         tender_id=state.tender_id,
         document_ids=tuple(state.document_ids),
         evidence_board=tuple(state.evidence_board),
+        requirement_context=build_requirement_context(state.evidence_board),
         scout_output=state.scout_output,
         motions=_agent_role_motion_map(state.motions),
         rebuttals=_agent_role_rebuttal_map(state.rebuttals),
@@ -462,6 +482,31 @@ def _validate_supported_claims(
         )
 
 
+def _validate_formal_blocker_requirement_types(
+    claims: Sequence[SupportedClaim],
+    *,
+    evidence_board: Sequence[EvidenceItemState],
+    field_path: str,
+) -> None:
+    for index, claim in enumerate(claims):
+        matching_items = [
+            item
+            for evidence_ref in claim.evidence_refs
+            if (item := _matching_evidence_item(evidence_ref, evidence_board))
+            is not None
+        ]
+        if any(_is_formal_blocker_evidence(item) for item in matching_items):
+            continue
+
+        raise JudgeDecisionValidationError(
+            (
+                f"{field_path} must cite tender_document evidence classified as "
+                "exclusion_ground or qualification_requirement."
+            ),
+            field_path=f"{field_path}[{index}].evidence_refs",
+        )
+
+
 def _validate_evidence_ids(
     evidence_ids: Sequence[UUID],
     *,
@@ -543,6 +588,17 @@ def _apply_formal_compliance_gate(
     compliance_blockers = _dedupe_supported_claims(
         [*output.compliance_blockers, *formal_compliance_blockers]
     )
+    evidence_ids = _dedupe_evidence_ids(
+        [
+            *output.evidence_ids,
+            *[
+                evidence_ref.evidence_id
+                for blocker in formal_compliance_blockers
+                for evidence_ref in blocker.evidence_refs
+                if evidence_ref.evidence_id is not None
+            ],
+        ]
+    )
     cited_memo = output.cited_memo
     gate_sentence = "Formal compliance blockers require no_bid under the Judge gate."
     if gate_sentence not in cited_memo:
@@ -552,6 +608,7 @@ def _apply_formal_compliance_gate(
         update={
             "verdict": FinalVerdict.NO_BID,
             "compliance_blockers": compliance_blockers,
+            "evidence_ids": evidence_ids,
             "cited_memo": cited_memo,
         }
     )
@@ -570,6 +627,13 @@ def _matching_evidence_item(
             and item.evidence_id == evidence_ref.evidence_id
         ),
         None,
+    )
+
+
+def _is_formal_blocker_evidence(evidence: EvidenceItemState) -> bool:
+    return (
+        evidence.source_type is EvidenceSourceType.TENDER_DOCUMENT
+        and evidence.requirement_type in _FORMAL_BLOCKER_REQUIREMENT_TYPES
     )
 
 
@@ -595,6 +659,16 @@ def _all_material_evidence_refs(output: JudgeDecision) -> list[EvidenceReference
             evidence_ref
             for risk in output.risk_register
             for evidence_ref in risk.evidence_refs
+        ],
+        *[
+            evidence_ref
+            for item in output.missing_info_details
+            for evidence_ref in item.evidence_refs
+        ],
+        *[
+            evidence_ref
+            for item in output.recommended_action_details
+            for evidence_ref in item.evidence_refs
         ],
     ]
 
@@ -636,6 +710,17 @@ def _dedupe_supported_claims(
             continue
         seen.add(claim.claim)
         deduped.append(claim)
+    return deduped
+
+
+def _dedupe_evidence_ids(evidence_ids: Sequence[UUID]) -> list[UUID]:
+    deduped: list[UUID] = []
+    seen: set[UUID] = set()
+    for evidence_id in evidence_ids:
+        if evidence_id in seen:
+            continue
+        seen.add(evidence_id)
+        deduped.append(evidence_id)
     return deduped
 
 

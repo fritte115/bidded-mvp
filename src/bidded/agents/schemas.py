@@ -119,6 +119,7 @@ class EvidenceScoutFinding(StrictAgentOutputModel):
 
 class SupportedClaim(StrictAgentOutputModel):
     claim: str = Field(min_length=1)
+    requirement_type: RequirementType | None = None
     evidence_refs: list[EvidenceReference] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -236,6 +237,7 @@ class VoteSummary(StrictAgentOutputModel):
 
 class ComplianceMatrixItem(StrictAgentOutputModel):
     requirement: str = Field(min_length=1)
+    requirement_type: RequirementType | None = None
     status: Literal["met", "unmet", "unknown"]
     assessment: str = Field(min_length=1)
     evidence_refs: list[EvidenceReference] = Field(min_length=1)
@@ -249,8 +251,23 @@ class ComplianceMatrixItem(StrictAgentOutputModel):
         return self
 
 
+class RequirementReasoningItem(StrictAgentOutputModel):
+    text: str = Field(min_length=1)
+    requirement_type: RequirementType | None = None
+    evidence_refs: list[EvidenceReference] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_evidence_ids(self) -> RequirementReasoningItem:
+        _require_resolved_evidence_ids(
+            self.evidence_refs,
+            field_name="requirement reasoning item",
+        )
+        return self
+
+
 class RiskRegisterItem(StrictAgentOutputModel):
     risk: str = Field(min_length=1)
+    requirement_type: RequirementType | None = None
     severity: Literal["low", "medium", "high"]
     mitigation: str = Field(min_length=1)
     evidence_refs: list[EvidenceReference] = Field(min_length=1)
@@ -275,8 +292,12 @@ class JudgeDecision(StrictAgentOutputModel):
     potential_blockers: list[SupportedClaim] = Field(default_factory=list)
     risk_register: list[RiskRegisterItem] = Field(default_factory=list)
     missing_info: list[str] = Field(default_factory=list)
+    missing_info_details: list[RequirementReasoningItem] = Field(default_factory=list)
     potential_evidence_gaps: list[str] = Field(default_factory=list)
     recommended_actions: list[str] = Field(default_factory=list)
+    recommended_action_details: list[RequirementReasoningItem] = Field(
+        default_factory=list
+    )
     cited_memo: str = Field(min_length=1)
     evidence_ids: list[UUID] = Field(min_length=1)
     evidence_refs: list[EvidenceReference] = Field(default_factory=list)
@@ -294,6 +315,7 @@ __all__ = [
     "EvidenceReference",
     "FinalVerdict",
     "JudgeDecision",
+    "RequirementReasoningItem",
     "RequirementType",
     "Round1Motion",
     "Round2Rebuttal",

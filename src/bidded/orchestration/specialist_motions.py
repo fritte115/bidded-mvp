@@ -13,6 +13,10 @@ from bidded.orchestration.graph import (
     Round1Handler,
     Round1MotionResult,
 )
+from bidded.orchestration.requirement_context import (
+    RequirementEvidenceContext,
+    build_requirement_context,
+)
 from bidded.orchestration.state import (
     AgentOutputState,
     BidRunState,
@@ -25,6 +29,7 @@ from bidded.orchestration.state import (
     ValidationIssueState,
     Verdict,
 )
+from bidded.requirements import RequirementType
 
 
 class Round1MotionValidationError(ValueError):
@@ -46,6 +51,7 @@ class Round1SpecialistRequest(BaseModel):
     document_ids: tuple[UUID, ...]
     agent_role: AgentRole
     evidence_board: tuple[EvidenceItemState, ...]
+    requirement_context: tuple[RequirementEvidenceContext, ...] = ()
     scout_output: ScoutOutputState
 
 
@@ -79,6 +85,12 @@ _ROUND_1_ROUTE_BY_ROLE: dict[SpecialistRole, GraphRouteNode] = {
     SpecialistRole.DELIVERY_CFO: GraphRouteNode.ROUND_1_DELIVERY_CFO,
     SpecialistRole.RED_TEAM: GraphRouteNode.ROUND_1_RED_TEAM,
 }
+_FORMAL_BLOCKER_REQUIREMENT_TYPES = frozenset(
+    {
+        RequirementType.EXCLUSION_GROUND,
+        RequirementType.QUALIFICATION_REQUIREMENT,
+    }
+)
 
 
 def build_round_1_specialist_handler(
@@ -128,6 +140,7 @@ def build_round_1_specialist_request(
         document_ids=tuple(state.document_ids),
         agent_role=_AGENT_ROLE_BY_SPECIALIST[role],
         evidence_board=tuple(state.evidence_board),
+        requirement_context=build_requirement_context(state.evidence_board),
         scout_output=state.scout_output,
     )
 
@@ -191,6 +204,10 @@ def validate_round_1_motion_output(
         output.formal_blockers,
         evidence_board=evidence_board,
         field_name="formal_blockers",
+    )
+    _validate_formal_blocker_requirement_types(
+        output.formal_blockers,
+        evidence_board=evidence_board,
     )
     _validate_supported_claims(
         output.potential_blockers,
@@ -267,6 +284,30 @@ def _validate_supported_claims(
         )
 
 
+def _validate_formal_blocker_requirement_types(
+    claims: Sequence[Any],
+    *,
+    evidence_board: Sequence[EvidenceItemState],
+) -> None:
+    for claim_index, claim in enumerate(claims):
+        matching_items = [
+            item
+            for evidence_ref in claim.evidence_refs
+            if (item := _matching_evidence_item(evidence_ref, evidence_board))
+            is not None
+        ]
+        if any(_is_formal_blocker_evidence(item) for item in matching_items):
+            continue
+
+        raise Round1MotionValidationError(
+            (
+                "formal_blockers must cite tender_document evidence classified as "
+                "exclusion_ground or qualification_requirement."
+            ),
+            field_path=f"formal_blockers[{claim_index}].evidence_refs",
+        )
+
+
 def _validate_evidence_refs(
     evidence_refs: Sequence[EvidenceReference],
     *,
@@ -297,6 +338,13 @@ def _matching_evidence_item(
             and item.evidence_id == evidence_ref.evidence_id
         ),
         None,
+    )
+
+
+def _is_formal_blocker_evidence(evidence: EvidenceItemState) -> bool:
+    return (
+        evidence.source_type is EvidenceSourceType.TENDER_DOCUMENT
+        and evidence.requirement_type in _FORMAL_BLOCKER_REQUIREMENT_TYPES
     )
 
 
