@@ -75,8 +75,8 @@
         "pytest and ruff check pass for graph state schema tests."
       ],
       "priority": 5,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added Pydantic BidRunState with runtime/audit field groups and round-trip tests for empty, motion, and final decision states. Complete."
     },
     {
       "id": "US-006",

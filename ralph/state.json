@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-005",
-  "storyTitle": "Define graph state schema",
+  "currentStory": "US-006",
+  "storyTitle": "Enforce state ownership rules",
   "nextAction": "implement",
-  "progressTokens": 660,
+  "progressTokens": 765,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"
