@@ -14,7 +14,7 @@
 
 1. Confirm the current Git branch matches `state.json.branch`; create or switch only if needed.
 2. Read the `## Codebase Patterns` block at the top of `ralph/progress.md`, then read the recent `## Session Log` tail. Keep reads bounded unless compacting.
-3. Read only the current story from `ralph/prd.json`. The current story is `state.json.currentStory`; do not choose a different one.
+3. Read only the current story from `ralph/prd.json`. Stories live under `.userStories[]`; the current story is `state.json.currentStory`; do not use `.stories[]` and do not choose a different story.
 4. If the story has `iterationMode`, read `ralph/ITERATIVE.md` before implementation.
 5. Implement exactly one story or one maintenance task.
 6. Run the narrowest useful tests/checks, then the relevant story gate. For Bidded, normal completion must not require live Claude, live embeddings, or live Supabase unless the story explicitly says it is a smoke/manual check.
@@ -61,5 +61,6 @@ At the end of every non-compaction story session:
 > Store only Bidded-specific conventions or Ralph workflow gotchas that are useful across multiple future stories.
 
 - **Ralph Directory**: This repo uses `ralph/`, not `scripts/ralph/`; all Ralph instructions, PRD, state, and progress paths must use the root-level `ralph/` prefix.
+- **PRD Shape**: Ralph PRD stories live under `.userStories[]`, not `.stories[]`; queries and scripts must select the current story from `.userStories[]`.
 - **Bidded Source Target**: Application code for PRD stories should be scaffolded under `src/bidded` with tests that can run without live external services.
 - **Bidded Gate Baseline**: Until a full `make check` exists, story completion should at minimum satisfy deterministic `pytest` coverage for touched behavior plus `ruff check`.
