@@ -261,8 +261,8 @@
         "Tests cover the mocked success path, invalid output path, missing/unparsed document path, empty evidence path, and final END path; pytest and ruff check pass."
       ],
       "priority": 17,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added fixed LangGraph routing shell with preflight prerequisite checks, explicit edge table, mocked handlers, retry route, failed, needs_human_review, and END tests. Complete."
     },
     {
       "id": "US-018",

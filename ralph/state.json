@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-017",
-  "storyTitle": "Add graph routing shell",
+  "currentStory": "US-018",
+  "storyTitle": "Implement Evidence Scout node",
   "nextAction": "implement",
-  "progressTokens": 1695,
+  "progressTokens": 1770,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"

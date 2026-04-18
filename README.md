@@ -18,6 +18,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Applikationskod | Grundpaket finns under `src/bidded` med subpackages för config, db, documents, evidence, agents, orchestration och cli. |
 | Supabase-migrations | Core domain-, agent audit- och chunk/evidence-migrations finns. |
 | Graph state | Typed `BidRunState` finns under `src/bidded/orchestration` med runtime control fields, audit artifacts, node ownership contracts och reducer-policy separerade. |
+| Graph routing shell | `src/bidded/orchestration/graph.py` bygger en fast LangGraph-shell med preflight, mocked agent handlers, explicit edge table, retry route, failed, needs_human_review och END. |
 | Agent tool policies | Immutable policy contracts finns under `src/bidded/agents/tool_policy.py` för LLM-agenternas läs/skrivgränser och orchestratorns side effects. |
 | Agent output schemas | Strict Pydantic schemas finns under `src/bidded/agents/schemas.py` för Round 1 motions, Round 2 rebuttals, Judge decisions och evidence-claim validation. |
 | Seedat demo-bolag och demo-tender | `bidded seed-demo-company` upsertar en större syntetisk IT-konsultprofil, `bidded register-demo-tender` registrerar en lokal text-PDF, och `bidded.evidence` kan konvertera profilfakta till idempotenta `company_profile` evidence rows. |
@@ -75,7 +76,7 @@ Agentartefakter och UI-output ska vara engelska enligt PRD:n, men beslutskontext
 | Lokal automation | Make | `make ralph` kör Ralph med Codex CLI. |
 | LLM för implementation | Codex CLI | Makefile sätter `RALPH_CODEX_CMD="codex exec --model ..."` för Ralph-sessioner. |
 | Miljö | `.env` via Makefile include | `.env.example` dokumenterar runtimevariabler utan secrets. |
-| App-runtime | Python/LangGraph/Supabase | Python-scaffold, dependency-kontrakt och idempotent demo-company seed finns; övriga live integrations byggs i senare stories. |
+| App-runtime | Python/LangGraph/Supabase | Python-scaffold, dependency-kontrakt, idempotent demo-company seed och fast graph routing shell finns; övriga live integrations byggs i senare stories. |
 
 ## Arkitektur
 
@@ -305,7 +306,7 @@ python3 -m venv .venv
 .venv/bin/ruff check .
 ```
 
-Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandot, tenderregistreringen, PDF-ingestionen och company-evidence buildern finns; övriga worker-kommandon byggs i senare stories.
+Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandot, tenderregistreringen, PDF-ingestionen, evidence builders och graph routing shell finns; övriga worker-kommandon byggs i senare stories.
 
 ## Teststrategi
 
