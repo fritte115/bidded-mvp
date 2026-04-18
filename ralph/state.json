@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-002",
-  "storyTitle": "Add core Supabase schema",
+  "currentStory": "US-003",
+  "storyTitle": "Add agent audit schema",
   "nextAction": "implement",
-  "progressTokens": 360,
+  "progressTokens": 465,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"

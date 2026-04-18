@@ -30,8 +30,8 @@
         "Migration SQL is deterministic and can be applied to a hosted Supabase demo project."
       ],
       "priority": 2,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added Supabase core domain migration for companies, tenders, and documents with demo tenant checks and deterministic contract tests. Complete."
     },
     {
       "id": "US-003",
