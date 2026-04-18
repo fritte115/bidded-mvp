@@ -16,10 +16,16 @@ import {
   mapRound1Output,
   mapRound2Output,
 } from "@/lib/agentOutputMapping";
+import {
+  buildSourceDecisionMetadata,
+  mapBidRow,
+  mapCompareRows,
+  mapDecisionRow,
+} from "@/lib/bidIntegrationMapping";
 import type {
   Company, RunStatus, Verdict,
   Evidence, AgentMotion, JudgeOutput, ComplianceMatrixRow, RiskRow,
-  EvidenceCategory, AgentName, Bid, BidStatus, Procurement,
+  EvidenceCategory, AgentName, Bid, BidStatus, DecisionSummary,
 } from "@/data/mock";
 
 // ---------------------------------------------------------------------------
@@ -683,46 +689,50 @@ function mapEvidenceRow(
 // Decisions
 // ---------------------------------------------------------------------------
 
-export interface DecisionRow {
+export interface DecisionRow extends DecisionSummary {
   id: string;
-  tenderId: string;
-  tenderName: string;
-  verdict: Verdict;
-  confidence: number; // 0–100
-  citedMemo: string;
-  startedAt: string;
-  completedAt: string | null;
   status: RunStatus;
 }
+
+const DECISION_SUMMARY_SELECT = `
+  agent_run_id,
+  created_at,
+  verdict,
+  confidence,
+  final_decision,
+  agent_runs!inner(
+    id,
+    tender_id,
+    status,
+    started_at,
+    completed_at,
+    tenders!inner(title, created_at, documents(id))
+  )
+`;
 
 export async function fetchDecisions(): Promise<DecisionRow[]> {
   const { data, error } = await supabase
     .from("bid_decisions")
-    .select(
-      `agent_run_id, verdict, confidence, final_decision,
-       agent_runs!inner(id, tender_id, status, started_at, completed_at, tenders!inner(title))`,
-    )
+    .select(DECISION_SUMMARY_SELECT)
     .eq("tenant_key", "demo")
     .order("created_at", { ascending: false });
 
   if (error) throw new Error(`fetchDecisions: ${error.message}`);
 
-  return (data ?? []).map((row: Record<string, unknown>) => {
-    const run = row.agent_runs as Record<string, unknown>;
-    const tender = run.tenders as Record<string, unknown>;
-    const fd = (row.final_decision as Record<string, unknown>) ?? {};
-    return {
-      id: row.agent_run_id as string,
-      tenderId: run.tender_id as string,
-      tenderName: (tender?.title as string) ?? "Unknown",
-      verdict: normalizeVerdictStr(row.verdict as string),
-      confidence: Math.round(((row.confidence as number) ?? 0) * 100),
-      citedMemo: (fd.cited_memo as string) ?? "",
-      startedAt: (run.started_at as string) ?? "",
-      completedAt: (run.completed_at as string) ?? null,
-      status: (run.status as RunStatus) ?? "succeeded",
-    };
-  });
+  return ((data ?? []) as Record<string, unknown>[])
+    .map((row) => {
+      const decision = mapDecisionRow(row);
+      if (!decision) return null;
+      const run = Array.isArray(row.agent_runs)
+        ? row.agent_runs[0]
+        : (row.agent_runs as Record<string, unknown> | null);
+      return {
+        ...decision,
+        id: decision.runId,
+        status: (run?.status as RunStatus) ?? "succeeded",
+      };
+    })
+    .filter((row): row is DecisionRow => row !== null);
 }
 
 // ---------------------------------------------------------------------------
@@ -962,79 +972,58 @@ export async function fetchEvidenceBoard(runId: string): Promise<Evidence[]> {
 // Tenders with decisions (Compare page)
 // ---------------------------------------------------------------------------
 
-export interface TenderDecisionRow {
-  id: string;
-  name: string;
-  documentCount: number;
-  uploadedAt: string;
-  verdict: Verdict;
-  confidence: number; // 0–100
-  citedMemo: string;
-  runId: string;
-  // Proxies for BidRecommendation (derived from decision data)
-  winProbability: number; // 0–1
-  riskScore: "Low" | "Medium" | "High";
-  topReason: string;
+export type TenderDecisionRow = DecisionSummary;
+
+export async function fetchCompareRows(): Promise<DecisionSummary[]> {
+  const [decisionsRes, bidsRes] = await Promise.all([
+    supabase
+      .from("bid_decisions")
+      .select(DECISION_SUMMARY_SELECT)
+      .eq("tenant_key", "demo")
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("bids")
+      .select("id, agent_run_id, status, updated_at")
+      .eq("tenant_key", "demo")
+      .order("updated_at", { ascending: false }),
+  ]);
+
+  if (decisionsRes.error)
+    throw new Error(`fetchCompareRows (decisions): ${decisionsRes.error.message}`);
+  if (bidsRes.error)
+    throw new Error(`fetchCompareRows (bids): ${bidsRes.error.message}`);
+
+  return mapCompareRows(
+    (decisionsRes.data ?? []) as Record<string, unknown>[],
+    (bidsRes.data ?? []) as Record<string, unknown>[],
+  );
 }
 
-export async function fetchTendersWithDecisions(): Promise<
-  TenderDecisionRow[]
-> {
-  const { data, error } = await supabase
-    .from("tenders")
-    .select(
-      `id, title, created_at,
-       documents(id),
-       agent_runs(id, bid_decisions(verdict, confidence, final_decision))`,
-    )
-    .eq("tenant_key", "demo")
-    .order("created_at", { ascending: false });
-
-  if (error) throw new Error(`fetchTendersWithDecisions: ${error.message}`);
-
-  const rows: TenderDecisionRow[] = [];
-
-  for (const t of (data ?? []) as Record<string, unknown>[]) {
-    const runs = (t.agent_runs as Record<string, unknown>[]) ?? [];
-    // Find the first run that has a bid_decision
-    let bd: Record<string, unknown> | null = null;
-    let runId = "";
-    for (const r of runs) {
-      const bds = r.bid_decisions as Record<string, unknown>[] | null;
-      const first = Array.isArray(bds) ? bds[0] : bds;
-      if (first && (first as Record<string, unknown>).verdict) {
-        bd = first as Record<string, unknown>;
-        runId = r.id as string;
-        break;
-      }
-    }
-    if (!bd) continue;
-
-    const fd = (bd.final_decision as Record<string, unknown>) ?? {};
-    const riskRegister = (fd.risk_register as unknown[]) ?? [];
-    const riskScore: "Low" | "Medium" | "High" =
-      riskRegister.length >= 3 ? "High"
-      : riskRegister.length >= 1 ? "Medium"
-      : "Low";
-    const citedMemo = (fd.cited_memo as string) ?? "";
-
-    rows.push({
-      id: t.id as string,
-      name: t.title as string,
-      documentCount: ((t.documents as unknown[]) ?? []).length,
-      uploadedAt: t.created_at as string,
-      verdict: normalizeVerdictStr(bd.verdict as string),
-      confidence: Math.round(((bd.confidence as number) ?? 0) * 100),
-      citedMemo,
-      runId,
-      winProbability: Math.round(((bd.confidence as number) ?? 0) * 100) / 100,
-      riskScore,
-      topReason: citedMemo.split(/\.\s/)[0] ?? citedMemo,
-    });
-  }
-
-  return rows;
+export async function fetchTendersWithDecisions(): Promise<TenderDecisionRow[]> {
+  return fetchCompareRows();
 }
+
+const BID_SELECT = `
+  id,
+  rate_sek,
+  margin_pct,
+  hours_estimated,
+  status,
+  notes,
+  updated_at,
+  metadata,
+  agent_run_id,
+  tender_id,
+  tenders!inner(title, created_at, documents(id)),
+  agent_runs(
+    id,
+    tender_id,
+    status,
+    started_at,
+    completed_at,
+    bid_decisions(created_at, verdict, confidence, final_decision)
+  )
+`;
 
 // ---------------------------------------------------------------------------
 // Bids
@@ -1043,29 +1032,27 @@ export async function fetchTendersWithDecisions(): Promise<
 export async function fetchBids(): Promise<Bid[]> {
   const { data, error } = await supabase
     .from("bids")
-    .select(
-      `id, rate_sek, margin_pct, status, notes, updated_at, agent_run_id,
-       tender_id, tenders!inner(title)`,
-    )
+    .select(BID_SELECT)
     .eq("tenant_key", "demo")
     .order("updated_at", { ascending: false });
 
   if (error) throw new Error(`fetchBids: ${error.message}`);
+  return ((data ?? []) as Record<string, unknown>[]).map(mapBidRow);
+}
 
-  return (data ?? []).map((row: Record<string, unknown>) => {
-    const tender = row.tenders as Record<string, unknown>;
-    return {
-      id: row.id as string,
-      procurementId: row.tender_id as string,
-      procurementName: (tender?.title as string) ?? "Unknown",
-      rateSEK: row.rate_sek as number,
-      marginPct: row.margin_pct as number,
-      status: row.status as BidStatus,
-      notes: (row.notes as string) ?? "",
-      updatedAt: row.updated_at as string,
-      runId: (row.agent_run_id as string) ?? undefined,
-    };
-  });
+export async function fetchBid(id: string): Promise<Bid | null> {
+  const { data, error } = await supabase
+    .from("bids")
+    .select(BID_SELECT)
+    .eq("id", id)
+    .eq("tenant_key", "demo")
+    .single();
+
+  if (error) {
+    if (error.code === "PGRST116") return null;
+    throw new Error(`fetchBid: ${error.message}`);
+  }
+  return mapBidRow(data as Record<string, unknown>);
 }
 
 export interface CreateBidInput {
@@ -1076,6 +1063,8 @@ export interface CreateBidInput {
   status: BidStatus;
   notes: string;
   runId?: string;
+  sourceDecision?: DecisionSummary | null;
+  metadata?: Record<string, unknown>;
 }
 
 export async function createBid(input: CreateBidInput): Promise<string> {
@@ -1090,12 +1079,41 @@ export async function createBid(input: CreateBidInput): Promise<string> {
       hours_estimated: input.hoursEstimated,
       status: input.status,
       notes: input.notes,
+      metadata: {
+        ...(input.metadata ?? {}),
+        ...buildSourceDecisionMetadata(input.sourceDecision),
+      },
     })
     .select("id")
     .single();
 
   if (error) throw new Error(`createBid: ${error.message}`);
   return (data as { id: string }).id;
+}
+
+export async function updateBid(
+  id: string,
+  input: CreateBidInput,
+): Promise<void> {
+  const { error } = await supabase
+    .from("bids")
+    .update({
+      tender_id: input.tenderId,
+      agent_run_id: input.runId ?? null,
+      rate_sek: input.rateSEK,
+      margin_pct: input.marginPct,
+      hours_estimated: input.hoursEstimated,
+      status: input.status,
+      notes: input.notes,
+      metadata: {
+        ...(input.metadata ?? {}),
+        ...buildSourceDecisionMetadata(input.sourceDecision),
+      },
+    })
+    .eq("id", id)
+    .eq("tenant_key", "demo");
+
+  if (error) throw new Error(`updateBid: ${error.message}`);
 }
 
 export async function updateBidStatus(
@@ -1119,32 +1137,6 @@ export async function deleteBid(id: string): Promise<void> {
     .eq("tenant_key", "demo");
 
   if (error) throw new Error(`deleteBid: ${error.message}`);
-}
-
-// Helper to build a minimal Procurement-compatible object from real tender data
-// for components that still expect the mock Procurement shape.
-export function tenderToMockProcurement(
-  id: string,
-  name: string,
-  uploadedAt: string,
-  documentFilenames: string[],
-  decision?: { verdict: Verdict; confidence: number; citedMemo: string } | null,
-): Procurement {
-  return {
-    id,
-    name,
-    documents: documentFilenames,
-    uploadedAt,
-    chunks: 0,
-    status: decision ? "done" : "pending",
-    estimatedValueMSEK: 0,
-    winProbability: decision ? decision.confidence / 100 : 0.5,
-    strategicFit: "Medium",
-    riskScore: "Medium",
-    topReason: decision?.citedMemo.split(/\.\s/)[0] ?? "Awaiting analysis.",
-    verdict: decision?.verdict,
-    confidence: decision?.confidence,
-  };
 }
 
 // ---------------------------------------------------------------------------

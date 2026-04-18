@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/PageHeader";
@@ -17,8 +17,15 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { EmptyState } from "@/components/EmptyState";
-import { fetchProcurements, fetchDecisions, createBid, tenderToMockProcurement } from "@/lib/api";
-import { bidStatusLabel, bidStatusOrder, type BidStatus } from "@/data/mock";
+import {
+  fetchProcurements,
+  fetchDecisions,
+  createBid,
+  fetchBid,
+  updateBid,
+} from "@/lib/api";
+import { decisionToEstimateInput } from "@/lib/bidIntegrationMapping";
+import { bidStatusLabel, bidStatusOrder, type BidStatus, type DecisionSummary } from "@/data/mock";
 import { estimateBid, formatSEK, type BidEstimate } from "@/lib/bidEstimator";
 import {
   ArrowLeft,
@@ -100,8 +107,11 @@ function RateBar({ rate, estimate }: { rate: number; estimate: BidEstimate }) {
 
 export default function BidEditor() {
   const [params] = useSearchParams();
+  const { bidId } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const isEditMode = Boolean(bidId);
+  const requestedRunId = params.get("run");
 
   const { data: procurementList = [] } = useQuery({
     queryKey: ["procurements"],
@@ -113,59 +123,91 @@ export default function BidEditor() {
     queryFn: fetchDecisions,
   });
 
+  const { data: existingBid = null, isLoading: bidLoading } = useQuery({
+    queryKey: ["bid", bidId],
+    queryFn: () => fetchBid(bidId as string),
+    enabled: isEditMode,
+  });
+
   const [procurementId, setProcurementId] = useState<string>(
     params.get("procurement") ?? "",
   );
+  const [rate, setRate] = useState<number>(1200);
+  const [margin, setMargin] = useState<number>(12);
+  const [hours, setHours] = useState<number>(1600);
+  const [status, setStatus] = useState<BidStatus>("draft");
+  const [notes, setNotes] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+  const [initializedKey, setInitializedKey] = useState<string>("");
 
-  // Resolve the selected procurement row
   const procRow = useMemo(
     () => procurementList.find((p) => p.id === procurementId) ?? procurementList[0],
     [procurementList, procurementId],
   );
 
-  // Build a Procurement-compatible object for estimateBid
-  const decisionForProcurement = useMemo(
-    () => decisions.find((d) => procRow && d.tenderId === procRow.id),
-    [decisions, procRow],
-  );
-
-  const procurement = useMemo(() => {
+  const selectedDecision = useMemo<DecisionSummary | null>(() => {
     if (!procRow) return null;
-    return tenderToMockProcurement(
-      procRow.id,
-      procRow.name,
-      procRow.uploadedAt,
-      procRow.documentFilenames,
-      decisionForProcurement
-        ? {
-            verdict: decisionForProcurement.verdict,
-            confidence: decisionForProcurement.confidence,
-            citedMemo: decisionForProcurement.citedMemo,
-          }
-        : null,
+    if (isEditMode) return existingBid?.decision ?? null;
+    if (requestedRunId) {
+      return decisions.find((d) => d.id === requestedRunId) ?? null;
+    }
+    return (
+      decisions.find(
+        (d) =>
+          d.tenderId === procRow.id &&
+          (d.verdict === "BID" || d.verdict === "CONDITIONAL_BID"),
+      ) ??
+      decisions.find((d) => d.tenderId === procRow.id) ??
+      null
     );
-  }, [procRow, decisionForProcurement]);
+  }, [decisions, existingBid, isEditMode, procRow, requestedRunId]);
 
-  const estimate = useMemo(
-    () => (procurement ? estimateBid(procurement) : null),
-    [procurement],
-  );
+  const sourceDecision =
+    selectedDecision?.isDraftable ? selectedDecision : null;
 
-  const [rate, setRate] = useState<number>(estimate?.recommendedRate ?? 1200);
-  const [margin, setMargin] = useState<number>(estimate?.inputs.targetMarginPct ?? 12);
-  const [hours, setHours] = useState<number>(1600);
-  const [status, setStatus] = useState<BidStatus>("draft");
-  const [notes, setNotes] = useState<string>("");
-  const [saving, setSaving] = useState(false);
+  const estimate = useMemo(() => {
+    if (!procRow) return null;
+    return estimateBid(decisionToEstimateInput(selectedDecision, procRow.id));
+  }, [procRow, selectedDecision]);
+
+  useEffect(() => {
+    if (isEditMode && existingBid) {
+      const key = `edit:${existingBid.id}:${existingBid.updatedAt}`;
+      if (initializedKey === key) return;
+      setProcurementId(existingBid.procurementId);
+      setRate(existingBid.rateSEK);
+      setMargin(existingBid.marginPct);
+      setHours(existingBid.hoursEstimated);
+      setStatus(existingBid.status);
+      setNotes(existingBid.notes);
+      setInitializedKey(key);
+      return;
+    }
+
+    if (!isEditMode && procRow && estimate) {
+      const key = `new:${procRow.id}:${selectedDecision?.runId ?? "manual"}`;
+      if (initializedKey === key) return;
+      setProcurementId(procRow.id);
+      setRate(estimate.recommendedRate);
+      setMargin(estimate.inputs.targetMarginPct);
+      setHours(1600);
+      setInitializedKey(key);
+    }
+  }, [estimate, existingBid, initializedKey, isEditMode, procRow, selectedDecision]);
 
   const onPickProcurement = (id: string) => {
     setProcurementId(id);
-    const row = procurementList.find((x) => x.id === id);
-    if (row) {
-      const mock = tenderToMockProcurement(id, row.name, row.uploadedAt, row.documentFilenames);
-      const e = estimateBid(mock);
-      setRate(e.recommendedRate);
-      setMargin(e.inputs.targetMarginPct);
+    const decision =
+      decisions.find(
+        (d) =>
+          d.tenderId === id &&
+          (d.verdict === "BID" || d.verdict === "CONDITIONAL_BID"),
+      ) ?? decisions.find((d) => d.tenderId === id);
+    const e = estimateBid(decisionToEstimateInput(decision ?? null, id));
+    setRate(e.recommendedRate);
+    setMargin(e.inputs.targetMarginPct);
+    if (!isEditMode) {
+      setInitializedKey(`new:${id}:${decision?.runId ?? "manual"}`);
     }
   };
 
@@ -186,17 +228,25 @@ export default function BidEditor() {
     if (!procRow) return;
     setSaving(true);
     try {
-      await createBid({
+      const input = {
         tenderId: procRow.id,
         rateSEK: rate,
         marginPct: margin,
         hoursEstimated: hours,
         status,
         notes,
-        runId: decisionForProcurement?.id,
-      });
+        runId: sourceDecision?.runId ?? (isEditMode ? existingBid?.runId : undefined),
+        sourceDecision,
+        metadata: existingBid?.metadata,
+      };
+      if (isEditMode && bidId) {
+        await updateBid(bidId, input);
+      } else {
+        await createBid(input);
+      }
       queryClient.invalidateQueries({ queryKey: ["bids"] });
-      toast.success("Draft bid saved", {
+      queryClient.invalidateQueries({ queryKey: ["bid", bidId] });
+      toast.success(isEditMode ? "Bid updated" : "Draft bid saved", {
         description: `${formatSEK(rate)} SEK/h · ${bidStatusLabel[status]}`,
       });
       navigate("/bids");
@@ -209,7 +259,11 @@ export default function BidEditor() {
 
   const totalContractValue = rate * hours;
   const delta = estimate ? deltaInfo(rate, estimate) : null;
-  const deadline = procRow ? (() => { const d = new Date(procRow.uploadedAt); d.setDate(d.getDate() + 60); return d; })() : null;
+  const deadline = procRow ? (() => {
+    const d = new Date(procRow.uploadedAt);
+    d.setDate(d.getDate() + 60);
+    return d;
+  })() : null;
   const daysToDeadline = deadline
     ? Math.round((deadline.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
     : null;
@@ -217,8 +271,12 @@ export default function BidEditor() {
   return (
     <>
       <PageHeader
-        title="New Bid"
-        description="Prefilled from the agent recommendation — adjust before adding to the pipeline."
+        title={isEditMode ? "Edit Bid" : "New Bid"}
+        description={
+          isEditMode
+            ? "Update the bid pipeline record."
+            : "Prefilled from the agent decision — adjust before adding to the pipeline."
+        }
         actions={
           <Button asChild variant="outline">
             <Link to="/bids">
@@ -228,7 +286,9 @@ export default function BidEditor() {
         }
       />
 
-      {procurementList.length === 0 ? (
+      {bidLoading ? (
+        <p className="text-sm text-muted-foreground">Loading bid…</p>
+      ) : procurementList.length === 0 ? (
         <EmptyState
           icon={FileQuestion}
           title="No procurements available"
@@ -243,6 +303,7 @@ export default function BidEditor() {
                 <Select
                   value={procRow?.id ?? ""}
                   onValueChange={onPickProcurement}
+                  disabled={isEditMode}
                 >
                   <SelectTrigger id="procurement"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -256,7 +317,7 @@ export default function BidEditor() {
               </div>
 
               {/* Procurement context strip */}
-              {procurement && (
+              {procRow && (
                 <div className="grid gap-3 rounded-md border border-border bg-muted/30 p-3 sm:grid-cols-4">
                   <div>
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -282,7 +343,7 @@ export default function BidEditor() {
                       Agent decision
                     </p>
                     <p className="text-sm font-medium">
-                      {decisionForProcurement?.verdict.replace(/_/g, " ") ?? "—"}
+                      {selectedDecision?.verdict.replace(/_/g, " ") ?? "—"}
                     </p>
                   </div>
                   <div>
@@ -291,9 +352,15 @@ export default function BidEditor() {
                     </p>
                     <p className="inline-flex items-center gap-1 font-mono text-sm tabular-nums">
                       <TrendingUp className="h-3 w-3 text-muted-foreground" />
-                      {decisionForProcurement ? `${decisionForProcurement.confidence}%` : "—"}
+                      {selectedDecision ? `${selectedDecision.confidence}%` : "—"}
                     </p>
                   </div>
+                </div>
+              )}
+
+              {selectedDecision && !selectedDecision.isDraftable && (
+                <div className="rounded-md border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
+                  This decision is NO BID, so this draft will be saved without an agent-run link.
                 </div>
               )}
 
@@ -406,7 +473,7 @@ export default function BidEditor() {
                   <Link to="/bids">Cancel</Link>
                 </Button>
                 <Button onClick={handleSave} disabled={saving || !procRow}>
-                  {saving ? "Saving…" : "Save draft"}
+                  {saving ? "Saving…" : isEditMode ? "Save changes" : "Save draft"}
                 </Button>
               </div>
             </CardContent>
@@ -467,9 +534,9 @@ export default function BidEditor() {
                     {estimate.inputs.evaluationWeights.quality}
                   </p>
 
-                  {decisionForProcurement && (
+                  {selectedDecision && (
                     <Button asChild variant="outline" size="sm" className="w-full">
-                      <Link to={`/decisions/${decisionForProcurement.id}`}>
+                      <Link to={`/decisions/${selectedDecision.runId}`}>
                         <BookOpen className="h-3.5 w-3.5" />
                         See full reasoning
                       </Link>

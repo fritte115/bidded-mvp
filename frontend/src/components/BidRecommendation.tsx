@@ -3,23 +3,26 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { EvidenceBadge } from "@/components/EvidenceBadge";
+import { buildBidDraftPath, decisionToEstimateInput } from "@/lib/bidIntegrationMapping";
 import { Zap, Target } from "lucide-react";
 import { estimateBid, formatSEK } from "@/lib/bidEstimator";
-import type { Procurement } from "@/data/mock";
+import type { DecisionSummary } from "@/data/mock";
 
 interface Props {
-  procurement: Procurement;
+  decision: DecisionSummary;
   /** Optional title shown above the card (used on the Compare page grid). */
   heading?: string;
   className?: string;
 }
 
-export function BidRecommendation({ procurement, heading, className }: Props) {
+export function BidRecommendation({ decision, heading, className }: Props) {
   const navigate = useNavigate();
-  const e = estimateBid(procurement);
+  const e = estimateBid(decisionToEstimateInput(decision, decision.tenderId));
+  const bidPath = buildBidDraftPath(decision);
 
   const handleUseAsDraft = () => {
-    navigate(`/bids/new?procurement=${procurement.id}`);
+    if (bidPath) navigate(bidPath);
+    else navigate(`/decisions/${decision.runId}`);
   };
 
   return (
@@ -81,7 +84,11 @@ export function BidRecommendation({ procurement, heading, className }: Props) {
         </div>
 
         <Button variant="outline" size="sm" className="w-full" onClick={handleUseAsDraft}>
-          Use as draft bid
+          {decision.existingBidId
+            ? "Open bid"
+            : decision.isDraftable
+              ? "Use as draft bid"
+              : "Open reasoning"}
         </Button>
       </CardContent>
     </Card>
