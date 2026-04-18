@@ -136,8 +136,8 @@
         "Tests cover valid cited claims, missing evidence IDs, assumptions, missing_info, and tender/company comparison claims."
       ],
       "priority": 9,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added schema validation for resolved evidence IDs, typed evidence gaps, validation error codes, and tender/company comparison tests. Complete."
     },
     {
       "id": "US-010",

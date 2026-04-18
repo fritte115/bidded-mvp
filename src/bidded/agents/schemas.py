@@ -64,9 +64,28 @@ class EvidenceReference(StrictAgentOutputModel):
     evidence_id: UUID | None = None
 
 
+def _require_resolved_evidence_ids(
+    evidence_refs: list[EvidenceReference],
+    *,
+    field_name: str,
+) -> None:
+    missing_ids = [
+        evidence_ref.evidence_key
+        for evidence_ref in evidence_refs
+        if evidence_ref.evidence_id is None
+    ]
+    if missing_ids:
+        joined_keys = ", ".join(missing_ids)
+        raise ValueError(
+            f"{field_name} evidence_refs require evidence_id: {joined_keys}"
+        )
+
+
 class AgentValidationError(StrictAgentOutputModel):
+    code: str = Field(default="schema_validation", min_length=1)
     message: str = Field(min_length=1)
     field_path: str | None = None
+    retryable: bool = True
     evidence_refs: list[EvidenceReference] = Field(default_factory=list)
 
 
@@ -74,12 +93,28 @@ class SupportedClaim(StrictAgentOutputModel):
     claim: str = Field(min_length=1)
     evidence_refs: list[EvidenceReference] = Field(min_length=1)
 
+    @model_validator(mode="after")
+    def validate_evidence_ids(self) -> SupportedClaim:
+        _require_resolved_evidence_ids(
+            self.evidence_refs,
+            field_name="supported claim",
+        )
+        return self
+
 
 class TargetedDisagreement(StrictAgentOutputModel):
     target_role: AgentRole
     disputed_claim: str = Field(min_length=1)
     rebuttal: str = Field(min_length=1)
     evidence_refs: list[EvidenceReference] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_evidence_ids(self) -> TargetedDisagreement:
+        _require_resolved_evidence_ids(
+            self.evidence_refs,
+            field_name="targeted disagreement",
+        )
+        return self
 
 
 class UnsupportedClaim(StrictAgentOutputModel):
@@ -92,7 +127,15 @@ class BlockerChallenge(StrictAgentOutputModel):
     blocker: str = Field(min_length=1)
     position: Literal["uphold", "downgrade", "reject"]
     rationale: str = Field(min_length=1)
-    evidence_refs: list[EvidenceReference] = Field(default_factory=list)
+    evidence_refs: list[EvidenceReference] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_evidence_ids(self) -> BlockerChallenge:
+        _require_resolved_evidence_ids(
+            self.evidence_refs,
+            field_name="blocker challenge",
+        )
+        return self
 
 
 class Round1Motion(StrictAgentOutputModel):
@@ -105,6 +148,7 @@ class Round1Motion(StrictAgentOutputModel):
     potential_blockers: list[SupportedClaim] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
     missing_info: list[str] = Field(default_factory=list)
+    potential_evidence_gaps: list[str] = Field(default_factory=list)
     recommended_actions: list[str] = Field(default_factory=list)
     validation_errors: list[AgentValidationError] = Field(default_factory=list)
 
@@ -133,6 +177,7 @@ class Round2Rebuttal(StrictAgentOutputModel):
     revised_stance: BidVerdict | None = None
     evidence_refs: list[EvidenceReference] = Field(default_factory=list)
     missing_info: list[str] = Field(default_factory=list)
+    potential_evidence_gaps: list[str] = Field(default_factory=list)
     recommended_actions: list[str] = Field(default_factory=list)
     validation_errors: list[AgentValidationError] = Field(default_factory=list)
 
@@ -157,14 +202,30 @@ class ComplianceMatrixItem(StrictAgentOutputModel):
     requirement: str = Field(min_length=1)
     status: Literal["met", "unmet", "unknown"]
     assessment: str = Field(min_length=1)
-    evidence_refs: list[EvidenceReference] = Field(default_factory=list)
+    evidence_refs: list[EvidenceReference] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_evidence_ids(self) -> ComplianceMatrixItem:
+        _require_resolved_evidence_ids(
+            self.evidence_refs,
+            field_name="compliance matrix item",
+        )
+        return self
 
 
 class RiskRegisterItem(StrictAgentOutputModel):
     risk: str = Field(min_length=1)
     severity: Literal["low", "medium", "high"]
     mitigation: str = Field(min_length=1)
-    evidence_refs: list[EvidenceReference] = Field(default_factory=list)
+    evidence_refs: list[EvidenceReference] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_evidence_ids(self) -> RiskRegisterItem:
+        _require_resolved_evidence_ids(
+            self.evidence_refs,
+            field_name="risk register item",
+        )
+        return self
 
 
 class JudgeDecision(StrictAgentOutputModel):
@@ -178,9 +239,10 @@ class JudgeDecision(StrictAgentOutputModel):
     potential_blockers: list[SupportedClaim] = Field(default_factory=list)
     risk_register: list[RiskRegisterItem] = Field(default_factory=list)
     missing_info: list[str] = Field(default_factory=list)
+    potential_evidence_gaps: list[str] = Field(default_factory=list)
     recommended_actions: list[str] = Field(default_factory=list)
     cited_memo: str = Field(min_length=1)
-    evidence_ids: list[UUID] = Field(default_factory=list)
+    evidence_ids: list[UUID] = Field(min_length=1)
     evidence_refs: list[EvidenceReference] = Field(default_factory=list)
     validation_errors: list[AgentValidationError] = Field(default_factory=list)
 
