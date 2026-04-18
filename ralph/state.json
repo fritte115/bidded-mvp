@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-010",
-  "storyTitle": "Seed demo company profile",
+  "currentStory": "US-011",
+  "storyTitle": "Convert company facts to evidence",
   "nextAction": "implement",
-  "progressTokens": 1125,
+  "progressTokens": 1200,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"

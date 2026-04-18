@@ -151,8 +151,8 @@
         "pytest and ruff check pass for the seed logic."
       ],
       "priority": 10,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added idempotent seed-demo-company CLI and deterministic larger consultancy payload with JSONB capability, reference, CV, and financial data. Complete."
     },
     {
       "id": "US-011",

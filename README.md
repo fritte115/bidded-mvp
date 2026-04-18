@@ -20,6 +20,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Graph state | Typed `BidRunState` finns under `src/bidded/orchestration` med runtime control fields, audit artifacts, node ownership contracts och reducer-policy separerade. |
 | Agent tool policies | Immutable policy contracts finns under `src/bidded/agents/tool_policy.py` för LLM-agenternas läs/skrivgränser och orchestratorns side effects. |
 | Agent output schemas | Strict Pydantic schemas finns under `src/bidded/agents/schemas.py` för Round 1 motions, Round 2 rebuttals, Judge decisions och evidence-claim validation. |
+| Seedat demo-bolag | `bidded seed-demo-company` upsertar en större syntetisk IT-konsultprofil idempotent till `companies`. |
 | Frontend | Ingen frontend i repot. Lovable är planerad som tunn demo-UI ovanpå Supabase i `US-025`. |
 
 README:n beskriver därför både nuläget och den stack som PRD:n definierar att vi bygger mot. När stories implementeras ska planerade delar flyttas till faktiskt levererade delar.
@@ -70,7 +71,7 @@ Agentartefakter och UI-output ska vara engelska enligt PRD:n, men beslutskontext
 | Lokal automation | Make | `make ralph` kör Ralph med Codex CLI. |
 | LLM för implementation | Codex CLI | Makefile sätter `RALPH_CODEX_CMD="codex exec --model ..."` för Ralph-sessioner. |
 | Miljö | `.env` via Makefile include | `.env.example` dokumenterar runtimevariabler utan secrets. |
-| App-runtime | Python/LangGraph/Supabase | Python-scaffold och dependency-kontrakt finns; live integrations byggs i senare stories. |
+| App-runtime | Python/LangGraph/Supabase | Python-scaffold, dependency-kontrakt och idempotent demo-company seed finns; övriga live integrations byggs i senare stories. |
 
 ## Arkitektur
 
@@ -222,9 +223,12 @@ Detta är kärndifferentiatorn: systemet ska kunna visa varför ett beslut togs.
 
 ## CLI Och Worker
 
-PRD:n beskriver en lokal CLI/worker som senare ska kunna:
+PRD:n beskriver en lokal CLI/worker. Den kan nu:
 
 - seeda demo-bolaget idempotent
+
+Planerade kommande kommandon ska kunna:
+
 - konvertera seedade bolagsfakta till `company_profile` evidence items
 - registrera en lokal text-PDF som tenderdokument
 - ladda upp PDF:en till Supabase Storage
@@ -235,7 +239,11 @@ PRD:n beskriver en lokal CLI/worker som senare ska kunna:
 - skriva normaliserade `agent_outputs` och `bid_decisions`
 - logga tillräckligt lokalt för demooperation medan Supabase förblir source of truth
 
-Denna CLI finns inte än i root-repot. `US-001` är storyn som ska skapa grunden för den.
+Seed-kommandot kräver `SUPABASE_URL` och `SUPABASE_SERVICE_ROLE_KEY`:
+
+```bash
+.venv/bin/bidded seed-demo-company
+```
 
 ## Miljövariabler
 
@@ -280,7 +288,7 @@ python3 -m venv .venv
 .venv/bin/ruff check .
 ```
 
-Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence- och worker-kommandon byggs i senare stories.
+Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence- och seed-kommandot finns; övriga worker-kommandon byggs i senare stories.
 
 ## Teststrategi
 

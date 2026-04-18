@@ -65,7 +65,7 @@ At the end of every non-compaction story session:
 - **Bidded Source Target**: Application code for PRD stories should be scaffolded under `src/bidded` with tests that can run without live external services.
 - **Bidded Gate Baseline**: Until a full `make check` exists, story completion should at minimum satisfy deterministic `pytest` coverage for touched behavior plus `ruff check`.
 - **Bidded Supabase Migrations**: Timestamped SQL files live under `supabase/migrations/`; contract-test schema assumptions, keep v1 demo tables pinned to `tenant_key = 'demo'`, and avoid Auth/RLS unless a story adds it.
-- **Bidded CLI Boundary**: Keep CLI help and package imports free of live Supabase/Claude client construction; create external clients only inside real command execution paths.
+- **Bidded CLI Boundary**: Keep CLI help/package imports free of live client construction; create external clients only inside real command execution paths and keep seed helpers injectable for tests.
 - **Bidded Agent Audit Contract**: Persist agent outputs as immutable audit rows keyed by `agent_role`, `round_name`, and `output_type`; final decisions expose Judge `evidence_ids`.
 - **Bidded Evidence Schema Contract**: `evidence_items` use `tender_document`/`company_profile` source types with explicit nullable provenance columns plus `source_metadata.source_label`; `document_chunks` keep nullable pgvector embeddings.
 - **Bidded Graph State Contract**: `BidRunState.apply_node_update` enforces `GraphNodeName` ownership, append-only audit artifacts, write-once decisions, and role-keyed specialist reducers.
