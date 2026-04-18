@@ -175,10 +175,11 @@
       "description": "As an operator, I need to register a user-provided procurement PDF so that a real Swedish public procurement can be used as the hackathon tender fixture with English outputs.",
       "acceptanceCriteria": [
         "A CLI command accepts a local text-PDF path, tender title, issuing authority, and optional procurement metadata.",
+        "CLI help or docs identify data/demo/incoming/Bilaga Skakrav.pdf as the preferred local gitignored demo input when present, without requiring it for automated tests.",
         "The command uploads the PDF to the configured Supabase Storage bucket and records storage_path, checksum_sha256, content_type, and original filename in documents.",
         "The command creates or updates a tender row linked to the uploaded procurement document and the demo company.",
         "The command fails with a clear error when the file is missing, not a PDF, or Supabase credentials are absent.",
-        "pytest and ruff check pass for registration logic with Supabase mocked."
+        "pytest and ruff check pass for registration logic using a fixture or generated PDF and mocked Supabase Storage."
       ],
       "priority": 12,
       "passes": false,

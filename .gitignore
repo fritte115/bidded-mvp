@@ -4,3 +4,9 @@
 brain-in-the-fish/
 ralph/.last-branch
 ralph/archive/
+
+# Local demo tender documents, not committed.
+data/demo/incoming/
+
+# Local scratch files.
+tmp/
