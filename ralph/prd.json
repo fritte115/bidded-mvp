@@ -415,8 +415,8 @@
         "Tests cover normalization, Swedish diacritics, no-match behavior, multiple-match precedence, and metadata shape; pytest and ruff check pass."
       ],
       "priority": 27,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added curated regulatory glossary and tender evidence metadata annotations with glossary-first classification. Complete."
     },
     {
       "id": "US-028",

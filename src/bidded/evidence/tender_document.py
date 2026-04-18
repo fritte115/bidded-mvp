@@ -9,6 +9,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from bidded.evidence.regulatory_glossary import (
+    RegulatoryGlossaryMatch,
+    match_regulatory_glossary,
+)
 from bidded.requirements import RequirementType
 from bidded.retrieval import RetrievedDocumentChunk
 
@@ -264,6 +268,7 @@ def build_tender_evidence_items(
         if evidence_key in seen_keys:
             continue
         seen_keys.add(evidence_key)
+        metadata = _metadata_for_candidate(candidate)
         evidence_items.append(
             {
                 "tenant_key": tenant_key,
@@ -283,7 +288,7 @@ def build_tender_evidence_items(
                 "chunk_id": str(candidate.chunk_id),
                 "page_start": candidate.page_start,
                 "page_end": candidate.page_end,
-                "metadata": {"source": "tender_evidence_board"},
+                "metadata": metadata,
             }
         )
 
@@ -354,6 +359,33 @@ def _evidence_key(candidate: TenderEvidenceCandidate) -> str:
     )
 
 
+def _metadata_for_candidate(candidate: TenderEvidenceCandidate) -> dict[str, Any]:
+    metadata: dict[str, Any] = {"source": "tender_evidence_board"}
+    glossary_matches = match_regulatory_glossary(candidate.excerpt)
+    if not glossary_matches:
+        return metadata
+
+    metadata["regulatory_glossary_ids"] = [
+        match.entry_id for match in glossary_matches
+    ]
+    metadata["regulatory_glossary"] = [
+        _glossary_match_metadata(match) for match in glossary_matches
+    ]
+    return metadata
+
+
+def _glossary_match_metadata(match: RegulatoryGlossaryMatch) -> dict[str, Any]:
+    return {
+        "id": match.entry_id,
+        "display_label": match.display_label,
+        "requirement_type": match.requirement_type.value,
+        "matched_patterns": list(match.matched_patterns),
+        "reference_hint": match.reference_hint,
+        "suggested_proof_action": match.suggested_proof_action,
+        "blocker_hint": match.blocker_hint,
+    }
+
+
 def _sentences(text: str) -> list[str]:
     return [
         sentence.strip()
@@ -380,6 +412,10 @@ def _category_for_sentence(sentence: str) -> str | None:
 
 
 def _requirement_type_for_sentence(sentence: str) -> RequirementType | None:
+    glossary_matches = match_regulatory_glossary(sentence)
+    if glossary_matches:
+        return glossary_matches[0].requirement_type
+
     lowered = sentence.casefold()
     for requirement_type, keywords in _REQUIREMENT_TYPE_KEYWORDS:
         if any(keyword in lowered for keyword in keywords):

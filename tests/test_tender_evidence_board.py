@@ -122,7 +122,7 @@ def test_tender_evidence_extraction_classifies_swedish_procurement_terms() -> No
         RequirementType.EXCLUSION_GROUND,
         RequirementType.EXCLUSION_GROUND,
         RequirementType.EXCLUSION_GROUND,
-        RequirementType.LEGAL_OR_REGULATORY_REFERENCE,
+        RequirementType.QUALITY_MANAGEMENT,
         RequirementType.QUALITY_MANAGEMENT,
     ]
     assert [item["requirement_type"] for item in items] == [
@@ -132,12 +132,39 @@ def test_tender_evidence_extraction_classifies_swedish_procurement_terms() -> No
         "exclusion_ground",
         "exclusion_ground",
         "exclusion_ground",
-        "legal_or_regulatory_reference",
+        "quality_management",
         "quality_management",
     ]
     assert {item["source_metadata"]["source_label"] for item in items} == {
         "Upphandling.pdf"
     }
+
+
+def test_tender_evidence_extraction_uses_regulatory_glossary_terms() -> None:
+    chunks = [
+        _retrieved_chunk(
+            "The supplier may be rejected for professional misconduct. "
+            "The engagement must follow SOSFS 2011:9."
+        )
+    ]
+
+    candidates = build_tender_evidence_candidates(chunks)
+    items = build_tender_evidence_items(candidates)
+
+    assert [candidate.requirement_type for candidate in candidates] == [
+        RequirementType.EXCLUSION_GROUND,
+        RequirementType.QUALITY_MANAGEMENT,
+    ]
+    assert [candidate.category for candidate in candidates] == [
+        "exclusion_ground",
+        "quality_management",
+    ]
+    assert [
+        item["metadata"]["regulatory_glossary_ids"][0] for item in items
+    ] == [
+        "professional_misconduct",
+        "quality_management_sosfs",
+    ]
 
 
 def test_ambiguous_tender_evidence_keeps_category_without_requirement_type() -> None:
@@ -232,6 +259,84 @@ def test_tender_evidence_items_get_stable_keys_and_prevent_duplicates() -> None:
     assert item["category"] == "mandatory_requirement"
     assert item["requirement_type"] == "shall_requirement"
     assert item["metadata"]["source"] == "tender_evidence_board"
+
+
+def test_tender_evidence_items_include_regulatory_glossary_metadata() -> None:
+    candidate = TenderEvidenceCandidate(
+        document_id=DOCUMENT_ID,
+        chunk_id=CHUNK_ID,
+        page_start=5,
+        page_end=5,
+        excerpt=(
+            "Supplier shall provide a credit report and submit quarterly reports "
+            "during the contract."
+        ),
+        source_label="Tender.pdf",
+        category="financial_standing",
+        requirement_type=RequirementType.FINANCIAL_STANDING,
+        normalized_meaning=(
+            "The tender requires financial proof and contract reporting."
+        ),
+    )
+
+    item = build_tender_evidence_items([candidate])[0]
+
+    assert item["source_type"] == "tender_document"
+    assert item["source_metadata"] == {"source_label": "Tender.pdf"}
+    assert item["metadata"]["source"] == "tender_evidence_board"
+    assert item["metadata"]["regulatory_glossary_ids"] == [
+        "financial_standing",
+        "contract_reporting_obligations",
+    ]
+
+    glossary_matches = item["metadata"]["regulatory_glossary"]
+    assert glossary_matches == [
+        {
+            "id": "financial_standing",
+            "display_label": "Financial standing",
+            "requirement_type": "financial_standing",
+            "matched_patterns": ["credit report"],
+            "reference_hint": (
+                "Check tender language on economic and financial capacity."
+            ),
+            "suggested_proof_action": (
+                "Prepare current credit report and financial capacity evidence."
+            ),
+            "blocker_hint": (
+                "Missing financial standing proof can block qualification."
+            ),
+        },
+        {
+            "id": "contract_reporting_obligations",
+            "display_label": "Contract reporting obligations",
+            "requirement_type": "contract_obligation",
+            "matched_patterns": ["quarterly report", "during the contract"],
+            "reference_hint": "Check reporting duties that apply after contract award.",
+            "suggested_proof_action": (
+                "Confirm delivery team can produce the required contract reports."
+            ),
+            "blocker_hint": (
+                "Reporting duties are delivery risks unless marked mandatory."
+            ),
+        },
+    ]
+
+
+def test_tender_evidence_items_omit_regulatory_glossary_metadata_for_no_match() -> None:
+    candidate = TenderEvidenceCandidate(
+        document_id=DOCUMENT_ID,
+        chunk_id=CHUNK_ID,
+        page_start=6,
+        page_end=6,
+        excerpt="Tender responses are evaluated on quality and price.",
+        source_label="Tender.pdf",
+        category="award_criterion",
+        normalized_meaning="The tender uses quality and price award criteria.",
+    )
+
+    item = build_tender_evidence_items([candidate])[0]
+
+    assert item["metadata"] == {"source": "tender_evidence_board"}
 
 
 def test_tender_evidence_requirement_type_is_nullable_and_validated() -> None:

@@ -5,6 +5,12 @@ from bidded.evidence.company_profile import (
     build_company_profile_evidence_items,
     upsert_company_profile_evidence,
 )
+from bidded.evidence.regulatory_glossary import (
+    REGULATORY_GLOSSARY,
+    RegulatoryGlossaryEntry,
+    RegulatoryGlossaryMatch,
+    match_regulatory_glossary,
+)
 from bidded.evidence.tender_document import (
     TenderEvidenceCandidate,
     TenderEvidenceUpsertResult,
@@ -16,12 +22,16 @@ from bidded.evidence.tender_document import (
 
 __all__ = [
     "CompanyProfileEvidenceUpsertResult",
+    "REGULATORY_GLOSSARY",
+    "RegulatoryGlossaryEntry",
+    "RegulatoryGlossaryMatch",
     "TenderEvidenceCandidate",
     "TenderEvidenceUpsertResult",
     "build_company_profile_evidence_items",
     "build_tender_evidence_candidates",
     "build_tender_evidence_items",
     "get_tender_evidence_item_by_key",
+    "match_regulatory_glossary",
     "upsert_company_profile_evidence",
     "upsert_tender_evidence_items",
 ]

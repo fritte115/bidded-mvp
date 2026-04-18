@@ -19,7 +19,7 @@ Started: 2026-04-18
 - **Bidded Graph State/Routing Contract**: `BidRunState.apply_node_update` enforces node ownership and reducers; `src/bidded/orchestration/graph.py` owns the fixed LangGraph shell, preflight checks, Evidence Scout audit append, explicit edge table, bounded retry/stop policy, mocked handlers, and terminal routing.
 - **Bidded Agent Tool Policy Contract**: `src/bidded/agents/tool_policy.py` is the source of truth for LLM-agent denied tools, bounded retrieval, artifact access, and orchestrator-owned side effects.
 - **Bidded Agent Output Schema Contract**: `src/bidded/agents/schemas.py` is the strict Pydantic surface for RequirementType, Evidence Scout output, motions, rebuttals, Judge decisions, evidence refs, material claim evidence-ID validation, typed evidence gaps, validation errors, specialist role bounds, and Round 1 motion audit rows.
-- **Bidded Evidence Builder Contract**: `src/bidded/evidence` converts company facts and retrieved tender chunks into validated evidence rows with stable upserts and deterministic nullable tender `requirement_type`.
+- **Bidded Evidence Builder Contract**: `src/bidded/evidence` converts company facts and retrieved tender chunks into validated evidence rows with stable upserts, deterministic nullable tender `requirement_type`, and curated glossary metadata.
 
 ## Session Log
 
@@ -160,4 +160,10 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added deterministic tender evidence requirement-type classification for English and Swedish procurement terms while preserving null classification for ambiguous evidence.
 - **Files**: src/bidded/evidence/tender_document.py, tests/test_tender_evidence_board.py, README.md, ralph/progress.md, ralph/CLAUDE.md, ralph/prd.json, ralph/state.json
 - **Key learnings**: Run specific procurement-term classifiers before generic shall/must matching so financial, exclusion, document, contract, legal, and quality evidence keep precise types.
+---
+
+## 2026-04-18 22:53 CEST - US-027
+- **Implemented**: Added a curated regulatory glossary with diacritic-insensitive matching, glossary-first tender classification, and evidence metadata annotations.
+- **Files**: src/bidded/evidence/regulatory_glossary.py, src/bidded/evidence/tender_document.py, src/bidded/evidence/__init__.py, tests/test_regulatory_glossary.py, tests/test_tender_evidence_board.py, README.md, ralph/progress.md, ralph/CLAUDE.md, ralph/prd.json, ralph/state.json
+- **Key learnings**: Keep regulatory glossary matches inside evidence item `metadata` so source provenance remains limited to tender or company evidence.
 ---
