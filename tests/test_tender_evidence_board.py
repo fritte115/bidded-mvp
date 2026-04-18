@@ -19,19 +19,27 @@ DOCUMENT_ID = UUID("55555555-5555-4555-8555-555555555555")
 CHUNK_ID = UUID("66666666-6666-4666-8666-666666666666")
 
 
+def _retrieved_chunk(
+    text: str,
+    *,
+    source_label: str = "Tender.pdf",
+) -> RetrievedDocumentChunk:
+    return RetrievedDocumentChunk(
+        chunk_id=str(CHUNK_ID),
+        document_id=DOCUMENT_ID,
+        page_start=3,
+        page_end=3,
+        chunk_index=0,
+        text=text,
+        metadata={"source_label": source_label},
+    )
+
+
 def test_retrieved_chunks_propose_tender_evidence_candidates() -> None:
     chunks = [
-        RetrievedDocumentChunk(
-            chunk_id=str(CHUNK_ID),
-            document_id=DOCUMENT_ID,
-            page_start=3,
-            page_end=3,
-            chunk_index=0,
-            text=(
-                "Supplier must provide ISO 27001 certification. "
-                "The agreement starts with a kickoff workshop."
-            ),
-            metadata={"source_label": "Tender.pdf"},
+        _retrieved_chunk(
+            "Supplier must provide ISO 27001 certification. "
+            "The agreement starts with a kickoff workshop."
         )
     ]
 
@@ -45,9 +53,104 @@ def test_retrieved_chunks_propose_tender_evidence_candidates() -> None:
     assert candidate.page_start == 3
     assert candidate.page_end == 3
     assert candidate.category == "mandatory_requirement"
+    assert candidate.requirement_type is RequirementType.SHALL_REQUIREMENT
     assert candidate.source_label == "Tender.pdf"
     assert candidate.excerpt == "Supplier must provide ISO 27001 certification."
     assert "ISO 27001 certification" in candidate.normalized_meaning
+
+
+def test_tender_evidence_extraction_classifies_clear_requirement_types() -> None:
+    chunks = [
+        _retrieved_chunk(
+            "Supplier shall hold ISO 27001 certification. "
+            "Bidders must provide three comparable public sector references. "
+            "Suppliers in bankruptcy are excluded. "
+            "Bidders must demonstrate stable financial standing. "
+            "The solution must comply with GDPR Article 28. "
+            "Supplier shall maintain a quality management system. "
+            "Submission must include a signed data processing agreement. "
+            "During the contract term, supplier shall meet SLA response times."
+        )
+    ]
+
+    candidates = build_tender_evidence_candidates(chunks)
+
+    assert [candidate.requirement_type for candidate in candidates] == [
+        RequirementType.SHALL_REQUIREMENT,
+        RequirementType.QUALIFICATION_REQUIREMENT,
+        RequirementType.EXCLUSION_GROUND,
+        RequirementType.FINANCIAL_STANDING,
+        RequirementType.LEGAL_OR_REGULATORY_REFERENCE,
+        RequirementType.QUALITY_MANAGEMENT,
+        RequirementType.SUBMISSION_DOCUMENT,
+        RequirementType.CONTRACT_OBLIGATION,
+    ]
+    assert [candidate.category for candidate in candidates] == [
+        "mandatory_requirement",
+        "qualification_requirement",
+        "exclusion_ground",
+        "financial_standing",
+        "legal_or_regulatory_reference",
+        "quality_management",
+        "submission_document",
+        "contract_obligation",
+    ]
+
+
+def test_tender_evidence_extraction_classifies_swedish_procurement_terms() -> None:
+    chunks = [
+        _retrieved_chunk(
+            "Anbudsgivaren ska kunna uppvisa kreditupplysning. "
+            "Leverantören ska ha en stabil ekonomisk bas. "
+            "Leverantören får inte vara i konkurs. "
+            "Leverantören får inte vara föremål för tvångslikvidation. "
+            "Leverantören får inte ha ingått ackord med borgenärer. "
+            "Anbudsgivaren får inte vara dömd för brott avseende yrkesutövning. "
+            "Insatsen ska följa SOSFS 2011:9. "
+            "Leverantören ska ha ett dokumenterat ledningssystem för kvalitet.",
+            source_label="Upphandling.pdf",
+        )
+    ]
+
+    candidates = build_tender_evidence_candidates(chunks)
+    items = build_tender_evidence_items(candidates)
+
+    assert [candidate.requirement_type for candidate in candidates] == [
+        RequirementType.FINANCIAL_STANDING,
+        RequirementType.FINANCIAL_STANDING,
+        RequirementType.EXCLUSION_GROUND,
+        RequirementType.EXCLUSION_GROUND,
+        RequirementType.EXCLUSION_GROUND,
+        RequirementType.EXCLUSION_GROUND,
+        RequirementType.LEGAL_OR_REGULATORY_REFERENCE,
+        RequirementType.QUALITY_MANAGEMENT,
+    ]
+    assert [item["requirement_type"] for item in items] == [
+        "financial_standing",
+        "financial_standing",
+        "exclusion_ground",
+        "exclusion_ground",
+        "exclusion_ground",
+        "exclusion_ground",
+        "legal_or_regulatory_reference",
+        "quality_management",
+    ]
+    assert {item["source_metadata"]["source_label"] for item in items} == {
+        "Upphandling.pdf"
+    }
+
+
+def test_ambiguous_tender_evidence_keeps_category_without_requirement_type() -> None:
+    chunks = [_retrieved_chunk("Award evaluation may value delivery method and price.")]
+
+    candidates = build_tender_evidence_candidates(chunks)
+    item = build_tender_evidence_items(candidates)[0]
+
+    assert len(candidates) == 1
+    assert candidates[0].category == "award_criterion"
+    assert candidates[0].requirement_type is None
+    assert item["category"] == "award_criterion"
+    assert item["requirement_type"] is None
 
 
 def test_tender_evidence_candidate_validation_requires_tender_provenance() -> None:

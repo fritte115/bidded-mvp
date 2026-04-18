@@ -401,8 +401,8 @@
         "Tests cover deterministic classification, Swedish/English terms, ambiguous no-classification behavior, and persisted payload shape; pytest and ruff check pass."
       ],
       "priority": 26,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added deterministic tender requirement-type classification for English and Swedish terms, with ambiguous evidence left nullable. Complete."
     },
     {
       "id": "US-027",

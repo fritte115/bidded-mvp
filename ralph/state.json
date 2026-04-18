@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-026",
-  "storyTitle": "Classify tender evidence requirement types",
+  "currentStory": "US-027",
+  "storyTitle": "Add curated regulatory glossary",
   "nextAction": "implement",
-  "progressTokens": 2370,
+  "progressTokens": 2445,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"

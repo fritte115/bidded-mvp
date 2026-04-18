@@ -12,6 +12,164 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from bidded.requirements import RequirementType
 from bidded.retrieval import RetrievedDocumentChunk
 
+_CATEGORY_BY_REQUIREMENT_TYPE: dict[RequirementType, str] = {
+    RequirementType.SHALL_REQUIREMENT: "mandatory_requirement",
+    RequirementType.QUALIFICATION_REQUIREMENT: "qualification_requirement",
+    RequirementType.EXCLUSION_GROUND: "exclusion_ground",
+    RequirementType.FINANCIAL_STANDING: "financial_standing",
+    RequirementType.LEGAL_OR_REGULATORY_REFERENCE: "legal_or_regulatory_reference",
+    RequirementType.QUALITY_MANAGEMENT: "quality_management",
+    RequirementType.SUBMISSION_DOCUMENT: "submission_document",
+    RequirementType.CONTRACT_OBLIGATION: "contract_obligation",
+}
+
+_REQUIREMENT_TYPE_KEYWORDS: tuple[tuple[RequirementType, tuple[str, ...]], ...] = (
+    (
+        RequirementType.EXCLUSION_GROUND,
+        (
+            "bankrupt",
+            "bankruptcy",
+            "excluded",
+            "exclusion ground",
+            "insolvency",
+            "compulsory liquidation",
+            "composition with creditors",
+            "criminal professional conduct",
+            "konkurs",
+            "tvångslikvidation",
+            "tvangslikvidation",
+            "ackord",
+            "brott avseende yrkesutövning",
+            "brott avseende yrkesutovning",
+        ),
+    ),
+    (
+        RequirementType.FINANCIAL_STANDING,
+        (
+            "credit report",
+            "credit check",
+            "financial standing",
+            "financial capacity",
+            "economic standing",
+            "stable financial base",
+            "annual turnover",
+            "kreditupplysning",
+            "stabil ekonomisk bas",
+            "ekonomisk ställning",
+            "ekonomisk stallning",
+            "finansiell ställning",
+            "finansiell stallning",
+            "omsättning",
+            "omsattning",
+        ),
+    ),
+    (
+        RequirementType.LEGAL_OR_REGULATORY_REFERENCE,
+        (
+            "gdpr",
+            "article 28",
+            "regulation",
+            "statutory",
+            "legal",
+            "law",
+            "sosfs",
+            "sosfs 2011:9",
+            "föreskrift",
+            "foreskrift",
+            "förordning",
+            "forordning",
+            "enligt lag",
+        ),
+    ),
+    (
+        RequirementType.QUALITY_MANAGEMENT,
+        (
+            "quality management system",
+            "quality system",
+            "management system",
+            "iso 9001",
+            "ledningssystem",
+            "kvalitetsledningssystem",
+            "systematiskt kvalitetsarbete",
+        ),
+    ),
+    (
+        RequirementType.SUBMISSION_DOCUMENT,
+        (
+            "submission must include",
+            "must include",
+            "shall include",
+            "include a signed",
+            "submitted document",
+            "documents must be submitted",
+            "signed data processing agreement",
+            "anbudet ska innehålla",
+            "anbudet skall innehålla",
+            "ska bifoga",
+            "skall bifoga",
+            "bifoga",
+            "bilaga",
+            "undertecknad",
+            "handlingar",
+            "ska lämnas in",
+            "ska lamnas in",
+        ),
+    ),
+    (
+        RequirementType.CONTRACT_OBLIGATION,
+        (
+            "contract term",
+            "during the contract",
+            "agreement period",
+            "service level",
+            "sla",
+            "liability",
+            "penalty",
+            "penalties",
+            "liquidated damages",
+            "under avtalstiden",
+            "avtalsperiod",
+            "servicenivå",
+            "serviceniva",
+            "vite",
+        ),
+    ),
+    (
+        RequirementType.QUALIFICATION_REQUIREMENT,
+        (
+            "qualification",
+            "qualified",
+            "references",
+            "reference assignments",
+            "public sector references",
+            "demonstrate",
+            "experience",
+            "referenser",
+            "referensuppdrag",
+            "kvalificeringskrav",
+            "kompetens",
+            "erfarenhet",
+            "kapacitet",
+        ),
+    ),
+    (
+        RequirementType.SHALL_REQUIREMENT,
+        (
+            "must",
+            "shall",
+            "mandatory",
+            "required",
+            "ska",
+            "skall",
+            "måste",
+            "maste",
+            "obligatorisk",
+            "krävs",
+            "kravs",
+        ),
+    ),
+)
+
 
 class SupabaseTenderEvidenceQuery(Protocol):
     def select(self, columns: str) -> SupabaseTenderEvidenceQuery: ...
@@ -83,6 +241,7 @@ def build_tender_evidence_candidates(
                     excerpt=sentence,
                     source_label=source_label,
                     category=category,
+                    requirement_type=_requirement_type_for_sentence(sentence),
                     normalized_meaning=f"Tender states: {sentence}",
                 )
             )
@@ -204,7 +363,11 @@ def _sentences(text: str) -> list[str]:
 
 
 def _category_for_sentence(sentence: str) -> str | None:
-    lowered = sentence.lower()
+    requirement_type = _requirement_type_for_sentence(sentence)
+    if requirement_type is not None:
+        return _CATEGORY_BY_REQUIREMENT_TYPE[requirement_type]
+
+    lowered = sentence.casefold()
     if any(term in lowered for term in ["must", "shall", "mandatory", "required"]):
         return "mandatory_requirement"
     if "award" in lowered or "evaluation" in lowered:
@@ -213,6 +376,14 @@ def _category_for_sentence(sentence: str) -> str | None:
         return "submission_deadline"
     if "liability" in lowered or "penalty" in lowered:
         return "contract_risk"
+    return None
+
+
+def _requirement_type_for_sentence(sentence: str) -> RequirementType | None:
+    lowered = sentence.casefold()
+    for requirement_type, keywords in _REQUIREMENT_TYPE_KEYWORDS:
+        if any(keyword in lowered for keyword in keywords):
+            return requirement_type
     return None
 
 

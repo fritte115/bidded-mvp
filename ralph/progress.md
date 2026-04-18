@@ -19,7 +19,7 @@ Started: 2026-04-18
 - **Bidded Graph State/Routing Contract**: `BidRunState.apply_node_update` enforces node ownership and reducers; `src/bidded/orchestration/graph.py` owns the fixed LangGraph shell, preflight checks, Evidence Scout audit append, explicit edge table, bounded retry/stop policy, mocked handlers, and terminal routing.
 - **Bidded Agent Tool Policy Contract**: `src/bidded/agents/tool_policy.py` is the source of truth for LLM-agent denied tools, bounded retrieval, artifact access, and orchestrator-owned side effects.
 - **Bidded Agent Output Schema Contract**: `src/bidded/agents/schemas.py` is the strict Pydantic surface for RequirementType, Evidence Scout output, motions, rebuttals, Judge decisions, evidence refs, material claim evidence-ID validation, typed evidence gaps, validation errors, specialist role bounds, and Round 1 motion audit rows.
-- **Bidded Evidence Builder Contract**: `src/bidded/evidence` converts company profile facts and retrieved tender chunks into validated Supabase-ready evidence rows with stable `tenant_key,evidence_key` upserts.
+- **Bidded Evidence Builder Contract**: `src/bidded/evidence` converts company facts and retrieved tender chunks into validated evidence rows with stable upserts and deterministic nullable tender `requirement_type`.
 
 ## Session Log
 
@@ -155,4 +155,9 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added the shared nullable RequirementType contract across tender evidence payloads, graph state, Evidence Scout findings, worker loading, and Supabase migration validation.
 - **Files**: src/bidded/requirements.py, src/bidded/agents/schemas.py, src/bidded/agents/__init__.py, src/bidded/evidence/tender_document.py, src/bidded/orchestration/state.py, src/bidded/orchestration/__init__.py, src/bidded/orchestration/evidence_scout.py, src/bidded/orchestration/graph.py, src/bidded/orchestration/worker.py, supabase/migrations/20260418213000_add_evidence_requirement_type.sql, tests/test_agent_output_schemas.py, tests/test_tender_evidence_board.py, tests/test_orchestration_state.py, tests/test_evidence_scout_node.py, tests/test_worker_lifecycle.py, tests/test_supabase_migrations.py, README.md, ralph/progress.md, ralph/CLAUDE.md, ralph/prd.json, ralph/state.json
 - **Key learnings**: Keep procurement requirement classification as a nullable domain enum beside legacy `category` until deterministic classifiers assign values.
+---
+## 2026-04-18 22:46 CEST - US-026
+- **Implemented**: Added deterministic tender evidence requirement-type classification for English and Swedish procurement terms while preserving null classification for ambiguous evidence.
+- **Files**: src/bidded/evidence/tender_document.py, tests/test_tender_evidence_board.py, README.md, ralph/progress.md, ralph/CLAUDE.md, ralph/prd.json, ralph/state.json
+- **Key learnings**: Run specific procurement-term classifiers before generic shall/must matching so financial, exclusion, document, contract, legal, and quality evidence keep precise types.
 ---
