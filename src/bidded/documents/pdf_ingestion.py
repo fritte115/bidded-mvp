@@ -8,6 +8,12 @@ from uuid import UUID
 
 import fitz
 
+from bidded.evidence.tender_document import (
+    build_tender_evidence_candidates,
+    upsert_tender_evidence_items,
+)
+from bidded.retrieval import list_document_chunks_for_document
+
 DEMO_TENANT_KEY = "demo"
 PDF_TEXT_EXTRACTION_NON_GOAL_MESSAGE = (
     "Only text-based PDF ingestion is supported; OCR and DOCX are non-goals "
@@ -137,6 +143,7 @@ def ingest_tender_pdf_document(
             )
 
         _replace_document_chunks(client, normalized_document_id, chunks)
+        _materialize_tender_evidence_board(client, document_id=normalized_document_id)
         _update_document_parse_status(
             client,
             document_id=normalized_document_id,
@@ -290,6 +297,36 @@ def _extract_pdf_pages(pdf_bytes: bytes) -> list[ExtractedPdfPage]:
         raise PdfIngestionError(f"PDF extraction failed: {exc}") from exc
     finally:
         document.close()
+
+
+def _materialize_tender_evidence_board(
+    client: SupabasePdfIngestionClient,
+    *,
+    document_id: UUID,
+) -> None:
+    """Persist `evidence_items` rows for this tender document after chunks exist."""
+
+    retrieved = list_document_chunks_for_document(
+        client,
+        document_id=document_id,
+        tenant_key=DEMO_TENANT_KEY,
+    )
+    candidates = build_tender_evidence_candidates(retrieved)
+    if candidates:
+        upsert_tender_evidence_items(client, candidates, tenant_key=DEMO_TENANT_KEY)
+
+
+def ensure_tender_evidence_items_for_document(
+    client: SupabasePdfIngestionClient,
+    *,
+    document_id: UUID | str,
+) -> None:
+    """Rebuild tender `evidence_items` from stored chunks (idempotent upsert)."""
+
+    _materialize_tender_evidence_board(
+        client,
+        document_id=_normalize_uuid(document_id, "document_id"),
+    )
 
 
 def _replace_document_chunks(

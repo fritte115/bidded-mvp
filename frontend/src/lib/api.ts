@@ -11,6 +11,11 @@
  */
 
 import { supabase } from "@/lib/supabase";
+import {
+  AGENT_ROLE_LABELS,
+  mapRound1Output,
+  mapRound2Output,
+} from "@/lib/agentOutputMapping";
 import type {
   Company, RunStatus, Verdict,
   Evidence, AgentMotion, JudgeOutput, ComplianceMatrixRow, RiskRow,
@@ -545,13 +550,6 @@ export async function registerProcurement(input: RegisterProcurementInput): Prom
 // Agent output mapping helpers
 // ---------------------------------------------------------------------------
 
-const AGENT_ROLE_LABELS: Record<string, AgentName> = {
-  compliance_officer: "Compliance Officer",
-  win_strategist: "Win Strategist",
-  delivery_cfo: "Delivery/CFO",
-  red_team: "Red Team",
-};
-
 const EVIDENCE_CAT_MAP: Record<string, EvidenceCategory> = {
   deadline: "Deadlines",
   shall_requirement: "Mandatory Requirements",
@@ -678,75 +676,6 @@ function mapEvidenceRow(
     kind: (row.source_type as "tender_document" | "company_profile") ??
       "tender_document",
     companyFieldPath: (row.field_path as string) ?? undefined,
-  };
-}
-
-function mapRound1Output(payload: Record<string, unknown>): AgentMotion | null {
-  const role = payload.agent_role as string;
-  const label = AGENT_ROLE_LABELS[role];
-  if (!label) return null;
-  const rawFindings = (payload.top_findings as unknown[]) ?? [];
-  const findings = rawFindings.map((f) => (f as Record<string, unknown>).claim as string);
-  const findingsWithEvidence = rawFindings.map((f) => {
-    const fr = f as Record<string, unknown>;
-    return {
-      claim: fr.claim as string,
-      evidenceKeys: (fr.evidence_keys as string[]) ?? [],
-    };
-  });
-  return {
-    agent: label,
-    verdict: normalizeVerdictStr((payload.vote as string) ?? "bid"),
-    confidence: Math.round(((payload.confidence as number) ?? 0) * 100),
-    findings,
-    findingsWithEvidence,
-  };
-}
-
-function mapRound2Output(
-  payload: Record<string, unknown>,
-  round1MotionMap: Map<string, AgentMotion>,
-): AgentMotion | null {
-  const role = payload.agent_role as string;
-  const label = AGENT_ROLE_LABELS[role];
-  if (!label) return null;
-  const prior = round1MotionMap.get(role);
-  const revisedRaw = payload.revised_stance as Record<string, unknown> | string | null;
-  const revisedVote =
-    typeof revisedRaw === "object" && revisedRaw !== null
-      ? (revisedRaw.vote as string | undefined)
-      : (revisedRaw as string | null);
-  const revisedRationale =
-    typeof revisedRaw === "object" && revisedRaw !== null
-      ? (revisedRaw.rationale as string | undefined)
-      : undefined;
-  const disagreements = (payload.targeted_disagreements as unknown[]) ?? [];
-  const findings = disagreements.map((d) => (d as Record<string, unknown>).rebuttal as string);
-  const challengesWithEvidence = disagreements.map((d) => {
-    const dr = d as Record<string, unknown>;
-    return {
-      claim: dr.disputed_claim as string,
-      evidenceKeys: (dr.evidence_keys as string[]) ?? [],
-    };
-  });
-  return {
-    agent: label,
-    verdict: revisedVote ? normalizeVerdictStr(revisedVote) : (prior?.verdict ?? "BID"),
-    confidence: prior?.confidence ?? 50,
-    findings,
-    findingsWithEvidence: disagreements.map((d) => {
-      const dr = d as Record<string, unknown>;
-      return {
-        claim: dr.rebuttal as string,
-        evidenceKeys: (dr.evidence_keys as string[]) ?? [],
-      };
-    }),
-    rebuttalFocus: ((payload.target_roles as string[]) ?? []).map(
-      (r) => AGENT_ROLE_LABELS[r] ?? r,
-    ) as AgentName[],
-    challenges: disagreements.map((d) => (d as Record<string, unknown>).disputed_claim as string),
-    challengesWithEvidence,
-    revisedStanceRationale: revisedRationale,
   };
 }
 

@@ -6,7 +6,11 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 from uuid import UUID
 
-from bidded.orchestration.graph import GraphRunResult, run_bidded_graph_shell
+from bidded.orchestration.graph import (
+    GraphNodeHandlers,
+    GraphRunResult,
+    run_bidded_graph_shell,
+)
 from bidded.orchestration.judge import persist_final_decision
 from bidded.orchestration.pending_run import DEMO_TENANT_KEY
 from bidded.orchestration.state import (
@@ -71,13 +75,22 @@ def run_worker_once(
     run_id: UUID | str | None = None,
     company_id: UUID | str | None = None,
     tenant_key: str = DEMO_TENANT_KEY,
-    graph_runner: GraphRunner = run_bidded_graph_shell,
+    graph_runner: GraphRunner | None = None,
+    graph_handlers: GraphNodeHandlers | None = None,
     now_factory: NowFactory | None = None,
     log: LogSink | None = None,
 ) -> WorkerRunResult:
     """Run one pending Supabase agent_run through the deterministic graph."""
 
     now = now_factory or _utc_now
+    if graph_handlers is not None:
+
+        def _runner(state: BidRunState) -> GraphRunResult:
+            return run_bidded_graph_shell(state, handlers=graph_handlers)
+
+        graph_runner = _runner
+    elif graph_runner is None:
+        graph_runner = run_bidded_graph_shell
     selected_run = _select_worker_run(
         client,
         run_id=run_id,

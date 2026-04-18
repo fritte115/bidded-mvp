@@ -6,6 +6,7 @@ from bidded.documents.pdf_ingestion import (
     PdfIngestionError,
     PdfIngestionResult,
     build_document_chunks,
+    ensure_tender_evidence_items_for_document,
     ingest_tender_pdf_document,
 )
 from bidded.documents.tender_registration import (
@@ -22,6 +23,7 @@ __all__ = [
     "TenderPdfRegistrationError",
     "TenderPdfRegistrationResult",
     "build_document_chunks",
+    "ensure_tender_evidence_items_for_document",
     "ingest_tender_pdf_document",
     "register_demo_tender_pdf",
 ]

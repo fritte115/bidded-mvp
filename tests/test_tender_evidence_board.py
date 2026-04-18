@@ -18,6 +18,25 @@ DOCUMENT_ID = UUID("55555555-5555-4555-8555-555555555555")
 CHUNK_ID = UUID("66666666-6666-4666-8666-666666666666")
 
 
+def test_tender_evidence_fallback_when_no_keyword_categories() -> None:
+    chunks = [
+        RetrievedDocumentChunk(
+            chunk_id=str(CHUNK_ID),
+            document_id=DOCUMENT_ID,
+            page_start=1,
+            page_end=1,
+            chunk_index=0,
+            text="Kort svensk text utan nyckelord.",
+            metadata={"source_label": "Tender.pdf"},
+        )
+    ]
+
+    candidates = build_tender_evidence_candidates(chunks)
+
+    assert len(candidates) == 1
+    assert candidates[0].category == "tender_content"
+
+
 def test_retrieved_chunks_propose_tender_evidence_candidates() -> None:
     chunks = [
         RetrievedDocumentChunk(

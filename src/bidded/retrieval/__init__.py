@@ -133,6 +133,27 @@ def _rank_by_keyword(
     ]
 
 
+def list_document_chunks_for_document(
+    client: SupabaseDocumentChunkClient,
+    *,
+    document_id: UUID | str,
+    tenant_key: str = DEMO_TENANT_KEY,
+) -> list[RetrievedDocumentChunk]:
+    """Return all stored chunks for a document (tender evidence materialization)."""
+
+    normalized = _normalize_uuid(document_id, "document_id")
+    response = _document_chunk_query(
+        client,
+        document_id=normalized,
+        tenant_key=tenant_key,
+    ).execute()
+    rows = _response_rows(response)
+    ordered = sorted(rows, key=lambda row: _int_value(row.get("chunk_index")))
+    return [
+        _retrieved_chunk(row, method="document_scan", score=1.0) for row in ordered
+    ]
+
+
 def _rank_by_embedding(
     rows: list[Mapping[str, Any]],
     *,
@@ -332,5 +353,6 @@ __all__ = [
     "MockEmbeddingAdapter",
     "RetrievedDocumentChunk",
     "RetrievalError",
+    "list_document_chunks_for_document",
     "retrieve_document_chunks",
 ]

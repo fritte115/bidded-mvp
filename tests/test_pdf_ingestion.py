@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import fitz
 import pytest
@@ -40,6 +40,8 @@ class RecordingQuery:
         self.insert_payload: list[dict[str, Any]] | None = None
         self.update_payload: dict[str, Any] | None = None
         self.delete_requested = False
+        self.upsert_payload: list[dict[str, Any]] | None = None
+        self.on_conflict: str | None = None
 
     def select(self, columns: str) -> RecordingQuery:
         self.selected_columns = columns
@@ -53,6 +55,16 @@ class RecordingQuery:
         self.insert_payload = payload
         return self
 
+    def upsert(
+        self,
+        payload: list[dict[str, Any]],
+        *,
+        on_conflict: str | None = None,
+    ) -> RecordingQuery:
+        self.upsert_payload = payload
+        self.on_conflict = on_conflict
+        return self
+
     def update(self, payload: dict[str, Any]) -> RecordingQuery:
         self.update_payload = payload
         return self
@@ -62,10 +74,22 @@ class RecordingQuery:
         return self
 
     def execute(self) -> object:
+        if self.upsert_payload is not None:
+            self.client.inserts.setdefault("evidence_items", []).append(
+                self.upsert_payload
+            )
+            rows = [
+                {**row, "id": f"ev-{index}"}
+                for index, row in enumerate(self.upsert_payload, start=1)
+            ]
+            self.client.rows.setdefault("evidence_items", []).extend(rows)
+            self.upsert_payload = None
+            return type("Response", (), {"data": rows})()
+
         if self.insert_payload is not None:
             inserted_rows = []
-            for index, payload in enumerate(self.insert_payload, start=1):
-                row = {**payload, "id": f"chunk-{index}"}
+            for _index, payload in enumerate(self.insert_payload, start=1):
+                row = {**payload, "id": str(uuid4())}
                 inserted_rows.append(row)
                 self.client.rows.setdefault(self.table_name, []).append(row)
             self.client.inserts.setdefault(self.table_name, []).append(
@@ -214,6 +238,9 @@ def test_ingest_tender_pdf_document_extracts_and_persists_page_chunks() -> None:
     assert parsed_metadata["parser"]["page_count"] == 2
     assert parsed_metadata["parser"]["chunk_count"] == 2
     assert "error_message" not in parsed_metadata["parser"]
+
+    assert "evidence_items" in client.inserts
+    assert client.inserts["evidence_items"]
 
 
 def test_ingest_tender_pdf_document_marks_empty_text_pdf_as_parser_failed() -> None:

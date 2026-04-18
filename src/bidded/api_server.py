@@ -10,13 +10,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from bidded.config import load_settings
-from bidded.documents import PdfIngestionError, ingest_tender_pdf_document
+from bidded.documents import (
+    PdfIngestionError,
+    ensure_tender_evidence_items_for_document,
+    ingest_tender_pdf_document,
+)
 from bidded.orchestration import (
     PendingRunContextError,
     WorkerLifecycleError,
     create_pending_run_context,
     run_worker_once,
 )
+from bidded.orchestration.evidence_locked_swarm import evidence_locked_graph_handlers
+from bidded.retrieval import RetrievalError
 
 app = FastAPI(title="Bidded Agent API")
 app.add_middleware(
@@ -104,6 +110,17 @@ def start_run(req: StartRunRequest) -> dict[str, str]:
 
     document_ids = [row["id"] for row in doc_rows]
 
+    # Tender evidence_items are derived from chunks; ensure rows exist even for
+    # documents parsed before this materialization step existed.
+    for did in document_ids:
+        try:
+            ensure_tender_evidence_items_for_document(client, document_id=did)
+        except (RetrievalError, ValueError, PdfIngestionError) as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"tender evidence materialization failed for {did}: {exc}",
+            ) from exc
+
     # Create pending run with all document IDs
     try:
         pending = create_pending_run_context(
@@ -126,7 +143,12 @@ def start_run(req: StartRunRequest) -> dict[str, str]:
             worker_settings.supabase_url, worker_settings.supabase_service_role_key
         )
         try:
-            run_worker_once(worker_client, run_id=run_id, log=print)
+            run_worker_once(
+                worker_client,
+                run_id=run_id,
+                log=print,
+                graph_handlers=evidence_locked_graph_handlers(),
+            )
         except WorkerLifecycleError as exc:
             print(f"[worker] run {run_id} failed: {exc}")
         except Exception as exc:  # noqa: BLE001

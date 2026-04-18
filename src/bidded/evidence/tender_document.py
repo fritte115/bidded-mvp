@@ -85,6 +85,28 @@ def build_tender_evidence_candidates(
                 )
             )
 
+    if not candidates and chunks:
+        chunk = chunks[0]
+        raw = chunk.text.strip()
+        if raw:
+            excerpt = raw[:800] if len(raw) > 800 else raw
+            source_label = str(chunk.metadata.get("source_label") or "tender document")
+            candidates.append(
+                TenderEvidenceCandidate(
+                    document_id=chunk.document_id,
+                    chunk_id=UUID(chunk.chunk_id),
+                    page_start=chunk.page_start,
+                    page_end=chunk.page_end,
+                    excerpt=excerpt,
+                    source_label=source_label,
+                    category="tender_content",
+                    normalized_meaning=(
+                        "Tender document excerpt (fallback when no keyword "
+                        "categories matched)."
+                    ),
+                )
+            )
+
     return candidates
 
 
