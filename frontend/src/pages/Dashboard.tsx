@@ -22,7 +22,6 @@ import {
   fetchActiveRuns,
   fetchDecisions,
   deleteAgentRun,
-  stageDisplayName,
 } from "@/lib/api";
 import {
   FileText,
@@ -199,7 +198,7 @@ export default function Dashboard() {
                             <StatusBadge status={r.status} />
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground">
-                            {stageDisplayName(r.stage)}
+                            {r.stage}
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground">
                             {formatDate(r.startedAt)}

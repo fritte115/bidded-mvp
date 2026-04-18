@@ -272,10 +272,59 @@ export interface ActiveRun {
   id: string;
   tenderName: string;
   status: RunStatus;
-  stage: string | null;
+  /** Human-readable pipeline stage (resolved from metadata + status). */
+  stage: string;
   startedAt: string;
   completedAt: string | null;
   durationSec: number | null;
+}
+
+export function stageDisplayName(step: string | null | undefined): string {
+  if (!step) return "Pending";
+  const m: Record<string, string> = {
+    preflight: "Evidence Scout",
+    evidence_scout: "Evidence Scout",
+    round_1_specialist: "Round 1: Specialist Motions",
+    round_1_join: "Round 1: Specialist Motions",
+    round_2_rebuttal: "Round 2: Rebuttals",
+    round_2_join: "Round 2: Rebuttals",
+    judge: "Judge",
+    persist_decision: "Judge",
+    failed: "Failed",
+  };
+  return m[step] ?? step;
+}
+
+/**
+ * Reads `current_step` from worker-persisted metadata (top-level or `worker` mirror).
+ */
+export function resolveMetadataCurrentStep(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const m = metadata as Record<string, unknown>;
+  const top = m.current_step;
+  if (typeof top === "string" && top.trim().length > 0) return top.trim();
+  const w = m.worker;
+  if (w && typeof w === "object") {
+    const inner = (w as Record<string, unknown>).current_step;
+    if (typeof inner === "string" && inner.trim().length > 0) return inner.trim();
+  }
+  return null;
+}
+
+/**
+ * Stage column for dashboard / procurement lists: graph step when present,
+ * otherwise Pending / Running / Finished from run status.
+ */
+export function dashboardStageLabel(status: RunStatus, metadata: unknown): string {
+  const step = resolveMetadataCurrentStep(metadata);
+  if (step) return stageDisplayName(step);
+  if (status === "succeeded" || status === "failed" || status === "needs_human_review") {
+    return "Finished";
+  }
+  if (status === "running") {
+    return "Running";
+  }
+  return "Pending";
 }
 
 export async function fetchActiveRuns(): Promise<ActiveRun[]> {
@@ -304,11 +353,12 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
           )
         : null;
 
+    const status = (r.status as RunStatus) ?? "pending";
     return {
       id: r.id as string,
       tenderName: tender?.title ?? "Unknown procurement",
-      status: (r.status as RunStatus) ?? "pending",
-      stage: ((r.metadata as Record<string, unknown>)?.current_step as string) ?? null,
+      status,
+      stage: dashboardStageLabel(status, r.metadata),
       startedAt: startedAt ?? (r as Record<string, unknown>).created_at as string,
       completedAt,
       durationSec,
@@ -325,7 +375,7 @@ export interface ProcurementLatestRun {
   id: string;
   status: RunStatus;
   startedAt: string;
-  stage: string | null;
+  stage: string;
   decision: Verdict | null;
 }
 
@@ -408,7 +458,10 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
             id: latestRun.id,
             status: latestRun.status as RunStatus,
             startedAt: latestRun.started_at ?? latestRun.created_at,
-            stage: (latestRun.metadata?.current_step as string) ?? null,
+            stage: dashboardStageLabel(
+              latestRun.status as RunStatus,
+              latestRun.metadata,
+            ),
             decision: null,
           }
         : null,
@@ -578,19 +631,6 @@ function normalizeComplianceStatus(s: string): ComplianceMatrixRow["status"] {
 function normalizeSeverity(s: string): RiskRow["severity"] {
   const c = s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
   return c as RiskRow["severity"];
-}
-
-export function stageDisplayName(step: string | null | undefined): string {
-  if (!step) return "Pending";
-  const m: Record<string, string> = {
-    preflight: "Evidence Scout",
-    evidence_scout: "Evidence Scout",
-    round_1_specialist: "Round 1: Specialist Motions",
-    round_2_rebuttal: "Round 2: Rebuttals",
-    judge: "Judge",
-    persist_decision: "Judge",
-  };
-  return m[step] ?? step;
 }
 
 function extractEvidenceKeys(obj: unknown): string[] {
@@ -866,13 +906,10 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
     : null;
   const judge = fd ? mapFinalDecision(fd, evidenceIdToKey) : null;
 
-  const meta = (run.metadata as Record<string, unknown>) ?? {};
-  const rawStep = meta.current_step as string | null;
   const status = run.status as RunStatus;
+  const step = resolveMetadataCurrentStep(run.metadata);
   const stage =
-    status === "succeeded" || status === "needs_human_review"
-      ? "Judge"
-      : stageDisplayName(rawStep);
+    step != null ? stageDisplayName(step) : dashboardStageLabel(status, run.metadata);
 
   return {
     id: runId,
