@@ -95,8 +95,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pending_run_parser.add_argument(
         "--document-id",
+        action="append",
         required=True,
-        help="Existing registered tender document UUID.",
+        help="Existing registered tender document UUID. Repeat for multiple documents.",
     )
     pending_run_parser.set_defaults(handler=_run_create_pending_run_command)
 
@@ -193,7 +194,7 @@ def _run_create_pending_run_command(args: argparse.Namespace) -> int:
             client,
             tender_id=args.tender_id,
             company_id=args.company_id,
-            document_ids=[args.document_id],
+            document_ids=args.document_id,
         )
     except (RuntimeError, PendingRunContextError) as exc:
         print(str(exc), file=sys.stderr)

@@ -38,6 +38,7 @@ const App = () => (
             <Route path="/compare" element={<Compare />} />
             <Route path="/bids" element={<Bids />} />
             <Route path="/bids/new" element={<BidEditor />} />
+            <Route path="/bids/:bidId/edit" element={<BidEditor />} />
             <Route path="/company" element={<CompanyProfile />} />
             <Route path="/settings" element={<Settings />} />
           </Route>

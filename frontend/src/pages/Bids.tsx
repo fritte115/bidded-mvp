@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { fetchBids, updateBidStatus, fetchProcurements } from "@/lib/api";
+import { summarizeBidPipeline } from "@/lib/bidIntegrationMapping";
 import {
   bidStatusLabel,
   bidStatusOrder,
@@ -34,8 +35,6 @@ import {
   Target,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-const ESTIMATED_HOURS = 1600;
 
 type SortKey = "updated" | "rate" | "margin";
 
@@ -101,21 +100,11 @@ export default function Bids() {
   }, [filtered]);
 
   const stats = useMemo(() => {
-    const active = bids.filter((b) => b.status === "draft" || b.status === "review").length;
-    const submitted = bids.filter((b) => b.status === "submitted").length;
-    const won = bids.filter((b) => b.status === "won").length;
-    const lost = bids.filter((b) => b.status === "lost").length;
-    const decided = won + lost;
-    const winRate = decided === 0 ? 0 : Math.round((won / decided) * 100);
-    const pipelineSEK = bids
-      .filter((b) => b.status !== "lost")
-      .reduce((sum, b) => sum + b.rateSEK * ESTIMATED_HOURS, 0);
-    const pipelineMSEK = (pipelineSEK / 1_000_000).toFixed(1);
-    return { active, submitted, winRate, pipelineMSEK };
+    return summarizeBidPipeline(bids);
   }, [bids]);
 
   const columnTotal = (status: BidStatus): string => {
-    const total = grouped[status].reduce((s, b) => s + b.rateSEK * ESTIMATED_HOURS, 0);
+    const total = grouped[status].reduce((s, b) => s + b.rateSEK * b.hoursEstimated, 0);
     if (total === 0) return "—";
     return `${(total / 1_000_000).toFixed(1)} MSEK`;
   };
@@ -131,8 +120,7 @@ export default function Bids() {
   };
 
   const handleEdit = (id: string) => {
-    const b = bids.find((x) => x.id === id);
-    if (b) navigate(`/bids/new?procurement=${b.procurementId}`);
+    navigate(`/bids/${id}/edit`);
   };
 
   return (
@@ -157,7 +145,7 @@ export default function Bids() {
           compact
           label="Pipeline"
           value={`${stats.pipelineMSEK} MSEK`}
-          hint={`${ESTIMATED_HOURS}h × rate`}
+          hint="Estimated hours × rate"
           icon={Target}
         />
       </div>

@@ -18,11 +18,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { VerdictBadge } from "@/components/VerdictBadge";
 import { ConfidenceBar } from "@/components/ConfidenceBar";
 import { EmptyState } from "@/components/EmptyState";
 import { BidRecommendation } from "@/components/BidRecommendation";
-import { fetchTendersWithDecisions, tenderToMockProcurement } from "@/lib/api";
+import { fetchCompareRows } from "@/lib/api";
+import { buildBidDraftPath } from "@/lib/bidIntegrationMapping";
 import { verdictLabel, type Verdict } from "@/data/mock";
 import {
   ArrowRight,
@@ -37,12 +37,6 @@ import {
   Star,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-const toneClass: Record<"Low" | "Medium" | "High", { dot: string; text: string; bg: string }> = {
-  Low: { dot: "bg-danger", text: "text-danger", bg: "bg-danger/10" },
-  Medium: { dot: "bg-warning", text: "text-warning", bg: "bg-warning/10" },
-  High: { dot: "bg-success", text: "text-success", bg: "bg-success/10" },
-};
 
 const riskTone: Record<"Low" | "Medium" | "High", { dot: string; text: string; bg: string }> = {
   Low: { dot: "bg-success", text: "text-success", bg: "bg-success/10" },
@@ -100,18 +94,18 @@ export default function Compare() {
   const idsParam = params.get("ids");
 
   const { data: allWithVerdict = [], isLoading } = useQuery({
-    queryKey: ["tenders-with-decisions"],
-    queryFn: fetchTendersWithDecisions,
+    queryKey: ["compare-rows"],
+    queryFn: fetchCompareRows,
     refetchInterval: 15_000,
   });
 
   const selectedIds = useMemo(() => {
     if (idsParam) return idsParam.split(",").filter(Boolean);
-    return allWithVerdict.map((p) => p.id);
+    return allWithVerdict.map((p) => p.tenderId);
   }, [idsParam, allWithVerdict]);
 
   const selected = useMemo(
-    () => allWithVerdict.filter((p) => selectedIds.includes(p.id)),
+    () => allWithVerdict.filter((p) => selectedIds.includes(p.tenderId)),
     [allWithVerdict, selectedIds],
   );
 
@@ -122,7 +116,7 @@ export default function Compare() {
   }, [selected]);
 
   const topPickId = useMemo(() => {
-    return grouped.BID.slice().sort((a, b) => b.confidence - a.confidence)[0]?.id;
+    return grouped.BID.slice().sort((a, b) => b.confidence - a.confidence)[0]?.tenderId;
   }, [grouped]);
 
   const toggle = (id: string) => {
@@ -154,19 +148,19 @@ export default function Compare() {
               </div>
               <div className="space-y-1">
                 {allWithVerdict.map((p) => {
-                  const checked = selectedIds.includes(p.id);
+                  const checked = selectedIds.includes(p.tenderId);
                   return (
                     <label
-                      key={p.id}
+                      key={p.tenderId}
                       className="flex cursor-pointer items-start gap-2 rounded-md p-2 hover:bg-accent"
                     >
                       <Checkbox
                         checked={checked}
-                        onCheckedChange={() => toggle(p.id)}
+                        onCheckedChange={() => toggle(p.tenderId)}
                         className="mt-0.5"
                       />
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm">{p.name}</p>
+                        <p className="truncate text-sm">{p.tenderName}</p>
                         <p className={cn("text-xs", verdictTone[p.verdict])}>
                           {verdictLabel[p.verdict]} · {p.confidence}%
                         </p>
@@ -240,11 +234,11 @@ export default function Compare() {
                       <div className="mt-3 flex flex-wrap gap-1">
                         {items.slice(0, 4).map((p) => (
                           <span
-                            key={p.id}
+                            key={p.tenderId}
                             className="max-w-[12rem] truncate rounded-md bg-card px-1.5 py-0.5 text-[11px] text-muted-foreground"
-                            title={p.name}
+                            title={p.tenderName}
                           >
-                            {p.name}
+                            {p.tenderName}
                           </span>
                         ))}
                         {items.length > 4 && (
@@ -277,10 +271,11 @@ export default function Compare() {
                   </TableHeader>
                   <TableBody>
                     {selected.map((p) => {
-                      const isTopPick = p.id === topPickId;
+                      const isTopPick = p.tenderId === topPickId;
+                      const bidPath = buildBidDraftPath(p);
                       return (
                         <TableRow
-                          key={p.id}
+                          key={p.tenderId}
                           className={cn(
                             "border-l-2",
                             verdictBorder[p.verdict],
@@ -290,7 +285,7 @@ export default function Compare() {
                             <div className="flex flex-col gap-1">
                               <div className="flex items-center gap-1.5">
                                 <span className="truncate text-sm font-semibold text-foreground">
-                                  {p.name}
+                                  {p.tenderName}
                                 </span>
                                 {isTopPick && (
                                   <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary">
@@ -314,6 +309,14 @@ export default function Compare() {
                                   <BookOpen className="h-3 w-3" />
                                   Reasoning
                                 </Link>
+                                {bidPath && (
+                                  <Link
+                                    to={bidPath}
+                                    className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+                                  >
+                                    {p.existingBidId ? "Open bid" : "Draft bid"}
+                                  </Link>
+                                )}
                               </div>
                             </div>
                           </TableCell>
@@ -370,13 +373,9 @@ export default function Compare() {
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {selected.map((p) => (
                 <BidRecommendation
-                  key={p.id}
-                  procurement={tenderToMockProcurement(p.id, p.name, p.uploadedAt, [], {
-                    verdict: p.verdict,
-                    confidence: p.confidence,
-                    citedMemo: p.citedMemo,
-                  })}
-                  heading={p.name}
+                  key={p.runId}
+                  decision={p}
+                  heading={p.tenderName}
                 />
               ))}
             </div>

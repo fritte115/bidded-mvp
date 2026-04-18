@@ -23,8 +23,8 @@ import {
   bidStatusLabel,
   bidStatusOrder,
   formatDate,
-  procurements,
 } from "@/data/mock";
+import { decisionToEstimateInput } from "@/lib/bidIntegrationMapping";
 import { estimateBid, formatSEK } from "@/lib/bidEstimator";
 import { cn } from "@/lib/utils";
 
@@ -53,11 +53,10 @@ function deltaTone(deltaPct: number): string {
   return "text-danger";
 }
 
-/** Synthetic but stable submission deadline: uploadedAt + 60 days. */
-function deadlineFor(procurementId: string): Date | null {
-  const p = procurements.find((x) => x.id === procurementId);
-  if (!p) return null;
-  const d = new Date(p.uploadedAt);
+function deadlineFor(uploadedAt: string | undefined): Date | null {
+  if (!uploadedAt) return null;
+  const d = new Date(uploadedAt);
+  if (Number.isNaN(d.getTime())) return null;
   d.setDate(d.getDate() + 60);
   return d;
 }
@@ -73,19 +72,20 @@ function relativeDeadline(d: Date): { label: string; tone: string } {
 }
 
 export function BidCard({ bid, onMove, onEdit }: Props) {
-  const procurement = procurements.find((p) => p.id === bid.procurementId);
-  const estimate = procurement ? estimateBid(procurement) : null;
+  const estimate = bid.decision
+    ? estimateBid(decisionToEstimateInput(bid.decision, bid.procurementId))
+    : null;
   const deltaPct = estimate
     ? Math.round(((bid.rateSEK - estimate.recommendedRate) / estimate.recommendedRate) * 1000) / 10
     : null;
-  const deadline = deadlineFor(bid.procurementId);
+  const deadline = deadlineFor(bid.tenderUploadedAt);
   const rel = deadline ? relativeDeadline(deadline) : null;
 
   // Margin bar fill: cap at 20% margin = full bar
   const marginFill = Math.min(100, Math.max(0, (bid.marginPct / 20) * 100));
 
   return (
-    <div className="group flex h-[340px] flex-col rounded-lg border border-border/60 bg-card p-4 transition-colors hover:border-border hover:bg-card/80">
+    <div className="group flex h-[370px] flex-col rounded-lg border border-border/60 bg-card p-4 transition-colors hover:border-border hover:bg-card/80">
       {/* Header: title + deadline */}
       <div className="flex items-start justify-between gap-2">
         <p className="line-clamp-2 h-10 flex-1 text-sm font-semibold leading-5 text-foreground">
@@ -108,6 +108,17 @@ export function BidCard({ bid, onMove, onEdit }: Props) {
       <p className="mt-1 font-mono text-[10px] tabular-nums text-muted-foreground">
         {bid.id} · {formatDate(bid.updatedAt)}
       </p>
+
+      {bid.decision && (
+        <div className="mt-3 flex items-center justify-between gap-2 rounded-md bg-muted/40 px-2.5 py-2">
+          <span className="truncate text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Agent decision
+          </span>
+          <span className="whitespace-nowrap font-mono text-[11px] font-semibold tabular-nums text-foreground">
+            {bid.decision.verdict.replace(/_/g, " ")} · {bid.decision.confidence}%
+          </span>
+        </div>
+      )}
 
       {/* Primary metric: rate */}
       <div className="mt-4 flex items-baseline gap-1.5">
@@ -162,6 +173,10 @@ export function BidCard({ bid, onMove, onEdit }: Props) {
           </div>
         </div>
       </div>
+
+      <p className="mt-2 font-mono text-[10px] tabular-nums text-muted-foreground">
+        {bid.hoursEstimated.toLocaleString("sv-SE")}h estimate
+      </p>
 
       {/* Notes — generous space, 3 lines */}
       <div className="mt-4 flex-1 border-t border-border/40 pt-3">

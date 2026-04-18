@@ -126,6 +126,7 @@ def run_worker_once(
         status=AgentRunStatus.RUNNING,
         timestamp=started_at,
         metadata=metadata,
+        current_step="preflight",
         error_details=None,
     )
 
@@ -224,6 +225,7 @@ def run_worker_once(
                 metadata,
                 status=AgentRunStatus.FAILED,
                 timestamp=completed_at,
+                current_step="failed",
                 details={"error_code": error_details["code"]},
             ),
             error_details=error_details,
@@ -404,11 +406,13 @@ def _update_run_status(
     timestamp: str,
     metadata: Mapping[str, Any],
     error_details: Mapping[str, Any] | None,
+    current_step: str | None = None,
 ) -> dict[str, Any]:
     next_metadata = _worker_metadata(
         metadata,
         status=status,
         timestamp=timestamp,
+        current_step=current_step,
     )
     payload: dict[str, Any] = {
         "status": status.value,
@@ -447,6 +451,7 @@ def _terminal_metadata(
         metadata,
         status=terminal_state.status,
         timestamp=_utc_now().isoformat(),
+        current_step=_current_step_value(terminal_state),
         details=details,
     )
 
@@ -456,10 +461,14 @@ def _worker_metadata(
     *,
     status: AgentRunStatus,
     timestamp: str,
+    current_step: str | None = None,
     details: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     merged = dict(metadata)
     worker = dict(_mapping(merged.get("worker")))
+    if current_step is not None:
+        merged["current_step"] = current_step
+        worker["current_step"] = current_step
     worker.update(
         {
             "name": DEFAULT_WORKER_NAME,
@@ -471,6 +480,11 @@ def _worker_metadata(
         worker.update(dict(details))
     merged["worker"] = worker
     return merged
+
+
+def _current_step_value(state: BidRunState) -> str:
+    value = state.current_step
+    return value.value if hasattr(value, "value") else str(value)
 
 
 def _graph_error_details(last_error: RuntimeErrorState | None) -> dict[str, Any]:

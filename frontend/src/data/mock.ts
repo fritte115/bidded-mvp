@@ -792,15 +792,43 @@ export function formatDuration(sec?: number) {
 
 export type BidStatus = "draft" | "review" | "submitted" | "won" | "lost";
 
+export interface DecisionSummary {
+  runId: string;
+  tenderId: string;
+  tenderName: string;
+  uploadedAt: string;
+  documentCount: number;
+  verdict: Verdict;
+  confidence: number;
+  citedMemo: string;
+  topReason: string;
+  startedAt: string;
+  completedAt: string | null;
+  riskScore: "Low" | "Medium" | "High";
+  riskCount: number;
+  complianceBlockerCount: number;
+  potentialBlockerCount: number;
+  recommendedActions: string[];
+  missingInfo: string[];
+  isDraftable: boolean;
+  existingBidId?: string;
+  existingBidStatus?: BidStatus;
+  decisionCreatedAt?: string;
+}
+
 export interface Bid {
   id: string;
   procurementId: string;
   procurementName: string;
   rateSEK: number;
   marginPct: number;
+  hoursEstimated: number;
   status: BidStatus;
   notes: string;
   updatedAt: string;
+  tenderUploadedAt?: string;
+  decision?: DecisionSummary;
+  metadata?: Record<string, unknown>;
   /** Optional decision/run that seeded this bid. */
   runId?: string;
 }
@@ -822,6 +850,7 @@ export const bids: Bid[] = [
     procurementName: "Swedish Tax Agency Cloud Migration",
     rateSEK: 1295,
     marginPct: 14,
+    hoursEstimated: 1600,
     status: "draft",
     notes: "Lean on sovereign cloud incumbency narrative; price aggressive on senior rate.",
     updatedAt: "2026-04-16T10:20:00Z",
@@ -833,6 +862,7 @@ export const bids: Bid[] = [
     procurementName: "National Police IT Modernisation 2026",
     rateSEK: 1340,
     marginPct: 11,
+    hoursEstimated: 1600,
     status: "review",
     notes: "Pending liability clarification; CFO sign-off needed before submission.",
     updatedAt: "2026-04-17T14:05:00Z",
@@ -844,6 +874,7 @@ export const bids: Bid[] = [
     procurementName: "Trafikverket DevOps Platform Renewal",
     rateSEK: 1255,
     marginPct: 12,
+    hoursEstimated: 1600,
     status: "submitted",
     notes: "Submitted via TendSign 2026-04-14; awaiting evaluation.",
     updatedAt: "2026-04-14T16:42:00Z",
@@ -854,6 +885,7 @@ export const bids: Bid[] = [
     procurementName: "Region Stockholm EHR Integration Platform",
     rateSEK: 1180,
     marginPct: 8,
+    hoursEstimated: 1600,
     status: "lost",
     notes: "Lost on quality score (clinical safety). Useful learnings on healthcare framing.",
     updatedAt: "2026-03-28T09:00:00Z",
@@ -864,6 +896,7 @@ export const bids: Bid[] = [
     procurementName: "Swedish Tax Agency Cloud Migration",
     rateSEK: 1310,
     marginPct: 13,
+    hoursEstimated: 1600,
     status: "won",
     notes: "Won previous mini-call within framework; reuse pricing model as anchor.",
     updatedAt: "2026-02-11T11:15:00Z",

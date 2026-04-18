@@ -2,8 +2,14 @@
 // Structured so a future edge function can swap in real numbers without
 // changing the UI: same input shape, same output shape.
 
-import type { Procurement } from "@/data/mock";
 import { company } from "@/data/mock";
+
+export interface BidEstimateInput {
+  id: string;
+  estimatedValueMSEK: number;
+  winProbability: number;
+  strategicFit: "Low" | "Medium" | "High";
+}
 
 export interface BidEstimate {
   /** Recommended hourly rate in SEK (rounded to nearest 5 SEK). */
@@ -22,7 +28,7 @@ export interface BidEstimate {
   inputs: {
     targetMarginPct: number;
     winProbabilityPct: number;
-    strategicFit: Procurement["strategicFit"];
+    strategicFit: BidEstimateInput["strategicFit"];
     evaluationWeights: { price: number; quality: number };
   };
 }
@@ -30,7 +36,7 @@ export interface BidEstimate {
 const DEFAULT_CEILING = 1450;
 const BASE_TARGET_COST = 1100; // SEK/h fully loaded — internal cost baseline
 
-const FIT_MULTIPLIER: Record<Procurement["strategicFit"], number> = {
+const FIT_MULTIPLIER: Record<BidEstimateInput["strategicFit"], number> = {
   Low: 1.05,
   Medium: 1.0,
   High: 0.97,
@@ -55,7 +61,7 @@ function roundTo(n: number, step = 5): number {
   return Math.round(n / step) * step;
 }
 
-export function estimateBid(p: Procurement): BidEstimate {
+export function estimateBid(p: BidEstimateInput): BidEstimate {
   const targetMargin = parseTargetMargin(company.financialAssumptions.targetMargin);
   const fitMultiplier = FIT_MULTIPLIER[p.strategicFit];
 

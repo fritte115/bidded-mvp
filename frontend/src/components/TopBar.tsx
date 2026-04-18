@@ -15,6 +15,7 @@ const titles: { match: (p: string) => boolean; title: string }[] = [
   { match: (p) => p === "/compare", title: "Compare Procurements" },
   { match: (p) => p === "/bids", title: "Bids" },
   { match: (p) => p === "/bids/new", title: "New Bid" },
+  { match: (p) => /^\/bids\/[^/]+\/edit$/.test(p), title: "Edit Bid" },
   { match: (p) => p === "/company", title: "Company Profile" },
   { match: (p) => p === "/settings", title: "Settings" },
 ];

@@ -51,6 +51,7 @@ def test_project_declares_scaffold_dependencies() -> None:
 
     assert {
         "anthropic",
+        "fastapi",
         "langgraph",
         "pydantic",
         "pydantic-settings",
@@ -59,6 +60,7 @@ def test_project_declares_scaffold_dependencies() -> None:
         "python-dotenv",
         "ruff",
         "supabase",
+        "uvicorn",
     }.issubset(dependency_names)
     assert "openai" in dependency_names
 
