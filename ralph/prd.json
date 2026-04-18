@@ -372,8 +372,8 @@
         "pytest and ruff check pass for the end-to-end suite."
       ],
       "priority": 24,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added mocked worker-level E2E coverage that seeds/registers/builds evidence, runs all swarm rounds, rejects unsupported claims, and verifies blocker gating. Complete."
     },
     {
       "id": "US-025",

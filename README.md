@@ -327,7 +327,7 @@ python3 -m venv .venv
 .venv/bin/ruff check .
 ```
 
-Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandot, tenderregistreringen, PDF-ingestionen, evidence builders, graph routing shell och worker lifecycle CLI finns; övriga operator- och demo-kommandon byggs i senare stories.
+Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandot, tenderregistreringen, PDF-ingestionen, evidence builders, graph routing shell, worker lifecycle CLI och mocked end-to-end coverage finns; övriga operator- och demo-kommandon byggs i senare stories.
 
 ## Teststrategi
 

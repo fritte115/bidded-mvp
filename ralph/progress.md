@@ -146,3 +146,8 @@ No Ralph story sessions have completed yet.
 - **Files**: src/bidded/orchestration/graph.py, tests/test_graph_routing_shell.py, tests/test_evidence_scout_node.py, tests/test_specialist_motion_node.py, tests/test_specialist_rebuttal_node.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
 - **Key learnings**: Keep graph retry counts keyed by route node so parallel specialist retries stay role-scoped and joins remain deterministic.
 ---
+## 2026-04-18 21:23 CEST - US-024
+- **Implemented**: Added deterministic mocked worker-level end-to-end coverage for seeded demo company, fixture tender evidence, all swarm rounds, final persistence, unsupported-claim handling, and blocker gating.
+- **Files**: tests/test_mocked_end_to_end_run.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
+- **Key learnings**: Run mocked E2E coverage through `run_worker_once` with graph handlers injected and leave graph persistence as the default no-op so the worker owns `bid_decisions`.
+---

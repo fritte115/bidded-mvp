@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-024",
-  "storyTitle": "Test mocked end-to-end run",
+  "currentStory": "US-025",
+  "storyTitle": "Prepare Lovable handoff",
   "nextAction": "implement",
-  "progressTokens": 2220,
+  "progressTokens": 2295,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"
