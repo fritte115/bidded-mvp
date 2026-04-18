@@ -5,6 +5,7 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
+from bidded.agents import RequirementType
 from bidded.evidence.tender_document import (
     TenderEvidenceCandidate,
     build_tender_evidence_candidates,
@@ -104,6 +105,7 @@ def test_tender_evidence_items_get_stable_keys_and_prevent_duplicates() -> None:
         excerpt="Supplier must hold ISO 27001 certification.",
         source_label="Tender.pdf",
         category="mandatory_requirement",
+        requirement_type=RequirementType.SHALL_REQUIREMENT,
         normalized_meaning="The supplier must hold ISO 27001 certification.",
         confidence=0.91,
     )
@@ -124,7 +126,43 @@ def test_tender_evidence_items_get_stable_keys_and_prevent_duplicates() -> None:
     assert item["page_start"] == 5
     assert item["page_end"] == 5
     assert item["source_metadata"] == {"source_label": "Tender.pdf"}
+    assert item["category"] == "mandatory_requirement"
+    assert item["requirement_type"] == "shall_requirement"
     assert item["metadata"]["source"] == "tender_evidence_board"
+
+
+def test_tender_evidence_requirement_type_is_nullable_and_validated() -> None:
+    legacy_candidate = TenderEvidenceCandidate(
+        document_id=DOCUMENT_ID,
+        chunk_id=CHUNK_ID,
+        page_start=6,
+        page_end=6,
+        excerpt="Tender responses are evaluated on quality and price.",
+        source_label="Tender.pdf",
+        category="award_criterion",
+        normalized_meaning="The tender uses quality and price award criteria.",
+    )
+
+    legacy_item = build_tender_evidence_items([legacy_candidate])[0]
+
+    assert legacy_candidate.requirement_type is None
+    assert legacy_item["requirement_type"] is None
+    assert legacy_item["category"] == "award_criterion"
+
+    with pytest.raises(ValidationError, match="Input should be"):
+        TenderEvidenceCandidate.model_validate(
+            {
+                "document_id": str(DOCUMENT_ID),
+                "chunk_id": str(CHUNK_ID),
+                "page_start": 6,
+                "page_end": 6,
+                "excerpt": "Supplier should include optional case studies.",
+                "source_label": "Tender.pdf",
+                "category": "nice_to_have",
+                "requirement_type": "nice_to_have",
+                "normalized_meaning": "Optional case studies are requested.",
+            }
+        )
 
 
 class RecordingEvidenceQuery:

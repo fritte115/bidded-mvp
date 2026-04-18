@@ -15,6 +15,7 @@ from bidded.orchestration import (
     FinalDecisionState,
     GraphNodeName,
     RebuttalState,
+    RequirementType,
     ScoutFindingState,
     ScoutOutputState,
     SpecialistMotionState,
@@ -45,6 +46,7 @@ def _evidence_item(
     evidence_key: str = "TENDER-REQ-001",
     evidence_id: UUID = EVIDENCE_ID,
     excerpt: str = "The supplier must provide ISO 27001 certification.",
+    requirement_type: RequirementType | None = None,
 ) -> EvidenceItemState:
     return EvidenceItemState(
         evidence_id=evidence_id,
@@ -53,6 +55,7 @@ def _evidence_item(
         excerpt=excerpt,
         normalized_meaning="ISO 27001 certification is mandatory.",
         category="shall_requirement",
+        requirement_type=requirement_type,
         confidence=0.94,
         source_metadata={"source_label": "Tender page 1"},
         document_id=DOCUMENT_ID,
@@ -163,6 +166,28 @@ def test_empty_bid_run_state_round_trips_and_classifies_fields() -> None:
     assert payload["run_id"] == str(RUN_ID)
     assert payload["status"] == "pending"
     assert BidRunState.model_validate(payload) == state
+
+
+def test_evidence_item_state_accepts_typed_and_legacy_requirement_type() -> None:
+    item = _evidence_item(requirement_type=RequirementType.SHALL_REQUIREMENT)
+    payload = item.model_dump(mode="json")
+
+    assert item.requirement_type is RequirementType.SHALL_REQUIREMENT
+    assert payload["category"] == "shall_requirement"
+    assert payload["requirement_type"] == "shall_requirement"
+    assert EvidenceItemState.model_validate(payload) == item
+
+    legacy_payload = dict(payload)
+    legacy_payload.pop("requirement_type")
+    legacy_item = EvidenceItemState.model_validate(legacy_payload)
+
+    assert legacy_item.requirement_type is None
+    assert legacy_item.category == "shall_requirement"
+
+    with pytest.raises(ValueError, match="Input should be"):
+        EvidenceItemState.model_validate(
+            {**payload, "requirement_type": "nice_to_have"}
+        )
 
 
 def test_graph_node_contracts_document_reads_and_owned_writes() -> None:

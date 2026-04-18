@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, model_validator
 
+from bidded.requirements import RequirementType
+
 
 class StrictStateModel(BaseModel):
     """Base model for graph state artifacts with closed schemas."""
@@ -106,6 +108,7 @@ class EvidenceItemState(StrictStateModel):
     excerpt: str = Field(min_length=1)
     normalized_meaning: str = Field(min_length=1)
     category: str = Field(min_length=1)
+    requirement_type: RequirementType | None = None
     confidence: float = Field(ge=0, le=1)
     source_metadata: dict[str, Any]
     evidence_id: UUID | None = None
@@ -149,6 +152,7 @@ class EvidenceItemState(StrictStateModel):
 
 class ScoutFindingState(StrictStateModel):
     category: str = Field(min_length=1)
+    requirement_type: RequirementType | None = None
     claim: str = Field(min_length=1)
     evidence_refs: list[EvidenceRef] = Field(default_factory=list)
 
@@ -513,6 +517,7 @@ __all__ = [
     "FinalDecisionState",
     "GraphNodeContract",
     "GraphNodeName",
+    "RequirementType",
     "RebuttalState",
     "RuntimeErrorState",
     "ScoutFindingState",

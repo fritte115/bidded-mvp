@@ -12,8 +12,10 @@ from bidded.agents import (
     BlockerChallenge,
     ComplianceMatrixItem,
     EvidenceReference,
+    EvidenceScoutOutput,
     FinalVerdict,
     JudgeDecision,
+    RequirementType,
     RiskRegisterItem,
     Round1Motion,
     Round2Rebuttal,
@@ -59,6 +61,60 @@ def _supported_claim(
         claim=claim,
         evidence_refs=evidence_refs or [_evidence_ref()],
     )
+
+
+def test_requirement_type_contract_is_strict_and_nullable_on_scout_findings() -> None:
+    assert [requirement_type.value for requirement_type in RequirementType] == [
+        "shall_requirement",
+        "qualification_requirement",
+        "exclusion_ground",
+        "financial_standing",
+        "legal_or_regulatory_reference",
+        "quality_management",
+        "submission_document",
+        "contract_obligation",
+    ]
+
+    output = EvidenceScoutOutput.model_validate(
+        {
+            "agent_role": "evidence_scout",
+            "findings": [
+                {
+                    "category": "shall_requirement",
+                    "requirement_type": "shall_requirement",
+                    "claim": "The supplier shall provide ISO 27001 certification.",
+                    "evidence_refs": [_evidence_ref().model_dump(mode="json")],
+                },
+                {
+                    "category": "contract_risk",
+                    "claim": "Delay penalties apply for missed milestones.",
+                    "evidence_refs": [_evidence_ref().model_dump(mode="json")],
+                },
+            ],
+        }
+    )
+
+    payload = output.model_dump(mode="json")
+
+    assert output.findings[0].requirement_type is RequirementType.SHALL_REQUIREMENT
+    assert output.findings[1].requirement_type is None
+    assert payload["findings"][0]["category"] == "shall_requirement"
+    assert payload["findings"][0]["requirement_type"] == "shall_requirement"
+    assert payload["findings"][1]["requirement_type"] is None
+    assert EvidenceScoutOutput.model_validate(payload) == output
+
+    with pytest.raises(ValidationError, match="Input should be"):
+        EvidenceScoutOutput.model_validate(
+            {
+                **payload,
+                "findings": [
+                    {
+                        **payload["findings"][0],
+                        "requirement_type": "nice_to_have",
+                    }
+                ],
+            }
+        )
 
 
 def test_round_1_motion_is_strict_evidence_backed_and_serializable() -> None:

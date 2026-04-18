@@ -8,7 +8,7 @@ Started: 2026-04-18
 - **Ralph Directory**: Ralph files live in `ralph/`, not `scripts/ralph/`.
 - **Current PRD Context**: Work from `ralph/state.json`; implement one `ralph/prd.json` story at a time in priority order.
 - **Bidded Runtime Target**: Python package code belongs under `src/bidded`; tests and baseline gates must not require live Claude, live embeddings, or live Supabase.
-- **Bidded Evidence Contract**: Material claims require excerpt-level `evidence_items` with source-specific provenance and `source_metadata.source_label`; unsupported points become assumptions, missing_info, validation errors, or potential blockers.
+- **Bidded Evidence Contract**: Material claims require excerpt-level `evidence_items` with source-specific provenance, `source_metadata.source_label`, and nullable `requirement_type`; unsupported points become assumptions, missing_info, validation errors, or potential blockers.
 - **Bidded Orchestration Contract**: The orchestrator owns Supabase writes, validation, status transitions, worker lifecycle, and persistence; LLM agents produce validated artifacts only.
 - **Bidded Quality Gates**: Use deterministic pytest tests and Ruff for story completion; live smoke checks are optional unless a story explicitly requires them.
 - **Bidded Supabase Migrations**: Keep hosted Supabase SQL under `supabase/migrations/` with deterministic pytest contract tests, demo `tenant_key = 'demo'` checks, and no Auth/RLS unless a story adds it.
@@ -18,7 +18,7 @@ Started: 2026-04-18
 - **Bidded Agent Audit Contract**: `agent_outputs` are immutable rows keyed by `agent_role`, `round_name`, and `output_type`; Judge `bid_decisions` surface evidence IDs and link source agent outputs through metadata.
 - **Bidded Graph State/Routing Contract**: `BidRunState.apply_node_update` enforces node ownership and reducers; `src/bidded/orchestration/graph.py` owns the fixed LangGraph shell, preflight checks, Evidence Scout audit append, explicit edge table, bounded retry/stop policy, mocked handlers, and terminal routing.
 - **Bidded Agent Tool Policy Contract**: `src/bidded/agents/tool_policy.py` is the source of truth for LLM-agent denied tools, bounded retrieval, artifact access, and orchestrator-owned side effects.
-- **Bidded Agent Output Schema Contract**: `src/bidded/agents/schemas.py` is the strict Pydantic surface for Evidence Scout output, motions, rebuttals, Judge decisions, evidence refs, material claim evidence-ID validation, typed evidence gaps, validation errors, specialist role bounds, and Round 1 motion audit rows.
+- **Bidded Agent Output Schema Contract**: `src/bidded/agents/schemas.py` is the strict Pydantic surface for RequirementType, Evidence Scout output, motions, rebuttals, Judge decisions, evidence refs, material claim evidence-ID validation, typed evidence gaps, validation errors, specialist role bounds, and Round 1 motion audit rows.
 - **Bidded Evidence Builder Contract**: `src/bidded/evidence` converts company profile facts and retrieved tender chunks into validated Supabase-ready evidence rows with stable `tenant_key,evidence_key` upserts.
 
 ## Session Log
@@ -150,4 +150,9 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added deterministic mocked worker-level end-to-end coverage for seeded demo company, fixture tender evidence, all swarm rounds, final persistence, unsupported-claim handling, and blocker gating.
 - **Files**: tests/test_mocked_end_to_end_run.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
 - **Key learnings**: Run mocked E2E coverage through `run_worker_once` with graph handlers injected and leave graph persistence as the default no-op so the worker owns `bid_decisions`.
+---
+## 2026-04-18 22:39 CEST - US-025
+- **Implemented**: Added the shared nullable RequirementType contract across tender evidence payloads, graph state, Evidence Scout findings, worker loading, and Supabase migration validation.
+- **Files**: src/bidded/requirements.py, src/bidded/agents/schemas.py, src/bidded/agents/__init__.py, src/bidded/evidence/tender_document.py, src/bidded/orchestration/state.py, src/bidded/orchestration/__init__.py, src/bidded/orchestration/evidence_scout.py, src/bidded/orchestration/graph.py, src/bidded/orchestration/worker.py, supabase/migrations/20260418213000_add_evidence_requirement_type.sql, tests/test_agent_output_schemas.py, tests/test_tender_evidence_board.py, tests/test_orchestration_state.py, tests/test_evidence_scout_node.py, tests/test_worker_lifecycle.py, tests/test_supabase_migrations.py, README.md, ralph/progress.md, ralph/CLAUDE.md, ralph/prd.json, ralph/state.json
+- **Key learnings**: Keep procurement requirement classification as a nullable domain enum beside legacy `category` until deterministic classifiers assign values.
 ---

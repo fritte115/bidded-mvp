@@ -899,6 +899,7 @@ def _default_evidence_scout(state: BidRunState) -> ScoutOutputState:
         findings=[
             ScoutFindingState(
                 category=evidence.category,
+                requirement_type=evidence.requirement_type,
                 claim=evidence.normalized_meaning,
                 evidence_refs=[_evidence_ref_from_item(evidence)],
             )

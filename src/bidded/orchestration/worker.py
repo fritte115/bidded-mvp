@@ -270,8 +270,8 @@ def build_bid_run_state_from_supabase(
         "evidence_items",
         (
             "id,tenant_key,evidence_key,source_type,excerpt,normalized_meaning,"
-            "category,confidence,source_metadata,document_id,chunk_id,page_start,"
-            "page_end,company_id,field_path,metadata"
+            "category,requirement_type,confidence,source_metadata,document_id,"
+            "chunk_id,page_start,page_end,company_id,field_path,metadata"
         ),
         tenant_key=tenant_key,
     )
@@ -560,6 +560,7 @@ def _evidence_state_from_row(row: Mapping[str, Any]) -> EvidenceItemState:
         excerpt=str(row.get("excerpt") or ""),
         normalized_meaning=str(row.get("normalized_meaning") or ""),
         category=str(row.get("category") or ""),
+        requirement_type=row.get("requirement_type"),
         confidence=float(row.get("confidence") or 0),
         source_metadata=dict(_mapping(row.get("source_metadata"))),
         document_id=_optional_uuid(row.get("document_id")),

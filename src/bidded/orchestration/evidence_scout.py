@@ -203,6 +203,7 @@ def scout_output_state_from_agent_output(
         findings=[
             ScoutFindingState(
                 category=finding.category.value,
+                requirement_type=finding.requirement_type,
                 claim=finding.claim,
                 evidence_refs=[
                     _state_ref_from_agent_ref(evidence_ref)

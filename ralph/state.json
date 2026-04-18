@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-025",
-  "storyTitle": "Add Requirement Type Contract",
+  "currentStory": "US-026",
+  "storyTitle": "Classify tender evidence requirement types",
   "nextAction": "implement",
-  "progressTokens": 2295,
+  "progressTokens": 2370,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"

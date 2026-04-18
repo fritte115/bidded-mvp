@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, model_validator
 
+from bidded.requirements import RequirementType
+
 
 class StrictAgentOutputModel(BaseModel):
     """Base model for closed, audit-friendly agent output artifacts."""
@@ -102,6 +104,7 @@ class AgentValidationError(StrictAgentOutputModel):
 
 class EvidenceScoutFinding(StrictAgentOutputModel):
     category: ScoutCategory
+    requirement_type: RequirementType | None = None
     claim: str = Field(min_length=1)
     evidence_refs: list[EvidenceReference] = Field(min_length=1)
 
@@ -291,6 +294,7 @@ __all__ = [
     "EvidenceReference",
     "FinalVerdict",
     "JudgeDecision",
+    "RequirementType",
     "Round1Motion",
     "Round2Rebuttal",
     "RiskRegisterItem",

@@ -12,9 +12,13 @@ from bidded.orchestration import (
     FinalDecisionState,
     GraphRouteNode,
     GraphRunResult,
+    RequirementType,
     Verdict,
 )
-from bidded.orchestration.worker import run_worker_once
+from bidded.orchestration.worker import (
+    build_bid_run_state_from_supabase,
+    run_worker_once,
+)
 
 RUN_ID = UUID("11111111-1111-4111-8111-111111111111")
 OLDER_RUN_ID = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
@@ -23,6 +27,7 @@ TENDER_ID = UUID("33333333-3333-4333-8333-333333333333")
 DOCUMENT_ID = UUID("44444444-4444-4444-8444-444444444444")
 CHUNK_ID = UUID("55555555-5555-4555-8555-555555555555")
 EVIDENCE_ID = UUID("66666666-6666-4666-8666-666666666666")
+SECOND_EVIDENCE_ID = UUID("77777777-7777-4777-8777-777777777777")
 
 
 class RecordingWorkerQuery:
@@ -158,6 +163,34 @@ def test_worker_runs_specified_pending_run_and_persists_audit_rows() -> None:
     assert bid_decision["agent_run_id"] == str(RUN_ID)
     assert bid_decision["verdict"] == "conditional_bid"
     assert bid_decision["evidence_ids"] == [str(EVIDENCE_ID)]
+
+
+def test_worker_loads_typed_and_legacy_requirement_type_evidence() -> None:
+    client = RecordingWorkerClient()
+    typed_row = {**_tender_evidence_item(), "requirement_type": "shall_requirement"}
+    legacy_row = {
+        **_tender_evidence_item(),
+        "id": str(SECOND_EVIDENCE_ID),
+        "evidence_key": "TENDER-RISK-001",
+        "excerpt": "Delay penalties apply for missed milestones.",
+        "normalized_meaning": "Delay penalties are contract obligations.",
+        "category": "contract_risk",
+    }
+    client.rows["evidence_items"] = [typed_row, legacy_row]
+
+    state = build_bid_run_state_from_supabase(
+        client,
+        run_row=_pending_agent_run(),
+    )
+
+    assert state.evidence_board[0].requirement_type is (
+        RequirementType.SHALL_REQUIREMENT
+    )
+    assert state.evidence_board[1].requirement_type is None
+    assert [item.category for item in state.evidence_board] == [
+        "shall_requirement",
+        "contract_risk",
+    ]
 
 
 def test_worker_picks_oldest_pending_demo_run_when_run_id_is_omitted() -> None:

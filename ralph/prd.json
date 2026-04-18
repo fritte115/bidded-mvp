@@ -387,8 +387,8 @@
         "Tests cover enum validation, migration contract, serialization, legacy rows, and invalid requirement types; pytest and ruff check pass."
       ],
       "priority": 25,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added nullable RequirementType contract across schemas, tender evidence payloads, worker state loading, and Supabase migration. Complete."
     },
     {
       "id": "US-026",

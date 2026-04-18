@@ -39,6 +39,19 @@ def _chunk_evidence_sql() -> str:
     return migration_files[0].read_text()
 
 
+def _requirement_type_sql() -> str:
+    migration_files = sorted(
+        (PROJECT_ROOT / "supabase" / "migrations").glob(
+            "*_add_evidence_requirement_type.sql"
+        )
+    )
+
+    assert [path.name for path in migration_files] == [
+        "20260418213000_add_evidence_requirement_type.sql"
+    ]
+    return migration_files[0].read_text()
+
+
 def _table_body(sql: str, table_name: str) -> str:
     match = re.search(
         rf"create table if not exists public\.{table_name}\s*\((?P<body>.*?)\);",
@@ -365,3 +378,26 @@ def test_evidence_items_require_tender_and_company_provenance() -> None:
         "field_path is not null",
     ]:
         assert required_fragment in table_body
+
+
+def test_evidence_items_requirement_type_migration_contract() -> None:
+    sql = re.sub(r"\s+", " ", _requirement_type_sql().lower())
+
+    assert (
+        "alter table if exists public.evidence_items "
+        "add column if not exists requirement_type text"
+    ) in sql
+    assert "constraint_name = 'evidence_items_requirement_type_check'" in sql
+    assert "add constraint evidence_items_requirement_type_check check" in sql
+    assert "requirement_type is null" in sql
+    for requirement_type in [
+        "shall_requirement",
+        "qualification_requirement",
+        "exclusion_ground",
+        "financial_standing",
+        "legal_or_regulatory_reference",
+        "quality_management",
+        "submission_document",
+        "contract_obligation",
+    ]:
+        assert f"'{requirement_type}'" in sql

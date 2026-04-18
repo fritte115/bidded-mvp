@@ -22,18 +22,18 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Graph state | Typed `BidRunState` finns under `src/bidded/orchestration` med runtime control fields, audit artifacts, node ownership contracts och reducer-policy separerade. |
 | Graph routing shell | `src/bidded/orchestration/graph.py` bygger en fast LangGraph-shell med preflight, Evidence Scout-validering, mocked agent handlers, explicit edge table, bounded retry/stop-policy, failed, needs_human_review och END. |
 | Agent tool policies | Immutable policy contracts finns under `src/bidded/agents/tool_policy.py` för LLM-agenternas läs/skrivgränser och orchestratorns side effects. |
-| Agent output schemas | Strict Pydantic schemas finns under `src/bidded/agents/schemas.py` för Evidence Scout, Round 1 motions, Round 2 rebuttals, Judge decisions och evidence-claim validation. |
+| Agent output schemas | Strict Pydantic schemas finns under `src/bidded/agents/schemas.py` för Evidence Scout, Round 1 motions, Round 2 rebuttals, Judge decisions, evidence-claim validation och nullable `RequirementType`. |
 | Seedat demo-bolag och demo-tender | `bidded seed-demo-company` upsertar en större syntetisk IT-konsultprofil, `bidded register-demo-tender` registrerar en lokal text-PDF, och `bidded.evidence` kan konvertera profilfakta till idempotenta `company_profile` evidence rows. |
 | PDF-ingestion | `bidded.documents` kan ladda ned registrerade tender-PDF:er från Storage, extrahera text med PyMuPDF, ersätta deterministiska sidrefererade `document_chunks` och uppdatera `documents.parse_status`. |
 | Retrieval | `bidded.retrieval` kan hämta top-K `document_chunks` med deterministisk keyword fallback utan embeddinginställningar, plus en mockad embedding-adapter för pgvector-ready tester. |
-| Tender evidence board | `bidded.evidence` kan föreslå, validera, deduplicera, upserta och slå upp `tender_document` evidence rows från retrieved chunks med stabila citation keys. |
+| Tender evidence board | `bidded.evidence` kan föreslå, validera, deduplicera, upserta och slå upp `tender_document` evidence rows från retrieved chunks med stabila citation keys och nullable `requirement_type`. |
 | Evidence Scout node | `bidded.orchestration.evidence_scout` skapar sex kategoribundna retrieval-frågor, validerar mockade Claude-output mot resolved evidence IDs och låter graphen append:a `evidence_scout`/`evidence` agent_outputs endast för giltiga scoutfakta. |
 | Specialist motion node | `bidded.orchestration.specialist_motions` bygger evidence-locked Round 1 requests utan peer motions eller privat context, validerar strict `Round1Motion` output och append:ar fyra `round_1_motion` agent_outputs. |
 | Focused rebuttal node | `bidded.orchestration.specialist_rebuttals` bygger Round 2 requests med shared evidence board, alla validerade Round 1-motions, fokuspunkter för oenighet/blockers/missing info och append:ar fyra `round_2_rebuttal` agent_outputs först efter validering. |
 | Judge decision node | `bidded.orchestration.judge` bygger evidence-locked Judge requests, validerar strict `JudgeDecision` output, gate:ar formella compliance blockers till `no_bid`, append:ar `final_decision` agent_output och skriver Supabase-kompatibla `bid_decisions` payloads. |
 | Pending agent runs | `bidded create-pending-run` validerar vald demo tender, demo company och tender document innan en `pending` `agent_runs`-rad med evidence-locked run config skapas. |
 | Worker lifecycle CLI | `bidded worker` kör en specificerad pending run eller äldsta pending demo-run, uppdaterar `agent_runs`, kör graphen och persisterar normaliserade `agent_outputs` och `bid_decisions`. |
-| Frontend | Ingen frontend i repot. Lovable är fortsatt tänkt som tunn demo-UI ovanpå Supabase, men `US-025` och framåt prioriterar kravklassificering, regulatory glossary, hybrid retrieval och kvalitetshöjande audits innan en ny handoff-story. |
+| Frontend | Ingen frontend i repot. Lovable är fortsatt tänkt som tunn demo-UI ovanpå Supabase, men `US-026` och framåt prioriterar kravklassificering, regulatory glossary, hybrid retrieval och kvalitetshöjande audits innan en ny handoff-story. |
 
 README:n beskriver därför både nuläget och den stack som PRD:n definierar att vi bygger mot. När stories implementeras ska planerade delar flyttas till faktiskt levererade delar.
 
@@ -121,7 +121,7 @@ PRD:n definierar följande Supabase-tabeller:
 | `tenders` | Upphandlingar som analyseras mot bolagsprofilen. |
 | `documents` | Registrerade dokument med storage path, checksum, content type, roll, parse-status och koppling till tender/company. |
 | `document_chunks` | Sidrefererade textchunks från PDF:er, med chunk index, metadata och nullable embedding/vector-placeholder. |
-| `evidence_items` | Excerpt-nivå evidens från tenderdokument och company profile, med stabila human-readable evidence keys. |
+| `evidence_items` | Excerpt-nivå evidens från tenderdokument och company profile, med stabila human-readable evidence keys och nullable `requirement_type` för procurement classification. |
 | `agent_runs` | Livscykel för körningar: `pending`, `running`, `succeeded`, `failed`, `needs_human_review`, target tender/company, config och felmetadata. |
 | `agent_outputs` | En immutable rad per agentroll, runda och outputtyp. Innehåller validerad JSON, modellmetadata, timing/cost-estimat och validation errors. |
 | `bid_decisions` | Slutligt Judge-beslut kopplat till run med verdict, confidence, final JSON och `evidence_ids`. |

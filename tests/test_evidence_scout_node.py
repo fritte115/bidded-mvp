@@ -11,6 +11,7 @@ from bidded.orchestration import (
     EvidenceItemState,
     EvidenceSourceType,
     GraphRouteNode,
+    RequirementType,
     default_graph_node_handlers,
     run_bidded_graph_shell,
 )
@@ -202,6 +203,34 @@ def test_evidence_scout_extracts_six_pack_and_persists_agent_output() -> None:
     assert {ref.evidence_id for ref in scout_row.evidence_refs} == {
         evidence_id for _, _, evidence_id, _, _, _ in SCOUT_FACTS
     }
+
+
+def test_evidence_scout_preserves_nullable_requirement_type() -> None:
+    payload = _valid_scout_payload()
+    payload["findings"][0]["requirement_type"] = "shall_requirement"
+    mock_claude = RecordingMockClaude(payload)
+    handlers = replace(
+        default_graph_node_handlers(),
+        evidence_scout=build_evidence_scout_handler(mock_claude),
+    )
+
+    result = run_bidded_graph_shell(_ready_state(), handlers=handlers)
+
+    assert result.state.scout_output is not None
+    first_finding = result.state.scout_output.findings[0]
+    second_finding = result.state.scout_output.findings[1]
+    assert first_finding.requirement_type is RequirementType.SHALL_REQUIREMENT
+    assert second_finding.requirement_type is None
+
+    scout_row = next(
+        output
+        for output in result.state.agent_outputs
+        if output.agent_role == "evidence_scout"
+    )
+    assert scout_row.payload["findings"][0]["requirement_type"] == (
+        "shall_requirement"
+    )
+    assert scout_row.payload["findings"][1]["requirement_type"] is None
 
 
 def test_unsupported_mocked_claude_fact_fails_before_persistence() -> None:

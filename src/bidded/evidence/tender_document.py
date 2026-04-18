@@ -9,6 +9,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from bidded.requirements import RequirementType
 from bidded.retrieval import RetrievedDocumentChunk
 
 
@@ -49,6 +50,7 @@ class TenderEvidenceCandidate(BaseModel):
     excerpt: str = Field(min_length=1)
     source_label: str = Field(min_length=1)
     category: str = Field(min_length=1)
+    requirement_type: RequirementType | None = None
     normalized_meaning: str = Field(min_length=1)
     confidence: float = Field(default=0.8, ge=0, le=1)
 
@@ -111,6 +113,11 @@ def build_tender_evidence_items(
                 "excerpt": candidate.excerpt,
                 "normalized_meaning": candidate.normalized_meaning,
                 "category": candidate.category,
+                "requirement_type": (
+                    candidate.requirement_type.value
+                    if candidate.requirement_type is not None
+                    else None
+                ),
                 "confidence": candidate.confidence,
                 "source_metadata": {"source_label": candidate.source_label},
                 "document_id": str(candidate.document_id),
