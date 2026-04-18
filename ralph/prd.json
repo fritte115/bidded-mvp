@@ -340,8 +340,8 @@
         "pytest and ruff check pass for lifecycle tests with Supabase and LLM calls mocked."
       ],
       "priority": 22,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added worker lifecycle service and CLI for pending run execution, status transitions, audit outputs, and decisions. Complete."
     },
     {
       "id": "US-023",

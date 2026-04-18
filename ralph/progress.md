@@ -9,10 +9,10 @@ Started: 2026-04-18
 - **Current PRD Context**: Work from `ralph/state.json`; implement one `ralph/prd.json` story at a time in priority order.
 - **Bidded Runtime Target**: Python package code belongs under `src/bidded`; tests and baseline gates must not require live Claude, live embeddings, or live Supabase.
 - **Bidded Evidence Contract**: Material claims require excerpt-level `evidence_items` with source-specific provenance and `source_metadata.source_label`; unsupported points become assumptions, missing_info, validation errors, or potential blockers.
-- **Bidded Orchestration Contract**: The orchestrator owns Supabase writes, validation, status transitions, and persistence; LLM agents produce validated artifacts only.
+- **Bidded Orchestration Contract**: The orchestrator owns Supabase writes, validation, status transitions, worker lifecycle, and persistence; LLM agents produce validated artifacts only.
 - **Bidded Quality Gates**: Use deterministic pytest tests and Ruff for story completion; live smoke checks are optional unless a story explicitly requires them.
 - **Bidded Supabase Migrations**: Keep hosted Supabase SQL under `supabase/migrations/` with deterministic pytest contract tests, demo `tenant_key = 'demo'` checks, and no Auth/RLS unless a story adds it.
-- **Bidded CLI Boundary**: Keep CLI help/package imports free of live client construction; create external clients only inside real command execution paths and keep seed helpers injectable for tests.
+- **Bidded CLI Boundary**: Keep CLI help/package imports free of live client construction; create external clients only inside real command execution paths and keep command services injectable for tests.
 - **Bidded Document Pipeline Contract**: Keep tender registration and PDF ingestion in `src/bidded/documents`; registered text-PDFs use mocked Storage, PyMuPDF extraction, deterministic page chunks, and parser status metadata.
 - **Bidded Pending Run Contract**: Create `agent_runs` through an orchestration service that validates demo company, tender, and tender document rows, inserts `pending`, and leaves processing for later graph steps.
 - **Bidded Agent Audit Contract**: `agent_outputs` are immutable rows keyed by `agent_role`, `round_name`, and `output_type`; Judge `bid_decisions` surface evidence IDs and link source agent outputs through metadata.
@@ -135,4 +135,9 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added Judge decision orchestration with formal-blocker `no_bid` gating, evidence-backed verdict validation, `final_decision` audit rows, and `bid_decisions` persistence payloads.
 - **Files**: src/bidded/orchestration/judge.py, src/bidded/orchestration/graph.py, src/bidded/orchestration/state.py, src/bidded/orchestration/__init__.py, tests/test_judge_decision_node.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
 - **Key learnings**: Keep Judge artifact validation separate from orchestrator-owned `bid_decisions` persistence and link source `agent_outputs` through metadata.
+---
+## 2026-04-18 20:59 CEST - US-022
+- **Implemented**: Added a local worker lifecycle service and CLI that executes pending runs, persists normalized audit rows, and records terminal run status.
+- **Files**: src/bidded/orchestration/worker.py, src/bidded/orchestration/__init__.py, src/bidded/cli/__init__.py, tests/test_worker_lifecycle.py, tests/test_cli.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
+- **Key learnings**: Keep worker persistence outside LLM nodes by loading Supabase rows into typed graph state, then writing only validated agent outputs and final decisions.
 ---

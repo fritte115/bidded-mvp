@@ -77,6 +77,13 @@ from bidded.orchestration.state import (
     ValidationIssueState,
     Verdict,
 )
+from bidded.orchestration.worker import (
+    WorkerLifecycleError,
+    WorkerRunResult,
+    build_bid_run_state_from_supabase,
+    persist_agent_outputs,
+    run_worker_once,
+)
 
 __all__ = [
     "AgentOutputState",
@@ -124,7 +131,10 @@ __all__ = [
     "SupabaseDecisionPersistenceClient",
     "ValidationIssueState",
     "Verdict",
+    "WorkerLifecycleError",
+    "WorkerRunResult",
     "build_bidded_graph_shell",
+    "build_bid_run_state_from_supabase",
     "build_decision_persistence_handler",
     "build_judge_decision_request",
     "build_judge_handler",
@@ -137,10 +147,12 @@ __all__ = [
     "default_graph_node_handlers",
     "graph_routing_edge_table",
     "judge_decision_result_from_agent_output",
+    "persist_agent_outputs",
     "persist_final_decision",
     "round_1_motion_result_from_agent_output",
     "round_2_rebuttal_result_from_agent_output",
     "run_bidded_graph_shell",
+    "run_worker_once",
     "validate_judge_decision_output",
     "validate_round_1_motion_output",
     "validate_round_2_rebuttal_output",

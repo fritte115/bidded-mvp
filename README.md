@@ -32,6 +32,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Focused rebuttal node | `bidded.orchestration.specialist_rebuttals` bygger Round 2 requests med shared evidence board, alla validerade Round 1-motions, fokuspunkter för oenighet/blockers/missing info och append:ar fyra `round_2_rebuttal` agent_outputs först efter validering. |
 | Judge decision node | `bidded.orchestration.judge` bygger evidence-locked Judge requests, validerar strict `JudgeDecision` output, gate:ar formella compliance blockers till `no_bid`, append:ar `final_decision` agent_output och skriver Supabase-kompatibla `bid_decisions` payloads. |
 | Pending agent runs | `bidded create-pending-run` validerar vald demo tender, demo company och tender document innan en `pending` `agent_runs`-rad med evidence-locked run config skapas. |
+| Worker lifecycle CLI | `bidded worker` kör en specificerad pending run eller äldsta pending demo-run, uppdaterar `agent_runs`, kör graphen och persisterar normaliserade `agent_outputs` och `bid_decisions`. |
 | Frontend | Ingen frontend i repot. Lovable är planerad som tunn demo-UI ovanpå Supabase i `US-025`. |
 
 README:n beskriver därför både nuläget och den stack som PRD:n definierar att vi bygger mot. När stories implementeras ska planerade delar flyttas till faktiskt levererade delar.
@@ -239,16 +240,16 @@ PRD:n beskriver en lokal CLI/worker. Den kan nu:
 - seeda demo-bolaget idempotent
 - registrera en lokal text-PDF som tenderdokument
 - ladda upp PDF:en till Supabase Storage och spara dokumentrad med checksumma
+- skapa en `pending` agent run utan att köra LLM eller dokumentprocessing
+- köra en specificerad `agent_run` via ID eller plocka äldsta pending run för demo-bolaget
+- uppdatera run-status till `running`, `succeeded`, `failed` eller `needs_human_review`
+- skriva normaliserade `agent_outputs` och `bid_decisions` utan raw full prompts som default audit artifact
+- logga tillräckligt lokalt för demooperation medan Supabase förblir source of truth
 
 Planerade kommande kommandon ska kunna:
 
 - konvertera seedade bolagsfakta till `company_profile` evidence items
 - extrahera och chunka text-PDF:er
-- skapa en `pending` agent run utan att köra LLM eller dokumentprocessing
-- köra en specificerad `agent_run` via ID eller plocka äldsta pending run för demo-bolaget
-- uppdatera run-status till `running`, `succeeded`, `failed` eller `needs_human_review`
-- skriva normaliserade `agent_outputs` och `bid_decisions`
-- logga tillräckligt lokalt för demooperation medan Supabase förblir source of truth
 
 Seed-kommandot kräver `SUPABASE_URL` och `SUPABASE_SERVICE_ROLE_KEY`:
 
@@ -267,6 +268,20 @@ gitignored: `data/demo/incoming/Bilaga Skakrav.pdf`.
   --issuing-authority "Example Municipality" \
   --procurement-reference "REF-2026-001" \
   --metadata procedure=open
+```
+
+Pending run och worker-körning:
+
+```bash
+.venv/bin/bidded create-pending-run \
+  --tender-id "$TENDER_ID" \
+  --company-id "$COMPANY_ID" \
+  --document-id "$DOCUMENT_ID"
+
+.venv/bin/bidded worker --run-id "$AGENT_RUN_ID"
+
+# Eller kör äldsta pending demo-run:
+.venv/bin/bidded worker
 ```
 
 ## Miljövariabler
@@ -312,7 +327,7 @@ python3 -m venv .venv
 .venv/bin/ruff check .
 ```
 
-Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandot, tenderregistreringen, PDF-ingestionen, evidence builders och graph routing shell finns; övriga worker-kommandon byggs i senare stories.
+Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandot, tenderregistreringen, PDF-ingestionen, evidence builders, graph routing shell och worker lifecycle CLI finns; övriga operator- och demo-kommandon byggs i senare stories.
 
 ## Teststrategi
 

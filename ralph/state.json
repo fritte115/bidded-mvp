@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-022",
-  "storyTitle": "Add worker lifecycle CLI",
+  "currentStory": "US-023",
+  "storyTitle": "Add retry stop policy",
   "nextAction": "implement",
-  "progressTokens": 2070,
+  "progressTokens": 2145,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"
