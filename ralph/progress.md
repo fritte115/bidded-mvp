@@ -101,3 +101,8 @@ No Ralph story sessions have completed yet.
 - **Files**: src/bidded/documents/pdf_ingestion.py, src/bidded/documents/__init__.py, tests/test_pdf_ingestion.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
 - **Key learnings**: Keep parser outcome metadata on the `documents` row while preserving page/source metadata on every `document_chunks` row for later evidence citation.
 ---
+## 2026-04-18 19:34 CEST - US-015
+- **Implemented**: Added deterministic document chunk retrieval with keyword fallback and optional mock embedding scoring.
+- **Files**: src/bidded/retrieval/__init__.py, tests/test_document_chunk_retrieval.py, tests/test_project_scaffold.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
+- **Key learnings**: Keep retrieval usable without embedding settings while returning method and score metadata whenever chunks are ranked.
+---

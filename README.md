@@ -22,6 +22,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Agent output schemas | Strict Pydantic schemas finns under `src/bidded/agents/schemas.py` för Round 1 motions, Round 2 rebuttals, Judge decisions och evidence-claim validation. |
 | Seedat demo-bolag och demo-tender | `bidded seed-demo-company` upsertar en större syntetisk IT-konsultprofil, `bidded register-demo-tender` registrerar en lokal text-PDF, och `bidded.evidence` kan konvertera profilfakta till idempotenta `company_profile` evidence rows. |
 | PDF-ingestion | `bidded.documents` kan ladda ned registrerade tender-PDF:er från Storage, extrahera text med PyMuPDF, ersätta deterministiska sidrefererade `document_chunks` och uppdatera `documents.parse_status`. |
+| Retrieval | `bidded.retrieval` kan hämta top-K `document_chunks` med deterministisk keyword fallback utan embeddinginställningar, plus en mockad embedding-adapter för pgvector-ready tester. |
 | Pending agent runs | `bidded create-pending-run` validerar vald demo tender, demo company och tender document innan en `pending` `agent_runs`-rad med evidence-locked run config skapas. |
 | Frontend | Ingen frontend i repot. Lovable är planerad som tunn demo-UI ovanpå Supabase i `US-025`. |
 

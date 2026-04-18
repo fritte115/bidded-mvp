@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-015",
-  "storyTitle": "Add retrieval fallback",
+  "currentStory": "US-016",
+  "storyTitle": "Build tender evidence board",
   "nextAction": "implement",
-  "progressTokens": 1545,
+  "progressTokens": 1620,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"

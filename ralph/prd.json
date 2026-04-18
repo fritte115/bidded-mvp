@@ -229,8 +229,8 @@
         "pytest and ruff check pass for retrieval logic."
       ],
       "priority": 15,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added document chunk retrieval with keyword fallback, optional mock embedding scoring, and top-K metadata tests. Complete."
     },
     {
       "id": "US-016",
