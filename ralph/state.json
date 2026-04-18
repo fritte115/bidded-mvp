@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-032",
-  "storyTitle": "Add hybrid retrieval",
+  "currentStory": "US-033",
+  "storyTitle": "Add evidence recall audit",
   "nextAction": "implement",
-  "progressTokens": 2865,
+  "progressTokens": 2940,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

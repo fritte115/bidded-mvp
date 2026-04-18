@@ -493,8 +493,8 @@
         "Tests cover keyword-only, glossary-only, embedding-only, merged candidates, deterministic tie-breaks, and Evidence Scout request integration; pytest and ruff check pass."
       ],
       "priority": 32,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added hybrid keyword/glossary/embedding retrieval scoring, metadata, dedupe, and Evidence Scout integration. Complete."
     },
     {
       "id": "US-033",

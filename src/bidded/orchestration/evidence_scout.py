@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import re
-from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Protocol
 from uuid import UUID
@@ -23,6 +21,7 @@ from bidded.orchestration.state import (
     ScoutFindingState,
     ScoutOutputState,
 )
+from bidded.retrieval import RetrievedDocumentChunk, rank_document_chunk_rows
 
 SIX_PACK_SCOUT_CATEGORIES: tuple[str, ...] = tuple(
     category.value for category in ScoutCategory
@@ -224,31 +223,14 @@ def _retrieve_category_chunks(
     top_k: int,
 ) -> tuple[EvidenceScoutRetrievedChunk, ...]:
     query = _SCOUT_CATEGORY_QUERIES[category]
-    query_terms = Counter(_tokens(query))
-    scored_chunks = [
-        (_keyword_score(query_terms, chunk.text), chunk) for chunk in chunks
-    ]
-    ranked_chunks = sorted(
-        ((score, chunk) for score, chunk in scored_chunks if score > 0),
-        key=lambda scored_chunk: (
-            -scored_chunk[0],
-            scored_chunk[1].chunk_index,
-            str(scored_chunk[1].chunk_id),
-        ),
+    ranked_chunks = rank_document_chunk_rows(
+        [_row_from_state_chunk(chunk) for chunk in chunks],
+        query=query,
+        top_k=top_k,
     )
     return tuple(
-        EvidenceScoutRetrievedChunk(
-            category=category,
-            chunk_id=chunk.chunk_id,
-            document_id=chunk.document_id,
-            chunk_index=chunk.chunk_index,
-            page_start=chunk.page_start,
-            page_end=chunk.page_end,
-            text=chunk.text,
-            metadata=dict(chunk.metadata),
-            retrieval_score=score,
-        )
-        for score, chunk in ranked_chunks[:top_k]
+        _scout_chunk_from_retrieved(category, retrieved_chunk)
+        for retrieved_chunk in ranked_chunks
     )
 
 
@@ -302,18 +284,40 @@ def _state_ref_from_agent_ref(evidence_ref: EvidenceReference) -> EvidenceRef:
     )
 
 
-def _keyword_score(query_terms: Counter[str], text: str) -> float:
-    text_terms = Counter(_tokens(text))
-    matched_terms = sum(text_terms[term] for term in set(query_terms))
-    if matched_terms == 0:
-        return 0.0
-    coverage = len(set(query_terms) & set(text_terms)) / len(query_terms)
-    density = matched_terms / max(1, sum(text_terms.values()))
-    return round(matched_terms + coverage + density, 6)
+def _row_from_state_chunk(chunk: DocumentChunkState) -> dict[str, Any]:
+    return {
+        "id": str(chunk.chunk_id),
+        "document_id": str(chunk.document_id),
+        "page_start": chunk.page_start,
+        "page_end": chunk.page_end,
+        "chunk_index": chunk.chunk_index,
+        "text": chunk.text,
+        "metadata": dict(chunk.metadata),
+        "embedding": None,
+    }
 
 
-def _tokens(text: str) -> list[str]:
-    return re.findall(r"[a-z0-9]+", text.lower())
+def _scout_chunk_from_retrieved(
+    category: str,
+    chunk: RetrievedDocumentChunk,
+) -> EvidenceScoutRetrievedChunk:
+    retrieval = chunk.metadata.get("retrieval", {})
+    retrieval_score = (
+        float(retrieval.get("final_score", 0))
+        if isinstance(retrieval, Mapping)
+        else 0.0
+    )
+    return EvidenceScoutRetrievedChunk(
+        category=category,
+        chunk_id=UUID(chunk.chunk_id),
+        document_id=chunk.document_id,
+        chunk_index=chunk.chunk_index,
+        page_start=chunk.page_start,
+        page_end=chunk.page_end,
+        text=chunk.text,
+        metadata=dict(chunk.metadata),
+        retrieval_score=retrieval_score,
+    )
 
 
 def _field_path_from_validation_error(exc: ValidationError) -> str | None:

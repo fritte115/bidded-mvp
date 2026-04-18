@@ -7,7 +7,11 @@ from bidded.embeddings import (
     DOCUMENT_CHUNK_EMBEDDING_DIMENSIONS,
     EMBEDDING_CONTRACT_VERSION,
 )
-from bidded.retrieval import MockEmbeddingAdapter, retrieve_document_chunks
+from bidded.retrieval import (
+    HYBRID_RETRIEVAL_WEIGHTS,
+    MockEmbeddingAdapter,
+    retrieve_document_chunks,
+)
 
 DOCUMENT_ID = UUID("55555555-5555-4555-8555-555555555555")
 
@@ -95,6 +99,21 @@ def _chunk(**overrides: Any) -> dict[str, Any]:
     return row
 
 
+def _assert_final_score_uses_hybrid_weights(retrieval: dict[str, Any]) -> None:
+    assert retrieval["final_score"] == round(
+        HYBRID_RETRIEVAL_WEIGHTS["embedding_score"]
+        * retrieval["embedding_score"]
+        + HYBRID_RETRIEVAL_WEIGHTS["keyword_score"]
+        * retrieval["keyword_score"]
+        + HYBRID_RETRIEVAL_WEIGHTS["glossary_score"]
+        * retrieval["glossary_score"]
+        + HYBRID_RETRIEVAL_WEIGHTS["requirement_type"]
+        * retrieval["requirement_type_score"],
+        6,
+    )
+    assert retrieval["score"] == retrieval["final_score"]
+
+
 class RecordingLiveEmbeddingAdapter:
     name = "openai_embedding"
     dimensions = DOCUMENT_CHUNK_EMBEDDING_DIMENSIONS
@@ -142,9 +161,190 @@ def test_retrieve_document_chunks_uses_keyword_fallback_without_embeddings() -> 
     assert results[0].page_start == 3
     assert results[0].page_end == 3
     assert results[0].metadata["source_label"] == "Tender.pdf"
-    assert results[0].metadata["retrieval"]["method"] == "keyword"
-    assert results[0].metadata["retrieval"]["score"] > 0
+    retrieval = results[0].metadata["retrieval"]
+    assert retrieval["method"] == "hybrid"
+    assert retrieval["keyword_score"] > 0
+    assert retrieval["embedding_score"] == 0
+    assert "keyword" in retrieval["candidate_methods"]
+    _assert_final_score_uses_hybrid_weights(retrieval)
     assert client.table_names == ["document_chunks"]
+
+
+def test_retrieve_document_chunks_returns_hybrid_keyword_glossary_metadata() -> None:
+    client = RecordingSupabaseClient(
+        [
+            _chunk(
+                id="chunk-submission",
+                chunk_index=0,
+                text="Submission must include a signed data processing agreement.",
+            )
+        ]
+    )
+
+    results = retrieve_document_chunks(
+        client,
+        query="submission documents signed data processing agreement",
+        document_id=DOCUMENT_ID,
+        top_k=1,
+    )
+
+    assert [result.chunk_id for result in results] == ["chunk-submission"]
+    retrieval = results[0].metadata["retrieval"]
+    assert retrieval["method"] == "hybrid"
+    assert retrieval["weights"] == HYBRID_RETRIEVAL_WEIGHTS
+    assert retrieval["keyword_score"] > 0
+    assert retrieval["embedding_score"] == 0
+    assert retrieval["glossary_score"] > 0
+    assert retrieval["glossary_matches"][0]["entry_id"] == "submission_documents"
+    _assert_final_score_uses_hybrid_weights(retrieval)
+
+
+def test_retrieve_document_chunks_returns_glossary_only_candidates() -> None:
+    client = RecordingSupabaseClient(
+        [
+            _chunk(
+                id="chunk-swedish-submission",
+                chunk_index=0,
+                text="Anbudet ska innehålla undertecknad bilaga.",
+            ),
+            _chunk(
+                id="chunk-unrelated",
+                chunk_index=1,
+                text="The implementation starts with a planning workshop.",
+            ),
+        ]
+    )
+
+    results = retrieve_document_chunks(
+        client,
+        query="submission documents",
+        document_id=DOCUMENT_ID,
+        top_k=1,
+    )
+
+    assert [result.chunk_id for result in results] == ["chunk-swedish-submission"]
+    retrieval = results[0].metadata["retrieval"]
+    assert retrieval["method"] == "hybrid"
+    assert retrieval["keyword_score"] == 0
+    assert retrieval["embedding_score"] == 0
+    assert retrieval["glossary_score"] > 0
+    assert retrieval["requirement_type_score"] == 1.0
+    assert retrieval["candidate_methods"] == ["glossary"]
+    assert retrieval["glossary_matches"][0]["entry_id"] == "submission_documents"
+    _assert_final_score_uses_hybrid_weights(retrieval)
+
+
+def test_retrieve_document_chunks_returns_embedding_only_candidates() -> None:
+    embedding_adapter = MockEmbeddingAdapter(dimensions=24)
+    client = RecordingSupabaseClient(
+        [
+            _chunk(
+                id="chunk-embedded",
+                chunk_index=0,
+                text="Transition planning and onboarding approach.",
+                embedding=embedding_adapter.embed_text("security certification"),
+            ),
+            _chunk(
+                id="chunk-unrelated",
+                chunk_index=1,
+                text="The kickoff workshop agenda is attached.",
+                embedding=embedding_adapter.embed_text("commercial pricing"),
+            ),
+        ]
+    )
+
+    results = retrieve_document_chunks(
+        client,
+        query="security certification",
+        document_id=DOCUMENT_ID,
+        top_k=1,
+        embedding_adapter=embedding_adapter,
+    )
+
+    assert [result.chunk_id for result in results] == ["chunk-embedded"]
+    retrieval = results[0].metadata["retrieval"]
+    assert retrieval["method"] == "hybrid"
+    assert retrieval["embedding_score"] == 1.0
+    assert retrieval["keyword_score"] == 0
+    assert retrieval["glossary_score"] == 0
+    assert retrieval["candidate_methods"] == ["embedding"]
+    _assert_final_score_uses_hybrid_weights(retrieval)
+
+
+def test_retrieve_document_chunks_merges_duplicate_hybrid_candidates() -> None:
+    embedding_adapter = RecordingLiveEmbeddingAdapter()
+    client = RecordingSupabaseClient(
+        [
+            _chunk(
+                id="chunk-submission",
+                chunk_index=0,
+                text="Submission must include a signed data processing agreement.",
+            )
+        ],
+        rpc_rows=[
+            {
+                "chunk_id": "chunk-submission",
+                "chunk_document_id": str(DOCUMENT_ID),
+                "page_start": 1,
+                "page_end": 1,
+                "chunk_index": 0,
+                "text": "Submission must include a signed data processing agreement.",
+                "metadata": {"source_label": "Tender.pdf"},
+                "similarity": 0.8,
+            }
+        ],
+    )
+
+    results = retrieve_document_chunks(
+        client,
+        query="submission documents signed data processing agreement",
+        document_id=DOCUMENT_ID,
+        top_k=5,
+        embedding_adapter=embedding_adapter,
+    )
+
+    assert [result.chunk_id for result in results] == ["chunk-submission"]
+    retrieval = results[0].metadata["retrieval"]
+    assert retrieval["candidate_methods"] == ["embedding", "glossary", "keyword"]
+    assert retrieval["embedding_score"] == 0.8
+    assert retrieval["keyword_score"] > 0
+    assert retrieval["glossary_score"] > 0
+    _assert_final_score_uses_hybrid_weights(retrieval)
+
+
+def test_retrieve_document_chunks_uses_deterministic_tie_breaks() -> None:
+    client = RecordingSupabaseClient(
+        [
+            _chunk(
+                id="chunk-z",
+                chunk_index=2,
+                text="Supplier support desk.",
+            ),
+            _chunk(
+                id="chunk-b",
+                chunk_index=1,
+                text="Supplier support desk.",
+            ),
+            _chunk(
+                id="chunk-a",
+                chunk_index=1,
+                text="Supplier support desk.",
+            ),
+        ]
+    )
+
+    results = retrieve_document_chunks(
+        client,
+        query="supplier support",
+        document_id=DOCUMENT_ID,
+        top_k=3,
+    )
+
+    assert [result.chunk_id for result in results] == [
+        "chunk-a",
+        "chunk-b",
+        "chunk-z",
+    ]
 
 
 def test_retrieve_document_chunks_calls_rpc_for_live_embeddings() -> None:
@@ -177,12 +377,15 @@ def test_retrieve_document_chunks_calls_rpc_for_live_embeddings() -> None:
 
     assert [result.chunk_id for result in results] == ["chunk-security"]
     assert results[0].document_id == DOCUMENT_ID
-    assert results[0].metadata["retrieval"] == {
-        "method": "supabase_pgvector",
-        "score": 0.917423,
-    }
+    retrieval = results[0].metadata["retrieval"]
+    assert retrieval["method"] == "hybrid"
+    assert retrieval["embedding_score"] == 0.917423
+    assert retrieval["keyword_score"] == 0
+    assert retrieval["glossary_score"] == 0
+    assert retrieval["candidate_methods"] == ["embedding"]
+    _assert_final_score_uses_hybrid_weights(retrieval)
     assert embedding_adapter.calls == ["ISO 27001 information security"]
-    assert client.table_names == []
+    assert client.table_names == ["document_chunks"]
 
     assert len(client.rpcs) == 1
     function_name, params = client.rpcs[0]
@@ -219,7 +422,11 @@ def test_retrieve_document_chunks_falls_back_when_live_rpc_unavailable() -> None
     )
 
     assert [result.chunk_id for result in results] == ["chunk-keyword"]
-    assert results[0].metadata["retrieval"]["method"] == "keyword"
+    retrieval = results[0].metadata["retrieval"]
+    assert retrieval["method"] == "hybrid"
+    assert retrieval["keyword_score"] > 0
+    assert retrieval["embedding_score"] == 0
+    _assert_final_score_uses_hybrid_weights(retrieval)
     assert client.rpcs[0][0] == "match_document_chunks"
     assert client.table_names == ["document_chunks"]
 
@@ -246,7 +453,11 @@ def test_retrieve_document_chunks_falls_back_when_rpc_has_no_embeddings() -> Non
     )
 
     assert [result.chunk_id for result in results] == ["chunk-keyword"]
-    assert results[0].metadata["retrieval"]["method"] == "keyword"
+    retrieval = results[0].metadata["retrieval"]
+    assert retrieval["method"] == "hybrid"
+    assert retrieval["keyword_score"] > 0
+    assert retrieval["embedding_score"] == 0
+    _assert_final_score_uses_hybrid_weights(retrieval)
     assert client.rpcs[0][0] == "match_document_chunks"
     assert client.table_names == ["document_chunks"]
 
@@ -292,8 +503,11 @@ def test_retrieve_document_chunks_uses_mock_embedding_scores_when_configured() -
 
     assert [result.chunk_id for result in results] == ["chunk-security"]
     assert results[0].page_start == 4
-    assert results[0].metadata["retrieval"]["method"] == "mock_embedding"
-    assert 0 < results[0].metadata["retrieval"]["score"] <= 1
+    retrieval = results[0].metadata["retrieval"]
+    assert retrieval["method"] == "hybrid"
+    assert 0 < retrieval["embedding_score"] <= 1
+    assert "embedding" in retrieval["candidate_methods"]
+    _assert_final_score_uses_hybrid_weights(retrieval)
 
 
 def test_mock_embedding_adapter_exposes_generation_metadata() -> None:

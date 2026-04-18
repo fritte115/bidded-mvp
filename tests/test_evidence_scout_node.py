@@ -19,6 +19,7 @@ from bidded.orchestration.evidence_scout import (
     SIX_PACK_SCOUT_CATEGORIES,
     EvidenceScoutRequest,
     build_evidence_scout_handler,
+    build_evidence_scout_request,
 )
 
 RUN_ID = UUID("11111111-1111-4111-8111-111111111111")
@@ -231,6 +232,44 @@ def test_evidence_scout_preserves_nullable_requirement_type() -> None:
         "shall_requirement"
     )
     assert scout_row.payload["findings"][1]["requirement_type"] is None
+
+
+def test_evidence_scout_request_uses_hybrid_glossary_retrieval() -> None:
+    state = BidRunState(
+        run_id=RUN_ID,
+        company_id=COMPANY_ID,
+        tender_id=TENDER_ID,
+        document_ids=[DOCUMENT_ID],
+        run_context={"tenant_key": "demo"},
+        chunks=[
+            DocumentChunkState(
+                chunk_id=UUID("55555555-5555-4555-8555-555555555557"),
+                document_id=DOCUMENT_ID,
+                chunk_index=0,
+                page_start=1,
+                page_end=1,
+                text="Anbudet ska innehålla undertecknad bilaga.",
+                metadata={"source_label": "Swedish Tender page 1"},
+            )
+        ],
+        evidence_board=[],
+    )
+
+    request = build_evidence_scout_request(state, top_k_per_category=1)
+
+    submission_chunks = [
+        chunk
+        for chunk in request.retrieved_chunks
+        if chunk.category == "required_submission_document"
+    ]
+    assert len(submission_chunks) == 1
+    retrieval = submission_chunks[0].metadata["retrieval"]
+    assert retrieval["method"] == "hybrid"
+    assert retrieval["keyword_score"] == 0
+    assert retrieval["glossary_score"] > 0
+    assert retrieval["candidate_methods"] == ["glossary"]
+    assert retrieval["glossary_matches"][0]["entry_id"] == "submission_documents"
+    assert submission_chunks[0].retrieval_score == retrieval["final_score"]
 
 
 def test_unsupported_mocked_claude_fact_fails_before_persistence() -> None:

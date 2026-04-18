@@ -25,7 +25,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Agent output schemas | Strict Pydantic schemas finns under `src/bidded/agents/schemas.py` för Evidence Scout, Round 1 motions, Round 2 rebuttals, Judge decisions, evidence-claim validation, nullable `RequirementType` och kravtypade Judge-detaljer för blockers, risker, missing info och actions. |
 | Seedat demo-bolag och demo-tender | `bidded seed-demo-company` upsertar en större syntetisk IT-konsultprofil, `bidded register-demo-tender` registrerar en lokal text-PDF, och `bidded.evidence` kan konvertera profilfakta till idempotenta `company_profile` evidence rows. |
 | PDF-ingestion | `bidded.documents` kan ladda ned registrerade tender-PDF:er från Storage, extrahera text med PyMuPDF, ersätta deterministiska sidrefererade `document_chunks`, optionalt generera och lagra chunk embeddings i Python, och uppdatera `documents.parse_status`. |
-| Retrieval | `bidded.retrieval` kan hämta top-K `document_chunks` med deterministisk keyword fallback, den delade mockade embedding-adaptern och ett fast 1536-dimensioners embeddingkontrakt för pgvector-ready tester. |
+| Retrieval | `bidded.retrieval` kan hämta top-K `document_chunks` med hybrid keyword-, regulatory glossary- och embedding/pgvector-ranking, deduplicerade chunk-resultat och deterministisk fallback utan live embeddings. |
 | Tender evidence board | `bidded.evidence` kan föreslå, klassificera, validera, deduplicera, upserta och slå upp `tender_document` evidence rows från retrieved chunks med stabila citation keys, deterministisk nullable `requirement_type` och regulatory-glossary metadata. |
 | Evidence Scout node | `bidded.orchestration.evidence_scout` skapar sex kategoribundna retrieval-frågor, validerar mockade Claude-output mot resolved evidence IDs och låter graphen append:a `evidence_scout`/`evidence` agent_outputs endast för giltiga scoutfakta. |
 | Specialist motion node | `bidded.orchestration.specialist_motions` bygger evidence-locked Round 1 requests utan peer motions eller privat context, skickar kravtypad glossary-context, validerar strict `Round1Motion` output och tillåter formella Compliance-blockers bara för exclusion/qualification-evidens. |
@@ -33,7 +33,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Judge decision node | `bidded.orchestration.judge` bygger evidence-locked Judge requests med kravtypad glossary-context, validerar strict `JudgeDecision` output, gate:ar endast typade formella compliance blockers till `no_bid`, append:ar `final_decision` agent_output och skriver Supabase-kompatibla `bid_decisions` payloads med kravtyper i relevanta detaljer. |
 | Pending agent runs | `bidded create-pending-run` validerar vald demo tender, demo company och tender document innan en `pending` `agent_runs`-rad med evidence-locked run config skapas. |
 | Worker lifecycle CLI | `bidded worker` kör en specificerad pending run eller äldsta pending demo-run, uppdaterar `agent_runs`, kör graphen och persisterar normaliserade `agent_outputs` och `bid_decisions`. |
-| Frontend | Ingen frontend i repot. Lovable är fortsatt tänkt som tunn demo-UI ovanpå Supabase, men `US-029` och framåt prioriterar hybrid retrieval och kvalitetshöjande audits innan en ny handoff-story. |
+| Frontend | Ingen frontend i repot. Lovable är fortsatt tänkt som tunn demo-UI ovanpå Supabase, men `US-033` och framåt prioriterar kvalitetshöjande audits och demo-hardening innan en ny handoff-story. |
 
 README:n beskriver därför både nuläget och den stack som PRD:n definierar att vi bygger mot. När stories implementeras ska planerade delar flyttas till faktiskt levererade delar.
 
@@ -70,7 +70,7 @@ Agentartefakter och UI-output ska vara engelska enligt PRD:n, men beslutskontext
 | Datamodell | SQL migrations + JSONB | Normaliserade tabeller där relationer är stabila, JSONB där agent- och domändata är mer flexibel. |
 | Validering | Pydantic | Strikta schemas för graph state, agentroller, verdicts, evidence refs, blockerare, rebuttals och Judge-beslut. |
 | PDF-processing | Text-PDF extraction | Endast textbaserade PDF:er är i scope. OCR och DOCX är uttryckligen non-goals för PRD:n. |
-| Retrieval | Keyword/full-text fallback + optional embeddings | Demo ska fungera utan live embeddings men vara redo för ett fast 1536-dimensioners embedding/pgvector-kontrakt. |
+| Retrieval | Hybrid keyword/glossary/pgvector retrieval + fallback | Demo ska fungera utan live embeddings men kombinera exakta fraser, regulatory glossary-signaler och embeddings när de finns. |
 | Test | pytest | Deterministiska tester med mockad Claude, mockade embeddings och mockad Supabase där det behövs. |
 | Lint | Ruff | Kvalitetsgrind för Python-koden. |
 | UI | Lovable ovanpå Supabase | Planerad tunn demo-UI som skapar/läser runs men inte äger agentlogik. |
@@ -426,7 +426,7 @@ Lovable ska vara en tunn demo-yta som kan skapa pending `agent_runs` och läsa r
 - Evidens först, agentåsikter sedan.
 - Beslut ska kunna granskas i efterhand.
 - Demo ska fungera deterministiskt utan live LLM i test.
-- Retrieval ska ha fallback så demo inte faller på embeddings.
+- Retrieval ska kombinera keyword, regulatory glossary och embeddings men ha fallback så demo inte faller på live embeddings.
 - Compliance hard blockers ska behandlas striktare än strategiska eller kommersiella risker.
 - Missing information är ett förstaklassresultat, inte ett promptmisslyckande.
 - Orchestratorn äger side effects; agenterna äger validerade argument.
