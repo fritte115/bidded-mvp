@@ -1,0 +1,394 @@
+{
+  "project": "bidded",
+  "branchName": "ralph/bidded-swarm-core",
+  "description": "Build the hackathon-scoped Bidded swarm core: a Python + LangGraph worker backed by hosted Supabase that ingests a user-provided English text-PDF for a Swedish public procurement, seeds a larger IT consultancy profile, creates a validated shared evidence board from tender_document and company_profile sources, runs independent evidence-locked specialist motions before rebuttals, and persists an auditable bid/no-bid/conditional decision for a later Lovable UI.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Scaffold Python agent core",
+      "description": "As a developer, I need a Python agent-core scaffold so that Bidded has a testable home for Supabase access, LangGraph orchestration, PDF processing, and structured agent schemas.",
+      "acceptanceCriteria": [
+        "Python package source lives under src/bidded with clear subpackages for config, db, documents, evidence, agents, orchestration, and cli.",
+        "Project dependencies include pytest, ruff, pydantic, python-dotenv or equivalent settings support, and placeholders for Supabase, Claude, LangGraph, PDF parsing, and optional embeddings.",
+        ".env.example documents ANTHROPIC_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_STORAGE_BUCKET, and optional EMBEDDING_PROVIDER settings without committing secrets.",
+        "A minimal CLI entrypoint exists and can print help without connecting to Supabase or Claude.",
+        "pytest and ruff check pass for the scaffold."
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Add core Supabase schema",
+      "description": "As a developer, I need core Supabase tables so that demo companies, procurement tenders, and uploaded documents have a stable storage contract before agent work begins.",
+      "acceptanceCriteria": [
+        "SQL migrations create companies, tenders, and documents with UUID primary keys, created_at timestamps, and demo-tenant assumptions without auth/RLS.",
+        "documents store storage_path, checksum_sha256, content_type, document_role, parse_status, original_filename, and tender/company linkage where appropriate.",
+        "tenders store title, issuing authority, procurement context, language policy, and metadata JSONB for Swedish public procurement demo use.",
+        "companies can store the seeded larger IT consultancy profile with structured fields plus JSONB for fast-moving demo details.",
+        "Migration SQL is deterministic and can be applied to a hosted Supabase demo project."
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "Add agent audit schema",
+      "description": "As a developer, I need agent run and audit tables so that every swarm execution has persisted status, validated outputs, final decisions, and validation metadata.",
+      "acceptanceCriteria": [
+        "SQL migrations create agent_runs, agent_outputs, and bid_decisions with UUID primary keys and created_at timestamps.",
+        "agent_runs track status pending/running/succeeded/failed/needs_human_review, target tender/company, run configuration JSONB, error details, started_at, and completed_at.",
+        "agent_outputs store one immutable row per agent and round with output_type, validated JSONB payload, model metadata, timing/cost estimate fields, and validation errors.",
+        "bid_decisions link to the source agent_run and store the final validated decision JSON, verdict, confidence, and cited evidence IDs.",
+        "pytest and ruff check pass for any migration validation helpers or schema contract tests."
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "Add chunk evidence schema",
+      "description": "As a developer, I need chunk and evidence tables so that tender text and company facts can become excerpt-level evidence with precise provenance.",
+      "acceptanceCriteria": [
+        "SQL migrations create document_chunks with document_id, page_start, page_end, chunk_index, text, metadata JSONB, and nullable vector-ready embedding support.",
+        "SQL migrations create evidence_items with stable evidence_key, source_type, excerpt, normalized_meaning, category, confidence, and source metadata JSONB.",
+        "evidence_items source_type is limited to tender_document and company_profile for v1.",
+        "tender_document evidence requires document_id, chunk_id, page reference, excerpt, and source label metadata.",
+        "company_profile evidence requires company_id, field_path, excerpt, and source label metadata."
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "Define graph state schema",
+      "description": "As a developer, I need a typed LangGraph state schema so that Bidded has a clear runtime source of truth before node ownership and routing are implemented.",
+      "acceptanceCriteria": [
+        "A typed BidRunState defines run identity, company/tender/document IDs, run context, chunks, evidence board, scout output, motions, rebuttals, validation errors, retry counts, final decision, and status.",
+        "BidRunState distinguishes runtime control fields from persisted audit artifacts so implementation does not treat every field as mutable workflow memory.",
+        "BidRunState supports pending, running, succeeded, failed, and needs_human_review statuses consistently with agent_runs.",
+        "State serialization and deserialization tests cover an empty run, a run with evidence and motions, and a run with final decision state.",
+        "pytest and ruff check pass for graph state schema tests."
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "Enforce state ownership rules",
+      "description": "As a developer, I need state ownership and mutation rules so that graph nodes cannot overwrite validated artifacts or each other's outputs.",
+      "acceptanceCriteria": [
+        "Each graph node has documented read fields and owned write fields; nodes must not write outside their ownership.",
+        "Validated evidence board items, motions, rebuttals, validation errors, agent outputs, and final decisions are append-only artifacts unless a typed reducer explicitly merges parallel outputs.",
+        "Only runtime control fields such as status, current_step, retry_counts, last_error, and working retrieval results may be overwritten during a run.",
+        "Round 1 and Round 2 specialist outputs use reducers keyed by agent role so parallel writes cannot overwrite each other.",
+        "Tests prove owned write enforcement, append-only behavior, overwrite policy, and reducer behavior for parallel specialist outputs.",
+        "pytest and ruff check pass for state ownership tests."
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "Define agent tool policies",
+      "description": "As a developer, I need explicit tool policies so that LLM agents produce validated artifacts while the orchestrator owns persistence and side effects.",
+      "acceptanceCriteria": [
+        "Evidence Scout may call only bounded retrieval services scoped to the current agent_run, tender_id, and company_id, and may propose evidence candidates but does not directly mutate persisted evidence rows.",
+        "Specialist agents have read-only access to the shared evidence board and may write only their own motions, rebuttals, missing_info, and potential_evidence_gaps.",
+        "Judge may read validated evidence, motions, and rebuttals, and may write only the final decision artifact.",
+        "The orchestrator owns Supabase writes, status transitions, validation, and persistence of evidence_items, agent_outputs, and bid_decisions.",
+        "No LLM agent has arbitrary web search, filesystem access, code execution, direct database mutation, or permission to introduce new external sources during a run in v1."
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "Define agent output schemas",
+      "description": "As a developer, I need strict Pydantic output schemas so that motions, rebuttals, and Judge decisions are comparable, validated, and audit-friendly.",
+      "acceptanceCriteria": [
+        "Schemas define agent roles, verdict values bid/no_bid/conditional_bid, confidence, evidence references, assumptions, missing_info, recommended_actions, and validation errors.",
+        "Round 1 motion schemas cover vote, top findings, role-specific risks or blockers, potential blockers, assumptions, missing_info, and recommended_actions.",
+        "Round 2 rebuttal schemas cover targeted disagreements, unsupported claims, blocker challenges, evidence references, and revised stance when applicable.",
+        "Judge decision schema covers verdict, confidence, vote_summary, disagreement summary, compliance_matrix, compliance_blockers, potential_blockers, risk_register, missing_info, recommended_actions, cited_memo, and evidence_ids.",
+        "pytest and ruff check pass for schema construction and serialization tests."
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "Validate evidence claims",
+      "description": "As a developer, I need evidence-claim validation so that material agent claims are grounded in evidence IDs rather than hidden assumptions.",
+      "acceptanceCriteria": [
+        "Validation rejects material findings in motions, rebuttals, and Judge decisions when they omit evidence IDs.",
+        "Unsupported non-material points must be explicitly typed as assumptions, missing_info, or potential_evidence_gaps.",
+        "A claim may cite tender_document evidence, company_profile evidence, or both depending on whether it compares a requirement to company capability.",
+        "Validation errors are structured enough to support node retries and persisted agent_outputs validation_errors.",
+        "Tests cover valid cited claims, missing evidence IDs, assumptions, missing_info, and tender/company comparison claims."
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "Seed demo company profile",
+      "description": "As a bid manager, I need a seeded larger IT consultancy profile so that the swarm can compare tender requirements against realistic certifications, references, capacity, and economics.",
+      "acceptanceCriteria": [
+        "A seed command or script creates exactly one demo company representing a larger IT consultancy rather than an SME.",
+        "Seed data includes structured certifications, public-sector references, case studies, CV summaries, revenue bands, delivery capacity, geographic availability, and simple cost/rate assumptions.",
+        "Company capabilities are persisted using core schema fields plus JSONB for fast-moving details.",
+        "Running the seed twice is idempotent and does not create duplicate demo companies.",
+        "pytest and ruff check pass for the seed logic."
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "Convert company facts to evidence",
+      "description": "As a bid manager, I need seeded company facts converted to evidence items so that company capabilities are cited the same way as tender requirements.",
+      "acceptanceCriteria": [
+        "A service converts seeded company certifications, references, case studies, CV summaries, revenue, capacity, geography, and economics into source_type=company_profile evidence_items.",
+        "Each company_profile evidence item includes company_id, field_path, source label, excerpt, normalized meaning, category, and confidence.",
+        "Conversion is idempotent and does not duplicate unchanged company evidence items.",
+        "Tests cover conversion for certification, reference, CV/capacity, revenue, and economics facts.",
+        "pytest and ruff check pass for company evidence conversion."
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "Register demo tender PDF",
+      "description": "As an operator, I need to register a user-provided procurement PDF so that a real Swedish public procurement can be used as the hackathon tender fixture with English outputs.",
+      "acceptanceCriteria": [
+        "A CLI command accepts a local text-PDF path, tender title, issuing authority, and optional procurement metadata.",
+        "The command uploads the PDF to the configured Supabase Storage bucket and records storage_path, checksum_sha256, content_type, and original filename in documents.",
+        "The command creates or updates a tender row linked to the uploaded procurement document and the demo company.",
+        "The command fails with a clear error when the file is missing, not a PDF, or Supabase credentials are absent.",
+        "pytest and ruff check pass for registration logic with Supabase mocked."
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "Create pending run context",
+      "description": "As an operator, I need to create a pending agent run so that Lovable or the CLI can trigger the same Supabase-backed swarm workflow.",
+      "acceptanceCriteria": [
+        "A CLI command or service creates an agent_runs row linked to the selected tender and demo company.",
+        "The run configuration records English input/output, Swedish public procurement context, active agent roles, and evidence-lock settings.",
+        "The command can create a pending run without executing any LLM or document processing step.",
+        "Creating a run validates that the tender, company, and procurement document exist.",
+        "pytest and ruff check pass for pending run creation tests."
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-014",
+      "title": "Ingest PDF chunks",
+      "description": "As a developer, I need text-PDF extraction and chunking so that tender documents become page-referenced chunks for retrieval and evidence extraction.",
+      "acceptanceCriteria": [
+        "The document ingestion service extracts text from text-based PDF pages and explicitly treats OCR and DOCX as non-goals for this PRD.",
+        "Extracted text is split into deterministic chunks with document_id, page_start, page_end, chunk_index, text, and metadata.",
+        "documents.parse_status is updated to parsed when chunking succeeds and parser_failed with an error message when extraction fails.",
+        "Chunking preserves enough page reference metadata for later tender_document evidence_items to cite original PDF pages.",
+        "Tests cover successful text-PDF extraction, empty PDF text handling, and parser failure persistence.",
+        "pytest and ruff check pass for PDF ingestion logic."
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-015",
+      "title": "Add retrieval fallback",
+      "description": "As a developer, I need retrieval that works without live embeddings so that the demo remains reliable while still being pgvector-ready.",
+      "acceptanceCriteria": [
+        "Retrieval supports deterministic keyword or full-text scoring over document_chunks and returns top-K chunks with document/page metadata.",
+        "A mock embedding adapter produces deterministic vectors for tests without calling a hosted embedding provider.",
+        "Embedding configuration is optional; missing embedding settings never prevent keyword retrieval from working.",
+        "When embeddings are configured or mocked, retrieved chunk results include the retrieval method and score in metadata.",
+        "Tests prove retrieval returns relevant chunks through fallback search and through the mock embedding path.",
+        "pytest and ruff check pass for retrieval logic."
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-016",
+      "title": "Build tender evidence board",
+      "description": "As a bid manager, I need validated tender evidence items so that specialist agents analyze cited procurement facts rather than free-form document summaries.",
+      "acceptanceCriteria": [
+        "Evidence Scout or evidence extraction services propose tender evidence candidates from retrieved chunks.",
+        "The evidence validator accepts only tender_document evidence with document_id, chunk_id, page reference, excerpt, source label, category, and normalized meaning.",
+        "The orchestrator persists validated tender evidence_items; Evidence Scout does not directly mutate persisted evidence rows.",
+        "Every persisted tender evidence item receives a stable human-readable evidence key suitable for agent citations.",
+        "Tests cover candidate validation, duplicate prevention, stable evidence keys, and lookup by evidence key.",
+        "pytest and ruff check pass for tender evidence-board logic."
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-017",
+      "title": "Add graph routing shell",
+      "description": "As a developer, I need a fixed LangGraph routing shell so that the bid/no-bid meeting simulation has explicit state transitions before real agent nodes are filled in.",
+      "acceptanceCriteria": [
+        "Document registration, PDF ingestion/chunking, and evidence-board preparation are prerequisites before the LangGraph swarm starts; graph preflight verifies them but does not run ingestion.",
+        "The graph topology is fixed as preflight, Evidence Scout, parallel Round 1 specialists, Round 2 rebuttals, Judge, persist decision, and END.",
+        "Routing uses orchestrator-controlled conditional edges rather than LLM-selected handoffs.",
+        "Routing is documented as an explicit edge table covering preflight, Evidence Scout, Round 1 join, Round 2 join, Judge, persist decision, failed, needs_human_review, and END.",
+        "Conditional edges route invalid outputs to retry handling and missing inputs, unparsed documents, parser_failed documents, or empty evidence board to failed status.",
+        "Tests cover the mocked success path, invalid output path, missing/unparsed document path, empty evidence path, and final END path; pytest and ruff check pass."
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-018",
+      "title": "Implement Evidence Scout node",
+      "description": "As a bid manager, I need an Evidence Scout node so that the swarm starts from cited procurement facts rather than unsupported opinions.",
+      "acceptanceCriteria": [
+        "Evidence Scout retrieves relevant tender chunks and extracts the six-pack categories: deadlines, shall requirements, qualification criteria, evaluation criteria, contract risks, and required submission documents.",
+        "Evidence Scout writes only evidence-backed scout output and does not make bid/no-bid recommendations.",
+        "Scout output links every extracted fact to one or more evidence IDs from the validated evidence board.",
+        "The scout step persists its validated output as an agent_outputs row with role evidence_scout and round evidence.",
+        "Tests use mocked Claude output to prove unsupported extracted facts fail validation and do not persist as valid scout output.",
+        "pytest and ruff check pass for Evidence Scout logic."
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-019",
+      "title": "Implement specialist motions",
+      "description": "As a bid manager, I need independent specialist motions so that Compliance, Win, Delivery/CFO, and Red Team reason from the same evidence without groupthink.",
+      "acceptanceCriteria": [
+        "Compliance Officer, Win Strategist, Delivery/CFO Agent, and Red Team run from the same shared evidence board after Evidence Scout completes.",
+        "Round 1 specialists do not receive each other's motions or private context.",
+        "Each specialist motion includes verdict, confidence, evidence-backed findings, role-specific risks or blockers, assumptions, missing_info, and recommended_actions.",
+        "Compliance Officer is the only role that can mark formal compliance blockers as hard blocker candidates for automatic Judge gating.",
+        "Validated specialist motions persist as separate agent_outputs rows with round round_1_motion.",
+        "pytest and ruff check pass for mocked parallel motion orchestration."
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-020",
+      "title": "Implement focused rebuttals",
+      "description": "As a bid manager, I need focused cross-critique so that major disagreements, weak evidence, and blocker disputes surface before the Judge decides.",
+      "acceptanceCriteria": [
+        "Round 2 is the first point where specialists can read other agents' validated motions.",
+        "Each rebuttal reads the shared evidence board and all validated Round 1 motions.",
+        "Rebuttals target top disagreements, unsupported claims, blocker challenges, and material missing information rather than full pairwise reviews.",
+        "Red Team performs a second-round adversarial critique of the strongest bid arguments and any conditional-bid logic.",
+        "Validated rebuttals persist as separate agent_outputs rows with round round_2_rebuttal.",
+        "pytest and ruff check pass for mocked rebuttal orchestration."
+      ],
+      "priority": 20,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-021",
+      "title": "Implement Judge decision",
+      "description": "As a bid manager, I need a Judge node so that formal compliance gates, agent votes, disagreements, and evidence are converted into an auditable bid/no-bid/conditional decision.",
+      "acceptanceCriteria": [
+        "Judge automatically gates to no_bid when validated formal compliance blockers are present.",
+        "When no hard compliance blocker exists, Judge may use evidence-backed discretion over specialist votes and must explain why it accepts or overrides the majority.",
+        "Judge output includes verdict, confidence, vote_summary, disagreement summary, compliance_matrix, compliance_blockers, potential_blockers, risk_register, missing_info, recommended_actions, cited_memo, and evidence_ids.",
+        "Judge uses conditional_bid when it can make a defensible bid recommendation with explicit next actions, and uses needs_human_review when critical missing or conflicting evidence prevents a defensible final verdict.",
+        "Final decisions persist to bid_decisions and link back to the source agent_run and relevant agent_outputs.",
+        "pytest and ruff check pass for mocked Judge scenarios including bid, no_bid, conditional_bid, and needs_human_review."
+      ],
+      "priority": 21,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-022",
+      "title": "Add worker lifecycle CLI",
+      "description": "As an operator, I need a local CLI worker so that Lovable or Supabase can create pending runs while the Python worker executes the long-running graph reliably.",
+      "acceptanceCriteria": [
+        "A worker command can run a specified agent_run by ID or pick the oldest pending run for the demo company.",
+        "The worker transitions status pending to running to succeeded, failed, or needs_human_review with timestamps and error details.",
+        "The worker writes normalized outputs and metadata to agent_outputs and bid_decisions without storing raw full prompts as the default audit artifact.",
+        "The worker logs enough progress locally for demo operation while Supabase remains the source of truth for run state.",
+        "pytest and ruff check pass for lifecycle tests with Supabase and LLM calls mocked."
+      ],
+      "priority": 22,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-023",
+      "title": "Add retry stop policy",
+      "description": "As a developer, I need bounded retry and stop conditions so that the LangGraph worker cannot loop indefinitely or finish before the decision is valid.",
+      "acceptanceCriteria": [
+        "Each LLM node has at most 2 retries after invalid JSON, schema validation failure, or evidence-reference validation failure; parallel Round 1 and Round 2 retries are scoped per agent role.",
+        "Judge runs only after all four required Round 1 motions and all four required Round 2 rebuttals are valid.",
+        "The graph reaches END only after a validated Judge decision is persisted to bid_decisions and agent_runs is marked succeeded.",
+        "The graph marks failed when required tender/company/document input is missing, the document is unparsed or parser_failed, the evidence board is empty, a required agent artifact remains invalid after retries, or persistence fails.",
+        "The graph may mark needs_human_review only when the run is technically valid but the persisted Judge artifact states that critical missing or conflicting evidence prevents a defensible final verdict.",
+        "Tests cover retry success, retry exhaustion, missing/unparsed document, empty evidence board, join conditions, needs_human_review, failed, and succeeded END paths; pytest and ruff check pass."
+      ],
+      "priority": 23,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-024",
+      "title": "Test mocked end-to-end run",
+      "description": "As a developer, I need a deterministic mocked end-to-end test so that the full evidence-locked swarm can be changed safely without live Claude or embedding calls.",
+      "acceptanceCriteria": [
+        "An integration test seeds the demo company, registers a fixture tender document or fixture chunks, builds evidence, runs all swarm rounds, and persists a final bid_decision using mocked Claude outputs.",
+        "The mocked flow proves that unsupported material claims are rejected or moved to assumptions, missing_info, potential_evidence_gaps, or validation errors before final decision persistence.",
+        "The mocked flow proves that formal compliance blockers gate the final verdict while potential blockers from missing company evidence do not automatically gate.",
+        "The mocked flow proves agent_outputs contain Evidence Scout output, four Round 1 motions, four Round 2 rebuttals, and Judge output for a single agent_run.",
+        "The test suite does not require live Anthropic, live embeddings, OCR, DOCX, Supabase Auth, RLS, Next.js, React, or Lovable.",
+        "pytest and ruff check pass for the end-to-end suite."
+      ],
+      "priority": 24,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-025",
+      "title": "Prepare Lovable handoff",
+      "description": "As a founder, I need a Lovable-ready Supabase contract so that a thin demo UI can create runs and display evidence, motions, rebuttals, and decisions without owning agent logic.",
+      "acceptanceCriteria": [
+        "A handoff document describes the Supabase tables, columns, statuses, and query patterns Lovable should use for a read-first demo UI.",
+        "The handoff explains that Lovable may create pending agent_runs and read results, but the Python CLI worker owns the long-running LangGraph/Claude execution.",
+        "The handoff includes recommended UI sections for run status, evidence board, Round 1 motions, Round 2 rebuttals, Judge decision, compliance matrix, risk register, missing information, and next actions.",
+        "A seed or fixture command can create at least one pending or completed demo run shape that Lovable can render without requiring live agent execution.",
+        "The handoff explicitly lists non-goals for this PRD: full Next.js/React UI, OCR, DOCX parsing, auth/RLS, real tender search, and live embedding-provider dependency.",
+        "pytest and ruff check pass after adding any handoff fixtures or helper scripts."
+      ],
+      "priority": 25,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
