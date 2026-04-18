@@ -208,12 +208,26 @@ def _coerce_claim_list(
     return result
 
 
+def _normalize_agent_role(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.strip().lower().replace(" ", "_")
+    return value
+
+
+def _coerce_validation_error_item(item: Any) -> Any:
+    if isinstance(item, str):
+        return {"code": "llm_note", "message": item}
+    return item
+
+
 def _coerce_round1_motion_mapping(
     raw: Mapping[str, Any],
     evidence_board: Sequence[EvidenceItemState],
 ) -> dict[str, Any]:
     """Normalize field aliases and resolve evidence_ids before Pydantic validation."""
     out = dict(raw)
+    if "agent_role" in out:
+        out["agent_role"] = _normalize_agent_role(out["agent_role"])
     for field in (
         "top_findings",
         "role_specific_risks",
@@ -223,6 +237,11 @@ def _coerce_round1_motion_mapping(
         val = out.get(field)
         if isinstance(val, list):
             out[field] = _coerce_claim_list(val, evidence_board)
+    validation_errors = out.get("validation_errors")
+    if isinstance(validation_errors, list):
+        out["validation_errors"] = [
+            _coerce_validation_error_item(e) for e in validation_errors
+        ]
     return out
 
 

@@ -180,12 +180,26 @@ def _coerce_item_with_refs(
     return out
 
 
+def _normalize_agent_role(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.strip().lower().replace(" ", "_")
+    return value
+
+
+def _coerce_validation_error_item(item: Any) -> Any:
+    if isinstance(item, str):
+        return {"code": "llm_note", "message": item}
+    return item
+
+
 def _coerce_judge_decision_mapping(
     raw: Mapping[str, Any],
     evidence_board: Sequence[EvidenceItemState],
 ) -> dict[str, Any]:
     """Normalize field aliases and resolve evidence_ids before Pydantic validation."""
     out = dict(raw)
+    if "agent_role" in out:
+        out["agent_role"] = _normalize_agent_role(out["agent_role"])
     # Top-level evidence_refs
     refs = out.get("evidence_refs")
     if isinstance(refs, list):
@@ -213,6 +227,11 @@ def _coerce_judge_decision_mapping(
         out["risk_register"] = [
             _coerce_item_with_refs(r, evidence_board) if isinstance(r, dict) else r
             for r in risks
+        ]
+    validation_errors = out.get("validation_errors")
+    if isinstance(validation_errors, list):
+        out["validation_errors"] = [
+            _coerce_validation_error_item(e) for e in validation_errors
         ]
     return out
 

@@ -152,12 +152,26 @@ def _coerce_rebuttal_item_refs(
     return out
 
 
+def _normalize_agent_role(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.strip().lower().replace(" ", "_")
+    return value
+
+
+def _coerce_validation_error_item(item: Any) -> Any:
+    if isinstance(item, str):
+        return {"code": "llm_note", "message": item}
+    return item
+
+
 def _coerce_round2_rebuttal_mapping(
     raw: Mapping[str, Any],
     evidence_board: Sequence[EvidenceItemState],
 ) -> dict[str, Any]:
     """Normalize and resolve evidence_ids before Pydantic validation."""
     out = dict(raw)
+    if "agent_role" in out:
+        out["agent_role"] = _normalize_agent_role(out["agent_role"])
     # Resolve top-level evidence_refs
     refs = out.get("evidence_refs")
     if isinstance(refs, list):
@@ -175,6 +189,11 @@ def _coerce_round2_rebuttal_mapping(
         out["blocker_challenges"] = [
             _coerce_rebuttal_item_refs(c, evidence_board) if isinstance(c, dict) else c
             for c in challenges
+        ]
+    validation_errors = out.get("validation_errors")
+    if isinstance(validation_errors, list):
+        out["validation_errors"] = [
+            _coerce_validation_error_item(e) for e in validation_errors
         ]
     return out
 

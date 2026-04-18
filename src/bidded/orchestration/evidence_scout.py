@@ -228,7 +228,12 @@ def _coerce_refs_list(
     ]
 
 
-def _coerce_claim_item(
+_FINDING_ALLOWED_KEYS = frozenset(
+    {"category", "claim", "evidence_refs", "requirement_type"}
+)
+
+
+def _coerce_finding_item(
     item: dict[str, Any],
     board: Sequence[EvidenceItemState],
 ) -> dict[str, Any]:
@@ -236,7 +241,35 @@ def _coerce_claim_item(
     refs = out.get("evidence_refs")
     if refs is not None:
         out["evidence_refs"] = _coerce_refs_list(refs, board)
-    return out
+    # Whitelist: drop any extra keys Claude invents (relevance_note, etc.)
+    return {k: v for k, v in out.items() if k in _FINDING_ALLOWED_KEYS}
+
+
+def _coerce_blocker_item(
+    item: Any,
+    board: Sequence[EvidenceItemState],
+) -> dict[str, Any]:
+    if isinstance(item, str):
+        return {"claim": item, "evidence_refs": []}
+    if isinstance(item, dict):
+        out = _merge_title_detail_into_claim(item)
+        refs = out.get("evidence_refs")
+        if refs is not None:
+            out["evidence_refs"] = _coerce_refs_list(refs, board)
+        return out
+    return item
+
+
+def _coerce_validation_error_item(item: Any) -> Any:
+    if isinstance(item, str):
+        return {"code": "llm_note", "message": item}
+    return item
+
+
+def _normalize_agent_role(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.strip().lower().replace(" ", "_")
+    return value
 
 
 def _coerce_evidence_scout_mapping(
@@ -245,18 +278,30 @@ def _coerce_evidence_scout_mapping(
 ) -> dict[str, Any]:
     """Normalize field aliases and resolve evidence_ids before Pydantic validation."""
     out = dict(raw)
+
+    # Normalize agent_role: 'Evidence Scout' → 'evidence_scout'
+    if "agent_role" in out:
+        out["agent_role"] = _normalize_agent_role(out["agent_role"])
+
     findings = out.get("findings")
     if isinstance(findings, list):
         out["findings"] = [
-            _coerce_claim_item(f, evidence_board) if isinstance(f, dict) else f
+            _coerce_finding_item(f, evidence_board) if isinstance(f, dict) else f
             for f in findings
         ]
+
     blockers = out.get("potential_blockers")
     if isinstance(blockers, list):
         out["potential_blockers"] = [
-            _coerce_claim_item(b, evidence_board) if isinstance(b, dict) else b
-            for b in blockers
+            _coerce_blocker_item(b, evidence_board) for b in blockers
         ]
+
+    validation_errors = out.get("validation_errors")
+    if isinstance(validation_errors, list):
+        out["validation_errors"] = [
+            _coerce_validation_error_item(e) for e in validation_errors
+        ]
+
     return out
 
 
