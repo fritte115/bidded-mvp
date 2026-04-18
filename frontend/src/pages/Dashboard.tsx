@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/table";
 import { runs, formatDate, formatDuration } from "@/data/mock";
 import { fetchDashboardStats, fetchActiveRuns } from "@/lib/api";
-import { FileText, PlayCircle, Gavel, Sparkles, ArrowRight, FileSignature } from "lucide-react";
+import { FileText, Files, PlayCircle, Gavel, ArrowRight, FileSignature } from "lucide-react";
 
 /** Shorten a UUID to a display run ID: "RUN-a1b2" */
 function shortRunId(id: string): string {
@@ -49,9 +49,9 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Total Procurements" value={stats?.totalProcurements ?? "—"} hint="Registered tenders" icon={FileText} />
+        <StatCard label="Registered PDFs" value={stats?.totalPdfDocuments ?? "—"} hint="Stored tender documents" icon={Files} />
         <StatCard label="Active Runs" value={stats?.activeRuns ?? "—"} hint="Running or queued" icon={PlayCircle} />
-        <StatCard label="Decisions Made" value={stats?.decisionsMade ?? "—"} hint="All time" icon={Gavel} />
-        <StatCard label="Avg. Confidence" value={stats ? `${stats.avgConfidence}%` : "—"} hint="Across decisions" icon={Sparkles} />
+        <StatCard label="Judge decisions" value="—" hint="After PRD judge + worker" icon={Gavel} />
       </div>
 
       <Card className="mt-6">
@@ -67,7 +67,8 @@ export default function Dashboard() {
         <CardContent className="p-0">
           {activeRuns.length === 0 ? (
             <p className="px-6 py-8 text-center text-sm text-muted-foreground">
-              No active runs. Start one from the Procurements page.
+              No queued or in-flight runs. Run creation from the UI is deferred to the PRD backlog;
+              you can still register procurements and documents.
             </p>
           ) : (
             <Table>
@@ -114,7 +115,9 @@ export default function Dashboard() {
         <div className="mb-3 flex items-center justify-between">
           <div>
             <h2 className="text-base font-semibold">Latest Verdicts</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">Decisions ready to act on.</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Sample data only — live judge output will connect after the relevant PRD stories.
+            </p>
           </div>
           <Button asChild variant="ghost" size="sm" className="text-xs text-primary">
             <Link to="/decisions">View all decisions <ArrowRight className="h-3 w-3" /></Link>

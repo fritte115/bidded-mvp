@@ -7,9 +7,15 @@ The UI is intentionally thin: it **creates `pending` runs**, **uploads PDFs**, a
 **reads results**. It never owns agent logic, side effects, or evidence
 validation — those are the worker's responsibility.
 
-> Status: this repo currently runs entirely on the mock data in
-> `src/data/mock.ts`. Every shape below is what the UI **already consumes** —
-> the backend's job is to expose views/RPCs that match these shapes.
+> **Current integration scope** (see `.cursor/plans/frontend-backend-scope.md`): the
+> frontend connects to **Supabase migrations through the US-012 surface** — `companies`,
+> `tenders`, `documents`, Storage — and shows **`documents.parse_status`** (display-only).
+> It does **not** create `agent_runs` from the UI, query `bid_decisions` for real metrics,
+> or add `lovable_*` views/RPCs until the matching **PRD** stories land. Verdicts and many
+> screens still use **`src/data/mock.ts`** as sample data.
+>
+> **Target contract** (below): shapes the UI already consumes; the backend will expose
+> matching views/RPCs under **US-025** and later PRD work.
 
 ---
 

@@ -25,7 +25,13 @@ import {
 import { StatusBadge } from "@/components/StatusBadge";
 import { VerdictBadge } from "@/components/VerdictBadge";
 import { formatRelativeTime } from "@/data/mock";
-import { fetchProcurements, deleteProcurement, type ProcurementRow } from "@/lib/api";
+import { fetchProcurements, deleteProcurement } from "@/lib/api";
+import { ParseStatusBadge } from "@/components/ParseStatusBadge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   FileText,
   Plus,
@@ -126,8 +132,9 @@ export default function Procurements() {
   const startRuns = (ids: string[], label: "start" | "rerun" = "start") => {
     if (ids.length === 0) return;
     const verb = label === "rerun" ? "Re-started" : "Started";
-    toast.success(`${verb} ${ids.length} ${ids.length === 1 ? "run" : "runs"}`, {
-      description: "Swarm analysis is now in progress. (Mock — no real execution.)",
+    toast.message(`${verb} ${ids.length} ${ids.length === 1 ? "run" : "runs"}`, {
+      description:
+        "Creating runs from the UI is not enabled in this build — it is deferred to the PRD backlog (pending agent runs).",
     });
   };
 
@@ -145,6 +152,7 @@ export default function Procurements() {
       await deleteProcurement(id);
       setSelectedIds((prev) => prev.filter((x) => x !== id));
       await queryClient.invalidateQueries({ queryKey: ["procurements"] });
+      await queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
       toast.success("Procurement deleted", { description: name });
     } catch (err) {
       toast.error("Delete failed", { description: err instanceof Error ? err.message : "Unknown error" });
@@ -159,7 +167,7 @@ export default function Procurements() {
     <>
       <PageHeader
         title="Procurements"
-        description="Registry & analysis hub. Register documents, kick off swarm runs, and watch verdicts land — all in one place."
+        description="Register tender PDFs in Supabase Storage and track parse status. Swarm runs and verdicts are deferred to later PRD stories."
         actions={
           <>
             {selectedCount >= 2 && (
@@ -275,11 +283,41 @@ export default function Procurements() {
                           />
                         </TableCell>
                         <TableCell className="font-medium">{t.name}</TableCell>
-                        <TableCell>
-                          <span className="inline-flex items-center gap-1.5 rounded-sm bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
-                            <Files className="h-3 w-3" />
-                            {t.documentCount} {t.documentCount === 1 ? "PDF" : "PDFs"}
-                          </span>
+                        <TableCell className="align-top">
+                          <div className="max-w-[240px] space-y-1.5">
+                            <span className="inline-flex items-center gap-1.5 rounded-sm bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
+                              <Files className="h-3 w-3" />
+                              {t.documentCount} {t.documentCount === 1 ? "PDF" : "PDFs"}
+                            </span>
+                            {t.documents.length > 0 && (
+                              <ul className="space-y-1">
+                                {t.documents.map((d) => (
+                                  <li
+                                    key={d.originalFilename}
+                                    className="flex flex-wrap items-center gap-1.5 text-[11px] leading-tight"
+                                  >
+                                    <span className="min-w-0 truncate text-muted-foreground" title={d.originalFilename}>
+                                      {d.originalFilename}
+                                    </span>
+                                    {d.parseNote ? (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <span className="inline-flex cursor-help">
+                                            <ParseStatusBadge status={d.parseStatus} />
+                                          </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent className="max-w-xs text-xs">
+                                          {d.parseNote}
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    ) : (
+                                      <ParseStatusBadge status={d.parseStatus} />
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="text-sm">
                           {run ? (

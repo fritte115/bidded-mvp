@@ -1,12 +1,13 @@
 /**
- * Data access layer — queries Supabase tables built by Ralph and maps them to
- * the frontend's existing Company/Procurement/Run types from mock.ts.
+ * Data access layer — Supabase reads/writes for the US-001–US-012 surface
+ * (core domain, storage registration, seeded company). See `.cursor/plans/frontend-backend-scope.md`.
+ *
+ * Do not query worker-owned outcomes (`bid_decisions`) for “real” metrics until the PRD judge
+ * story lands; do not insert into `agent_runs` from the UI (pending runs are a later PRD story).
  *
  * Rules:
- *  - Only reads tables that Ralph's migrations created.
- *  - No new tables, no new RPCs — pure SELECT queries via the anon key.
- *  - Each function maps DB column names → mock.ts field names so components
- *    need no knowledge of the DB schema.
+ *  - Only tables from Ralph migrations; anon key.
+ *  - Map DB columns → mock.ts field names where components still share those types.
  */
 
 import { supabase } from "@/lib/supabase";
@@ -221,41 +222,33 @@ export async function updateCompany(c: Company): Promise<void> {
 
 export interface DashboardStats {
   totalProcurements: number;
+  /** Tender PDF rows in `documents` (tender_document role) */
+  totalPdfDocuments: number;
   activeRuns: number;
-  decisionsMade: number;
-  avgConfidence: number; // 0-100
 }
 
 export async function fetchDashboardStats(): Promise<DashboardStats> {
-  const [tendersRes, activeRunsRes, decisionsRes] = await Promise.all([
+  const [tendersRes, docsRes, activeRunsRes] = await Promise.all([
     supabase
       .from("tenders")
       .select("id", { count: "exact", head: true })
       .eq("tenant_key", "demo"),
     supabase
+      .from("documents")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_key", "demo")
+      .eq("document_role", "tender_document"),
+    supabase
       .from("agent_runs")
       .select("id", { count: "exact", head: true })
       .eq("tenant_key", "demo")
       .in("status", ["running", "pending"]),
-    supabase
-      .from("bid_decisions")
-      .select("confidence")
-      .eq("tenant_key", "demo"),
   ]);
-
-  const decisionRows = (decisionsRes.data ?? []) as Array<{ confidence: number }>;
-  const avgConfidence =
-    decisionRows.length > 0
-      ? Math.round(
-          (decisionRows.reduce((s, r) => s + r.confidence, 0) / decisionRows.length) * 100,
-        )
-      : 0;
 
   return {
     totalProcurements: tendersRes.count ?? 0,
+    totalPdfDocuments: docsRes.count ?? 0,
     activeRuns: activeRunsRes.count ?? 0,
-    decisionsMade: decisionRows.length,
-    avgConfidence,
   };
 }
 
@@ -321,13 +314,28 @@ export interface ProcurementLatestRun {
   decision: Verdict | null;
 }
 
+export interface ProcurementDocumentRow {
+  originalFilename: string;
+  parseStatus: "pending" | "parsing" | "parsed" | "parser_failed";
+  /** From `metadata` when workers store an error string; DB has no dedicated column yet */
+  parseNote: string | null;
+}
+
 export interface ProcurementRow {
   id: string;
   name: string;
   uploadedAt: string;
-  documentFilenames: string[];   // original_filename from documents table
+  documentFilenames: string[];
+  documents: ProcurementDocumentRow[];
   documentCount: number;
   latestRun: ProcurementLatestRun | null;
+}
+
+function metadataParseNote(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const m = metadata as Record<string, unknown>;
+  if (typeof m.parse_error === "string" && m.parse_error.length > 0) return m.parse_error;
+  return null;
 }
 
 export async function fetchProcurements(): Promise<ProcurementRow[]> {
@@ -337,7 +345,7 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
       id,
       title,
       created_at,
-      documents(original_filename, parse_status),
+      documents(original_filename, parse_status, metadata),
       agent_runs(id, status, started_at, created_at, metadata)
     `)
     .eq("tenant_key", "demo")
@@ -346,7 +354,12 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
   if (error) throw new Error(`fetchProcurements: ${error.message}`);
 
   return (data ?? []).map((t: Record<string, unknown>) => {
-    const docs = (t.documents as Array<{ original_filename: string }>) ?? [];
+    const docs =
+      (t.documents as Array<{
+        original_filename: string;
+        parse_status: ProcurementDocumentRow["parseStatus"];
+        metadata: unknown;
+      }>) ?? [];
     const runs = (
       t.agent_runs as Array<{
         id: string;
@@ -362,11 +375,18 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
     )[0] ?? null;
 
+    const documentRows: ProcurementDocumentRow[] = docs.map((d) => ({
+      originalFilename: d.original_filename,
+      parseStatus: d.parse_status,
+      parseNote: metadataParseNote(d.metadata),
+    }));
+
     return {
       id: t.id as string,
       name: t.title as string,
       uploadedAt: t.created_at as string,
       documentFilenames: docs.map((d) => d.original_filename),
+      documents: documentRows,
       documentCount: docs.length,
       latestRun: latestRun
         ? {
@@ -374,7 +394,7 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
             status: latestRun.status as RunStatus,
             startedAt: latestRun.started_at ?? latestRun.created_at,
             stage: (latestRun.metadata?.current_step as string) ?? null,
-            decision: null, // populated by bid_decisions once US-021 lands
+            decision: null,
           }
         : null,
     };
@@ -414,7 +434,7 @@ export interface RegisterProcurementInput {
 
 /**
  * Upload PDFs to Supabase Storage and register them as a new tender.
- * Mirrors tender_registration.py exactly — same storage paths, same upsert keys.
+ * Mirrors tender_registration.py — same storage paths, same upsert keys.
  * Returns the tender UUID.
  */
 /**
@@ -491,7 +511,10 @@ export async function registerProcurement(input: RegisterProcurementInput): Prom
         contentType: "application/pdf",
         upsert: true,
       });
-    if (uploadErr) throw new Error(`registerProcurement (storage upload ${file.name}): ${uploadErr.message} [status: ${(uploadErr as Record<string, unknown>).statusCode}]`);
+    if (uploadErr)
+      throw new Error(
+        `registerProcurement (storage upload ${file.name}): ${uploadErr.message} [status: ${(uploadErr as { statusCode?: string }).statusCode ?? "?"}]`,
+      );
 
     const { error: docErr } = await supabase.from("documents").upsert(
       {

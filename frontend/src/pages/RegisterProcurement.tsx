@@ -40,6 +40,7 @@ export default function RegisterProcurement() {
     try {
       await registerProcurement({ title: title.trim(), issuingAuthority: issuingAuthority.trim(), files });
       await queryClient.invalidateQueries({ queryKey: ["procurements"] });
+      await queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
       toast.success("Procurement registered", {
         description: `${files.length} PDF${files.length === 1 ? "" : "s"} uploaded and indexed.`,
       });
@@ -158,7 +159,7 @@ export default function RegisterProcurement() {
                   ))}
                 </ul>
                 <p className="text-xs text-muted-foreground">
-                  {files.length} {files.length === 1 ? "file" : "files"} attached · all PDFs will be chunked and indexed together.
+                  {files.length} {files.length === 1 ? "file" : "files"} attached · stored in Supabase; text extraction and chunking run when the ingest worker is available (PRD backlog).
                 </p>
               </>
             )}
@@ -171,11 +172,11 @@ export default function RegisterProcurement() {
                   <Loader2 className="h-4 w-4 animate-spin" /> Uploading…
                 </>
               ) : (
-                "Register & Process Procurement"
+                "Register procurement"
               )}
             </Button>
             <p className="mt-2 text-xs text-muted-foreground">
-              All attached documents will be chunked and indexed automatically.
+              Documents are uploaded and registered with parse status &quot;pending&quot; until the ingestion pipeline runs.
             </p>
           </div>
         </CardContent>
