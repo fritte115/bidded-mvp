@@ -151,3 +151,8 @@ No Ralph story sessions have completed yet.
 - **Files**: tests/test_mocked_end_to_end_run.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
 - **Key learnings**: Run mocked E2E coverage through `run_worker_once` with graph handlers injected and leave graph persistence as the default no-op so the worker owns `bid_decisions`.
 ---
+## 2026-04-19 - US-025 + Anthropic agent flow fixes
+- **Implemented**: Added RequirementType enum (8 values), nullable `requirement_type` on EvidenceScoutFinding and EvidenceItemState/ScoutFindingState, Supabase migration. Also fixed real-Claude flow: board-aware coercion layers (auto-resolve null evidence_id from catalog) for Evidence Scout, Round 1, Round 2, and Judge; coerce SupportedClaim title/detail → claim; skip empty-text chunks in worker; improved Anthropic system prompts with explicit JSON schema and evidence_ref examples.
+- **Files**: src/bidded/agents/schemas.py, src/bidded/orchestration/state.py, src/bidded/orchestration/evidence_scout.py, src/bidded/orchestration/specialist_motions.py, src/bidded/orchestration/specialist_rebuttals.py, src/bidded/orchestration/judge.py, src/bidded/llm/anthropic_swarm.py, src/bidded/orchestration/worker.py, supabase/migrations/20260419000000_add_requirement_type.sql, ralph/prd.json, ralph/state.json, ralph/progress.md
+- **Key learnings**: Pre-resolve null evidence_ids in coercion before Pydantic model_validate() so `_require_resolved_evidence_ids` passes; keep `_matching_evidence_item` as strict 3-way (reject wrong UUIDs) but let coercion fill null ones from the board. Wrong UUIDs are still rejected — only missing UUIDs are auto-resolved.
+---

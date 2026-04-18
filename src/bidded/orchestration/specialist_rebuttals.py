@@ -106,6 +106,79 @@ _ROUND_2_ROUTE_BY_ROLE: dict[SpecialistRole, GraphRouteNode] = {
 _BID_POSITIVE_VERDICTS = {Verdict.BID, Verdict.CONDITIONAL_BID}
 
 
+def _resolve_ref_against_board(
+    ref_dict: dict[str, Any],
+    board: Sequence[EvidenceItemState],
+) -> dict[str, Any]:
+    out = dict(ref_dict)
+    key = str(out.get("evidence_key") or "")
+    source_type = str(out.get("source_type") or "")
+    ev_id_raw = out.get("evidence_id")
+    needs_resolve = ev_id_raw is None or str(ev_id_raw).strip() in ("", "null", "None")
+    if needs_resolve:
+        item = next(
+            (
+                i
+                for i in board
+                if i.evidence_key == key and i.source_type.value == source_type
+            ),
+            None,
+        )
+        if item is not None and item.evidence_id is not None:
+            out["evidence_id"] = str(item.evidence_id)
+    return out
+
+
+def _coerce_refs_list(
+    refs: Any,
+    board: Sequence[EvidenceItemState],
+) -> list[Any]:
+    if not isinstance(refs, list):
+        return refs
+    return [
+        _resolve_ref_against_board(r, board) if isinstance(r, dict) else r
+        for r in refs
+    ]
+
+
+def _coerce_rebuttal_item_refs(
+    item: dict[str, Any],
+    board: Sequence[EvidenceItemState],
+) -> dict[str, Any]:
+    out = dict(item)
+    refs = out.get("evidence_refs")
+    if refs is not None:
+        out["evidence_refs"] = _coerce_refs_list(refs, board)
+    return out
+
+
+def _coerce_round2_rebuttal_mapping(
+    raw: Mapping[str, Any],
+    evidence_board: Sequence[EvidenceItemState],
+) -> dict[str, Any]:
+    """Normalize and resolve evidence_ids before Pydantic validation."""
+    out = dict(raw)
+    # Resolve top-level evidence_refs
+    refs = out.get("evidence_refs")
+    if isinstance(refs, list):
+        out["evidence_refs"] = _coerce_refs_list(refs, evidence_board)
+    # targeted_disagreements: each has evidence_refs
+    disagreements = out.get("targeted_disagreements")
+    if isinstance(disagreements, list):
+        out["targeted_disagreements"] = [
+            _coerce_rebuttal_item_refs(d, evidence_board) if isinstance(d, dict) else d
+            for d in disagreements
+        ]
+    # blocker_challenges: each has evidence_refs
+    challenges = out.get("blocker_challenges")
+    if isinstance(challenges, list):
+        out["blocker_challenges"] = [
+            _coerce_rebuttal_item_refs(c, evidence_board) if isinstance(c, dict) else c
+            for c in challenges
+        ]
+    return out
+
+
 def build_round_2_rebuttal_handler(
     model: Round2RebuttalDrafter,
 ) -> Round2Handler:
@@ -171,7 +244,12 @@ def validate_round_2_rebuttal_output(
     """Validate strict rebuttal schema and evidence refs against the board."""
 
     try:
-        output = Round2Rebuttal.model_validate(raw_output)
+        coerced = (
+            raw_output
+            if isinstance(raw_output, Round2Rebuttal)
+            else _coerce_round2_rebuttal_mapping(raw_output, evidence_board)
+        )
+        output = Round2Rebuttal.model_validate(coerced)
     except ValidationError as exc:
         raise Round2RebuttalValidationError(
             str(exc),

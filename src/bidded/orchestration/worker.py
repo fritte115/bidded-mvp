@@ -298,6 +298,7 @@ def build_bid_run_state_from_supabase(
         _chunk_state_from_row(row)
         for row in chunk_rows
         if _optional_uuid(row.get("document_id")) in set(document_ids)
+        and str(row.get("text") or "").strip()
     ]
     evidence_board = [
         _evidence_state_from_row(row)

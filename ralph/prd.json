@@ -387,8 +387,8 @@
         "Tests cover enum validation, migration contract, serialization, legacy rows, and invalid requirement types; pytest and ruff check pass."
       ],
       "priority": 25,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added RequirementType enum (8 values), nullable field on EvidenceScoutFinding and state types, Supabase migration with CHECK constraint. Also fixed real-Claude agent flow: board-aware coercion layers auto-resolve null evidence_ids from catalog; SupportedClaim title/detail coercion; empty-chunk skip in worker; improved system prompts. 124 tests pass."
     },
     {
       "id": "US-026",

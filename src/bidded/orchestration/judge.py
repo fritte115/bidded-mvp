@@ -108,6 +108,115 @@ _AGENT_ROLE_BY_SPECIALIST: dict[SpecialistRole, AgentRole] = {
     SpecialistRole.DELIVERY_CFO: AgentRole.DELIVERY_CFO,
     SpecialistRole.RED_TEAM: AgentRole.RED_TEAM,
 }
+
+
+def _resolve_ref_against_board(
+    ref_dict: dict[str, Any],
+    board: Sequence[EvidenceItemState],
+) -> dict[str, Any]:
+    out = dict(ref_dict)
+    key = str(out.get("evidence_key") or "")
+    source_type = str(out.get("source_type") or "")
+    ev_id_raw = out.get("evidence_id")
+    needs_resolve = ev_id_raw is None or str(ev_id_raw).strip() in ("", "null", "None")
+    if needs_resolve:
+        item = next(
+            (
+                i
+                for i in board
+                if i.evidence_key == key and i.source_type.value == source_type
+            ),
+            None,
+        )
+        if item is not None and item.evidence_id is not None:
+            out["evidence_id"] = str(item.evidence_id)
+    return out
+
+
+def _coerce_refs_list(
+    refs: Any,
+    board: Sequence[EvidenceItemState],
+) -> list[Any]:
+    if not isinstance(refs, list):
+        return refs
+    return [
+        _resolve_ref_against_board(r, board) if isinstance(r, dict) else r
+        for r in refs
+    ]
+
+
+def _merge_title_detail_into_claim(item: dict[str, Any]) -> dict[str, Any]:
+    out = dict(item)
+    claim = (out.get("claim") or "").strip()
+    if not claim:
+        title = (out.get("title") or "").strip()
+        detail = (out.get("detail") or "").strip()
+        summary = (out.get("summary") or "").strip()
+        if title and detail:
+            claim = f"{title} — {detail}"
+        elif title:
+            claim = title
+        elif detail:
+            claim = detail
+        elif summary:
+            claim = summary
+    if claim:
+        out["claim"] = claim
+    for key in ("title", "detail", "summary", "description", "name", "heading"):
+        out.pop(key, None)
+    return out
+
+
+def _coerce_item_with_refs(
+    item: dict[str, Any],
+    board: Sequence[EvidenceItemState],
+    *,
+    coerce_claim: bool = False,
+) -> dict[str, Any]:
+    out = _merge_title_detail_into_claim(item) if coerce_claim else dict(item)
+    refs = out.get("evidence_refs")
+    if refs is not None:
+        out["evidence_refs"] = _coerce_refs_list(refs, board)
+    return out
+
+
+def _coerce_judge_decision_mapping(
+    raw: Mapping[str, Any],
+    evidence_board: Sequence[EvidenceItemState],
+) -> dict[str, Any]:
+    """Normalize field aliases and resolve evidence_ids before Pydantic validation."""
+    out = dict(raw)
+    # Top-level evidence_refs
+    refs = out.get("evidence_refs")
+    if isinstance(refs, list):
+        out["evidence_refs"] = _coerce_refs_list(refs, evidence_board)
+    # compliance_blockers and potential_blockers are SupportedClaim lists
+    for field in ("compliance_blockers", "potential_blockers"):
+        val = out.get(field)
+        if isinstance(val, list):
+            out[field] = [
+                _coerce_item_with_refs(c, evidence_board, coerce_claim=True)
+                if isinstance(c, dict)
+                else c
+                for c in val
+            ]
+    # compliance_matrix items have assessment/requirement text + evidence_refs
+    matrix = out.get("compliance_matrix")
+    if isinstance(matrix, list):
+        out["compliance_matrix"] = [
+            _coerce_item_with_refs(m, evidence_board) if isinstance(m, dict) else m
+            for m in matrix
+        ]
+    # risk_register items have risk/mitigation text + evidence_refs
+    risks = out.get("risk_register")
+    if isinstance(risks, list):
+        out["risk_register"] = [
+            _coerce_item_with_refs(r, evidence_board) if isinstance(r, dict) else r
+            for r in risks
+        ]
+    return out
+
+
 def build_judge_handler(model: JudgeDecisionDrafter) -> JudgeHandler:
     """Build a graph handler from a Claude-like Judge adapter."""
 
@@ -181,7 +290,12 @@ def validate_judge_decision_output(
     """Validate strict Judge schema and evidence refs against the board."""
 
     try:
-        output = JudgeDecision.model_validate(raw_output)
+        coerced = (
+            raw_output
+            if isinstance(raw_output, JudgeDecision)
+            else _coerce_judge_decision_mapping(raw_output, evidence_board)
+        )
+        output = JudgeDecision.model_validate(coerced)
     except ValidationError as exc:
         raise JudgeDecisionValidationError(
             str(exc),

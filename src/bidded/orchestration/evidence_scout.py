@@ -192,23 +192,69 @@ def _merge_title_detail_into_claim(item: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _coerce_evidence_scout_mapping(raw: Mapping[str, Any]) -> dict[str, Any]:
-    """Normalize common LLM field aliases before strict Pydantic validation."""
+def _resolve_ref_against_board(
+    ref_dict: dict[str, Any],
+    board: Sequence[EvidenceItemState],
+) -> dict[str, Any]:
+    """Fill in evidence_id from board when Claude omits or mismatches it."""
+    out = dict(ref_dict)
+    key = str(out.get("evidence_key") or "")
+    source_type = str(out.get("source_type") or "")
+    ev_id_raw = out.get("evidence_id")
+    needs_resolve = ev_id_raw is None or str(ev_id_raw).strip() in ("", "null", "None")
+    if needs_resolve:
+        item = next(
+            (
+                i
+                for i in board
+                if i.evidence_key == key and i.source_type.value == source_type
+            ),
+            None,
+        )
+        if item is not None and item.evidence_id is not None:
+            out["evidence_id"] = str(item.evidence_id)
+    return out
+
+
+def _coerce_refs_list(
+    refs: Any,
+    board: Sequence[EvidenceItemState],
+) -> list[Any]:
+    if not isinstance(refs, list):
+        return refs
+    return [
+        _resolve_ref_against_board(r, board) if isinstance(r, dict) else r
+        for r in refs
+    ]
+
+
+def _coerce_claim_item(
+    item: dict[str, Any],
+    board: Sequence[EvidenceItemState],
+) -> dict[str, Any]:
+    out = _merge_title_detail_into_claim(item)
+    refs = out.get("evidence_refs")
+    if refs is not None:
+        out["evidence_refs"] = _coerce_refs_list(refs, board)
+    return out
+
+
+def _coerce_evidence_scout_mapping(
+    raw: Mapping[str, Any],
+    evidence_board: Sequence[EvidenceItemState],
+) -> dict[str, Any]:
+    """Normalize field aliases and resolve evidence_ids before Pydantic validation."""
     out = dict(raw)
     findings = out.get("findings")
     if isinstance(findings, list):
         out["findings"] = [
-            _merge_title_detail_into_claim(f)
-            if isinstance(f, dict)
-            else f
+            _coerce_claim_item(f, evidence_board) if isinstance(f, dict) else f
             for f in findings
         ]
     blockers = out.get("potential_blockers")
     if isinstance(blockers, list):
         out["potential_blockers"] = [
-            _merge_title_detail_into_claim(b)
-            if isinstance(b, dict)
-            else b
+            _coerce_claim_item(b, evidence_board) if isinstance(b, dict) else b
             for b in blockers
         ]
     return out
@@ -226,7 +272,7 @@ def validate_evidence_scout_output(
             output = raw_output
         else:
             output = EvidenceScoutOutput.model_validate(
-                _coerce_evidence_scout_mapping(raw_output)
+                _coerce_evidence_scout_mapping(raw_output, evidence_board)
             )
     except ValidationError as exc:
         raise EvidenceScoutValidationError(
@@ -265,6 +311,11 @@ def scout_output_state_from_agent_output(
                     _state_ref_from_agent_ref(evidence_ref)
                     for evidence_ref in finding.evidence_refs
                 ],
+                requirement_type=(
+                    finding.requirement_type.value
+                    if finding.requirement_type is not None
+                    else None
+                ),
             )
             for finding in output.findings
         ],

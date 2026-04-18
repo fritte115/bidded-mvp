@@ -19,6 +19,7 @@ import json
 from collections.abc import Sequence
 from dataclasses import replace
 from typing import Any
+
 from bidded.agents.schemas import AgentRole
 from bidded.llm.anthropic_client import anthropic_complete_json
 from bidded.orchestration.evidence_scout import EvidenceScoutRequest
@@ -64,10 +65,14 @@ def _scout_chunks_payload(request: EvidenceScoutRequest) -> list[dict[str, Any]]
 
 _BASE_RULES = (
     "You are part of an audit-grade bid/no-bid workflow. "
-    "Every factual claim must cite evidence_refs using ONLY evidence_key + "
-    "source_type + evidence_id values from the evidence catalog JSON. "
-    "Do not invent evidence keys or UUIDs. "
-    "Output a single JSON object only (no markdown outside JSON)."
+    "Every factual claim must cite evidence_refs using evidence_key, source_type, "
+    "and evidence_id taken VERBATIM from the evidence catalog JSON provided. "
+    "Never invent evidence keys or UUIDs — copy them exactly from the catalog. "
+    'Each evidence_ref must look like: {"evidence_key": "...", "source_type": '
+    '"tender_document", "evidence_id": "<UUID from catalog>"}. '
+    "If a claim cannot be supported by any catalog entry, move it to missing_info "
+    "or potential_evidence_gaps — do not hallucinate an evidence reference. "
+    "Output a single JSON object only (no markdown fences, no prose outside JSON)."
 )
 
 
@@ -77,16 +82,24 @@ class AnthropicEvidenceScoutModel:
         self._model = model
 
     def extract(self, request: EvidenceScoutRequest) -> dict[str, Any]:
+        catalog_example = (
+            '{"evidence_key": "td-001", "source_type": "tender_document", '
+            '"evidence_id": "<UUID from catalog>"}'
+        )
         system = (
             _BASE_RULES
             + " You are the Evidence Scout: extract procurement facts by category. "
             "Findings must use ScoutCategory values: deadline, shall_requirement, "
             "qualification_criterion, evaluation_criterion, contract_risk, "
             "required_submission_document. "
-            "Each finding must be a JSON object with keys: category, claim, evidence_refs. "
-            "Put the full factual statement in claim (one string). Do not use title, "
-            "detail, or summary instead of claim. "
-            "Include at least one finding if the catalog is non-empty."
+            "Each finding must be a JSON object with exactly these keys: "
+            "category (string), claim (string — the full factual statement), "
+            "evidence_refs (array of evidence refs). "
+            "Do not use title, detail, summary, or description instead of claim. "
+            f"evidence_refs example: [{catalog_example}]. "
+            "Include at least one finding per non-empty evidence catalog. "
+            "Return JSON: {agent_role, findings, missing_info, potential_blockers, "
+            "validation_errors}."
         )
         user = json.dumps(
             {
@@ -157,12 +170,19 @@ class AnthropicRound1Model:
             indent=2,
         )
         system = _BASE_RULES + " " + spec + (
-            " Produce a Round1Motion JSON with: agent_role (your role string), "
-            "vote (bid|no_bid|conditional_bid), confidence 0-1, top_findings, "
-            "role_specific_risks, formal_blockers (only if you are compliance_officer), "
-            "potential_blockers, assumptions, missing_info, potential_evidence_gaps, "
-            "recommended_actions, validation_errors []. "
-            "Each SupportedClaim needs claim + evidence_refs with resolved evidence_id."
+            " Produce a Round1Motion JSON with these exact keys: "
+            "agent_role (your role string), vote (bid|no_bid|conditional_bid), "
+            "confidence (0.0-1.0), top_findings (array, at least 1 item required), "
+            "role_specific_risks (array, at least 1 item required), "
+            "formal_blockers (array — compliance_officer only, else []), "
+            "potential_blockers (array), assumptions (array of strings), "
+            "missing_info (array of strings), "
+            "potential_evidence_gaps (array of strings), "
+            "recommended_actions (array of strings), validation_errors []. "
+            "Each item in top_findings/role_specific_risks/formal_blockers"
+            "/potential_blockers must be: {claim: string, evidence_refs: [...]}. "
+            "claim must be a non-empty string (never title/detail/description). "
+            "evidence_refs: use evidence_key, source_type, evidence_id from catalog."
         )
         data = anthropic_complete_json(
             api_key=self._api_key,
@@ -230,11 +250,20 @@ class AnthropicRound2Model:
             + " You are writing a focused Round 2 rebuttal after reading ALL "
             "specialists' Round 1 motions above. Reference peers by agent_role. "
             + red_extra
-            + " Output Round2Rebuttal JSON: agent_role, target_roles (1+ specialists), "
-            "targeted_disagreements (each needs target_role, disputed_claim, rebuttal, "
-            "evidence_refs), unsupported_claims, blocker_challenges, revised_stance, "
-            "confidence 0-1, evidence_refs, missing_info, potential_evidence_gaps, "
-            "recommended_actions, validation_errors []."
+            + " Output Round2Rebuttal JSON with these exact keys: "
+            "agent_role (your role string), "
+            "target_roles (array of at least 1 specialist role string — not yourself), "
+            "targeted_disagreements (array — each needs: target_role, disputed_claim, "
+            "rebuttal, evidence_refs with catalog refs), "
+            "unsupported_claims (array — each needs: target_role, claim, reason), "
+            "blocker_challenges (array — each needs: blocker, position, rationale, "
+            "evidence_refs with catalog refs), "
+            "revised_stance (bid|no_bid|conditional_bid or null), "
+            "confidence (0.0–1.0), evidence_refs (array), missing_info (array), "
+            "potential_evidence_gaps (array), recommended_actions (array), "
+            "validation_errors []. "
+            "You MUST include at least one of: targeted_disagreements, "
+            "unsupported_claims, blocker_challenges, or missing_info."
         )
         data = anthropic_complete_json(
             api_key=self._api_key,
@@ -286,15 +315,31 @@ class AnthropicJudgeModel:
         )
         system = (
             _BASE_RULES
-            + " You are the Judge. Synthesize motions and rebuttals. "
-            "vote_summary in your output MUST equal vote_summary_MUST_MATCH_EXACTLY "
-            "character-for-character in structure and counts. "
+            + " You are the Judge. Synthesize motions and rebuttals into a final "
+            "bid/no-bid recommendation. "
+            "vote_summary MUST EXACTLY equal vote_summary_MUST_MATCH_EXACTLY "
+            "(same bid/no_bid/conditional_bid integer counts). "
             "If verdict is conditional_bid, recommended_actions must be non-empty. "
-            "Output JudgeDecision JSON: agent_role judge, verdict, confidence, "
-            "vote_summary (exact), disagreement_summary, compliance_matrix, "
-            "compliance_blockers, potential_blockers, risk_register, missing_info, "
-            "potential_evidence_gaps, recommended_actions, cited_memo, evidence_ids, "
-            "evidence_refs, validation_errors []."
+            "If verdict is needs_human_review, missing_info must be non-empty. "
+            "Output JudgeDecision JSON with these exact keys: "
+            'agent_role ("judge"), '
+            "verdict (bid|no_bid|conditional_bid|needs_human_review), "
+            "confidence (0.0-1.0), "
+            "vote_summary ({bid, no_bid, conditional_bid} — copy exactly), "
+            "disagreement_summary (non-empty string), "
+            "compliance_matrix (array — each: "
+            "requirement, status, assessment, evidence_refs), "
+            "compliance_blockers (array — each: claim, evidence_refs), "
+            "potential_blockers (array — each: claim, evidence_refs), "
+            "risk_register (array — each: risk, severity, mitigation, "
+            "evidence_refs), "
+            "missing_info (array of strings), "
+            "potential_evidence_gaps (array of strings), "
+            "recommended_actions (array of strings), "
+            "cited_memo (non-empty string summarizing the decision rationale), "
+            "evidence_ids (array of UUID strings from the evidence catalog), "
+            "evidence_refs (array of evidence ref objects), "
+            "validation_errors []."
         )
         data = anthropic_complete_json(
             api_key=self._api_key,

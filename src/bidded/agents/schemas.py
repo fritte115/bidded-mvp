@@ -69,6 +69,19 @@ class ScoutCategory(StrEnum):
     REQUIRED_SUBMISSION_DOCUMENT = "required_submission_document"
 
 
+class RequirementType(StrEnum):
+    """Typed procurement requirement classification (US-025)."""
+
+    SHALL_REQUIREMENT = "shall_requirement"
+    QUALIFICATION_REQUIREMENT = "qualification_requirement"
+    EXCLUSION_GROUND = "exclusion_ground"
+    FINANCIAL_STANDING = "financial_standing"
+    LEGAL_OR_REGULATORY_REFERENCE = "legal_or_regulatory_reference"
+    QUALITY_MANAGEMENT = "quality_management"
+    SUBMISSION_DOCUMENT = "submission_document"
+    CONTRACT_OBLIGATION = "contract_obligation"
+
+
 class EvidenceReference(StrictAgentOutputModel):
     evidence_key: str = Field(min_length=1)
     source_type: SourceType
@@ -104,6 +117,7 @@ class EvidenceScoutFinding(StrictAgentOutputModel):
     category: ScoutCategory
     claim: str = Field(min_length=1)
     evidence_refs: list[EvidenceReference] = Field(min_length=1)
+    requirement_type: RequirementType | None = None
 
     @model_validator(mode="after")
     def validate_evidence_ids(self) -> EvidenceScoutFinding:
@@ -292,6 +306,7 @@ __all__ = [
     "EvidenceReference",
     "FinalVerdict",
     "JudgeDecision",
+    "RequirementType",
     "Round1Motion",
     "Round2Rebuttal",
     "RiskRegisterItem",

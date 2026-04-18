@@ -115,6 +115,7 @@ class EvidenceItemState(StrictStateModel):
     page_end: int | None = Field(default=None, gt=0)
     company_id: UUID | None = None
     field_path: str | None = None
+    requirement_type: str | None = None
 
     @model_validator(mode="after")
     def validate_source_provenance(self) -> EvidenceItemState:
@@ -151,6 +152,7 @@ class ScoutFindingState(StrictStateModel):
     category: str = Field(min_length=1)
     claim: str = Field(min_length=1)
     evidence_refs: list[EvidenceRef] = Field(default_factory=list)
+    requirement_type: str | None = None
 
 
 class ScoutOutputState(StrictStateModel):
