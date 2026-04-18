@@ -81,7 +81,11 @@ def test_start_run_parses_pending_documents_and_starts_worker(
         supabase_service_role_key="service-role",
         supabase_storage_bucket="public-procurements",
     )
-    captured: dict[str, Any] = {"ingested": [], "workers": []}
+    captured: dict[str, Any] = {
+        "evidence_materialized": [],
+        "ingested": [],
+        "workers": [],
+    }
 
     monkeypatch.setattr(api_server, "load_settings", lambda: settings)
     monkeypatch.setitem(
@@ -99,6 +103,13 @@ def test_start_run_parses_pending_documents_and_starts_worker(
     ) -> None:
         captured["ingested"].append((supabase_client, document_id, bucket_name))
 
+    def record_evidence_materialization(
+        supabase_client: object,
+        *,
+        document_id: str,
+    ) -> None:
+        captured["evidence_materialized"].append((supabase_client, document_id))
+
     def record_pending_run(
         supabase_client: object,
         **kwargs: Any,
@@ -112,10 +123,21 @@ def test_start_run_parses_pending_documents_and_starts_worker(
         *,
         run_id: str,
         log: object,
+        graph_handlers: object,
     ) -> None:
-        captured["workers"].append((supabase_client, run_id, log))
+        captured["workers"].append((supabase_client, run_id, log, graph_handlers))
 
     monkeypatch.setattr(api_server, "ingest_tender_pdf_document", record_ingestion)
+    monkeypatch.setattr(
+        api_server,
+        "ensure_tender_evidence_items_for_document",
+        record_evidence_materialization,
+    )
+    monkeypatch.setattr(
+        api_server,
+        "evidence_locked_graph_handlers",
+        lambda: {"graph": "handlers"},
+    )
     monkeypatch.setattr(api_server, "create_pending_run_context", record_pending_run)
     monkeypatch.setattr(api_server, "run_worker_once", record_worker)
 
@@ -125,10 +147,14 @@ def test_start_run_parses_pending_documents_and_starts_worker(
     assert captured["ingested"] == [
         (client, DOCUMENT_ID_2, "public-procurements"),
     ]
+    assert captured["evidence_materialized"] == [
+        (client, DOCUMENT_ID_1),
+        (client, DOCUMENT_ID_2),
+    ]
     assert captured["pending_client"] is client
     assert captured["pending_kwargs"] == {
         "tender_id": TENDER_ID,
         "company_id": COMPANY_ID,
         "document_ids": [DOCUMENT_ID_1, DOCUMENT_ID_2],
     }
-    assert captured["workers"] == [(client, RUN_ID, print)]
+    assert captured["workers"] == [(client, RUN_ID, print, {"graph": "handlers"})]

@@ -123,7 +123,9 @@ def _company_items(board: Sequence[EvidenceItemState]) -> list[EvidenceItemState
     return [e for e in board if e.source_type is EvidenceSourceType.COMPANY_PROFILE]
 
 
-def _sorted_company_items(board: Sequence[EvidenceItemState]) -> list[EvidenceItemState]:
+def _sorted_company_items(
+    board: Sequence[EvidenceItemState],
+) -> list[EvidenceItemState]:
     company = _company_items(board)
     return sorted(company, key=lambda e: (e.field_path or "", e.evidence_key or ""))
 
@@ -414,7 +416,8 @@ class EvidenceLockedRound1Model:
             ],
             AgentRole.DELIVERY_CFO: [
                 "Delivery dates and FTE levels are treated as assumptions unless "
-                "anchored to cited tender schedule language and company capacity fields."
+                "anchored to cited tender schedule language and company capacity "
+                "fields."
             ],
             AgentRole.RED_TEAM: [
                 "Residual risk ratings are excluded unless contradictions are cited "
@@ -448,7 +451,8 @@ class EvidenceLockedRound1Model:
                 "Map differentiators to measurable sub-criteria per evaluation section."
             ],
             AgentRole.DELIVERY_CFO: [
-                "Compare milestone burn-down to slippage remedies in all schedule excerpts."
+                "Compare milestone burn-down to slippage remedies in all schedule "
+                "excerpts."
             ],
             AgentRole.RED_TEAM: [
                 "Identify single points of failure where multiple PDFs impose "
@@ -682,7 +686,8 @@ class EvidenceLockedRound2Model:
             ),
             AgentRole.RED_TEAM: (
                 "Risk dismissed as low without contradicting tender liability text.",
-                "Residual risk narrative not supported by contract_risk evidence items.",
+                "Residual risk narrative not supported by contract_risk evidence "
+                "items.",
             ),
         }
         uc_claim, uc_reason = unsupported_templates[role]
@@ -853,7 +858,7 @@ class EvidenceLockedJudgeModel:
 
 
 def evidence_locked_graph_handlers() -> GraphNodeHandlers:
-    """Graph handlers for production: evidence-derived scout, specialists, rebuttals, judge."""
+    """Graph handlers for the production evidence-locked swarm."""
 
     from bidded.orchestration.evidence_scout import build_evidence_scout_handler
     from bidded.orchestration.judge import build_judge_handler
