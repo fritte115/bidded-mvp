@@ -141,6 +141,19 @@ def _coerce_refs_list(
     ]
 
 
+def _normalize_blocker_position(value: Any) -> Any:
+    """Map verbose LLM position strings to the 3 allowed literal values."""
+    if not isinstance(value, str):
+        return value
+    v = value.strip().lower()
+    if any(k in v for k in ("reject", "dismiss", "invalid", "unfounded", "wrong")):
+        return "reject"
+    if any(k in v for k in ("partial", "downgrade", "reduce", "weaken", "moderate")):
+        return "downgrade"
+    # "confirm", "uphold", "support", "strengthen", "accept", "additional", etc.
+    return "uphold"
+
+
 def _coerce_rebuttal_item_refs(
     item: dict[str, Any],
     board: Sequence[EvidenceItemState],
@@ -149,6 +162,8 @@ def _coerce_rebuttal_item_refs(
     refs = out.get("evidence_refs")
     if refs is not None:
         out["evidence_refs"] = _coerce_refs_list(refs, board)
+    if "position" in out:
+        out["position"] = _normalize_blocker_position(out["position"])
     return out
 
 
