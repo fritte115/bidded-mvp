@@ -580,7 +580,7 @@ function normalizeSeverity(s: string): RiskRow["severity"] {
   return c as RiskRow["severity"];
 }
 
-function stageDisplayName(step: string | null | undefined): string {
+export function stageDisplayName(step: string | null | undefined): string {
   if (!step) return "Pending";
   const m: Record<string, string> = {
     preflight: "Evidence Scout",
