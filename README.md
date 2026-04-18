@@ -1,3 +1,5 @@
+![Bidded technical flow](docs/assets/bidded-flow-simple.png)
+
 # Bidded
 
 Bidded är en hackathon-scopad agentkärna för bid/no-bid-beslut i offentlig upphandling. Målet är att kunna mata in en textbaserad PDF för en svensk upphandling, jämföra kraven mot en seedad profil för ett större IT-konsultbolag, bygga en gemensam evidensyta och sedan låta flera specialiserade agenter argumentera fram ett spårbart beslut: `bid`, `no_bid`, `conditional_bid` eller `needs_human_review`.
