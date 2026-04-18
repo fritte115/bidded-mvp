@@ -315,7 +315,7 @@ make ralph
 Makefile använder:
 
 - `RALPH_CODEX_MODEL ?= gpt-5.4`
-- `RALPH_SESSIONS ?= 10`
+- `RALPH_SESSIONS ?= 30`
 - `ralph/ralph.sh --tool codex`
 
 För app-scaffolden finns de första deterministiska kvalitetsgrindarna:

@@ -855,6 +855,68 @@
       "priority": 56,
       "passes": false,
       "notes": ""
+    },
+    {
+      "id": "US-057",
+      "title": "Prepare uploaded procurement document set for run",
+      "description": "As an operator or frontend, I need an already-uploaded set of procurement PDFs prepared into one complete agent-ready run so that Bidded does not run agents against stale, missing, or partially built evidence.",
+      "acceptanceCriteria": [
+        "Add a prepare-run service and CLI/API-facing entrypoint that accepts an existing tender_id, company_id, and one or more uploaded tender document IDs.",
+        "Validate that all selected documents are tender_document rows for the same tender and tenant.",
+        "Run or reuse PDF ingestion for each document, producing deterministic chunks per document.",
+        "Build tender evidence across all selected documents and upsert company profile evidence before creating the pending run.",
+        "Create one pending agent_run with all prepared document_ids recorded in run_config and metadata.",
+        "Return tender_id, company_id, document_ids, agent_run_id, per-document parse status, chunk counts, evidence counts, and warnings.",
+        "Tests cover one document, seven documents, mixed tender IDs rejected, parser_failed document handling, idempotent reruns, and no agent execution during preparation; pytest and ruff check pass."
+      ],
+      "priority": 57,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-058",
+      "title": "Add preparation input audit",
+      "description": "As a bid manager, I need a preparation audit before agents run so that missing chunks, missing evidence, wrong document linkage, or weak coverage are visible before a bid recommendation is produced.",
+      "acceptanceCriteria": [
+        "Add an audit object for prepared runs with severity levels: info, warning, and error.",
+        "Audit checks include all documents parsed, chunks exist per document, tender evidence exists per document or warning explains why, company evidence exists, evidence provenance points to selected documents/company, and requirement types are present where detected.",
+        "Errors prevent pending run creation; warnings are stored in run metadata and passed into later graph context.",
+        "Audit output is deterministic and readable from CLI/API.",
+        "Tests cover complete preparation, missing chunks, empty tender evidence, missing company evidence, stale evidence pointing to another document, and warning-only preparation; pytest and ruff check pass."
+      ],
+      "priority": 58,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-059",
+      "title": "Add multi-PDF procurement fixture workflow",
+      "description": "As a developer, I need a replayable workflow for a real multi-PDF procurement so that evidence extraction and run preparation can be tested against realistic document structure.",
+      "acceptanceCriteria": [
+        "Support a local gitignored directory for real procurement PDFs, for example data/demo/incoming/<procurement-name>/.",
+        "Add a manifest format listing the seven PDFs, source labels, expected tender title/authority, and optional document roles such as main tender, requirements appendix, contract terms, pricing appendix, or DPA.",
+        "The workflow can prepare the whole document set from the manifest without committing private or bulky PDFs.",
+        "Tests use synthetic fixture PDFs or mocked rows, not the real PDFs, so CI remains deterministic.",
+        "README documents how to run the local multi-PDF preparation flow safely."
+      ],
+      "priority": 59,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-060",
+      "title": "Support multi-document pending runs",
+      "description": "As a developer, I need pending run creation to accept multiple tender documents so that the graph can reason over the complete procurement package rather than a single PDF.",
+      "acceptanceCriteria": [
+        "Extend pending run creation to accept document_ids while keeping the existing single-document path backwards compatible.",
+        "Validate every document is a parsed tender document linked to the same tender.",
+        "Store all document IDs in run_config.document_ids and metadata.",
+        "Worker and graph preflight continue to load chunks and evidence for all configured documents.",
+        "Tests cover multiple documents, backwards-compatible single document creation, missing document rejection, unparsed document rejection, and evidence board scoping."
+      ],
+      "priority": 60,
+      "passes": false,
+      "notes": ""
     }
   ]
 }

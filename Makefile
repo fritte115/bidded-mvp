@@ -8,7 +8,7 @@ export SUPABASE_STORAGE_BUCKET
 
 RALPH_CODEX_MODEL ?= gpt-5.4
 RALPH_CODEX_CMD ?= codex exec --model $(RALPH_CODEX_MODEL) --dangerously-bypass-approvals-and-sandbox
-RALPH_SESSIONS ?= 10
+RALPH_SESSIONS ?= 30
 
 PYTEST ?= .venv/bin/pytest
 RUFF ?= .venv/bin/ruff

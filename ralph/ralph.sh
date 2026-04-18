@@ -6,7 +6,7 @@ set -e
 
 # Parse arguments
 TOOL="amp"
-MAX_SESSIONS=10
+MAX_SESSIONS=30
 DEBUG=false
 
 while [[ $# -gt 0 ]]; do
