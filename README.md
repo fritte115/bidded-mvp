@@ -1,3 +1,5 @@
+![Bidded technical flow](docs/assets/bidded-flow-simple.png)
+
 # Bidded
 
 Bidded är en hackathon-scopad agentkärna för bid/no-bid-beslut i offentlig upphandling. Målet är att kunna mata in en textbaserad PDF för en svensk upphandling, jämföra kraven mot en seedad profil för ett större IT-konsultbolag, bygga en gemensam evidensyta och sedan låta flera specialiserade agenter argumentera fram ett spårbart beslut: `bid`, `no_bid`, `conditional_bid` eller `needs_human_review`.
@@ -10,7 +12,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 
 | Del | Status |
 | --- | --- |
-| `ralph/prd.json` | Komplett PRD med 25 user stories för Bidded Swarm Core. Ralph-state styr vilken story som är nästa. |
+| `ralph/prd.json` | Komplett PRD med 50 user stories för Bidded Swarm Core. Ralph-state styr vilken story som är nästa. |
 | `ralph/state.json` | Pekar på aktuell Ralph-story och nästa action. |
 | `plans/ralph-storie-plan.md` | Äldre plan/sammanfattning. Den behöver läsas som stödmaterial, inte som strikt source of truth. |
 | `Makefile` | Kör Ralph-loop med Codex CLI via `make ralph`. |
@@ -18,10 +20,20 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Applikationskod | Grundpaket finns under `src/bidded` med subpackages för config, db, documents, evidence, agents, orchestration och cli. |
 | Supabase-migrations | Core domain-, agent audit- och chunk/evidence-migrations finns. |
 | Graph state | Typed `BidRunState` finns under `src/bidded/orchestration` med runtime control fields, audit artifacts, node ownership contracts och reducer-policy separerade. |
+| Graph routing shell | `src/bidded/orchestration/graph.py` bygger en fast LangGraph-shell med preflight, Evidence Scout-validering, mocked agent handlers, explicit edge table, bounded retry/stop-policy, failed, needs_human_review och END. |
 | Agent tool policies | Immutable policy contracts finns under `src/bidded/agents/tool_policy.py` för LLM-agenternas läs/skrivgränser och orchestratorns side effects. |
-| Agent output schemas | Strict Pydantic schemas finns under `src/bidded/agents/schemas.py` för Round 1 motions, Round 2 rebuttals, Judge decisions och evidence-claim validation. |
+| Agent output schemas | Strict Pydantic schemas finns under `src/bidded/agents/schemas.py` för Evidence Scout, Round 1 motions, Round 2 rebuttals, Judge decisions och evidence-claim validation. |
 | Seedat demo-bolag och demo-tender | `bidded seed-demo-company` upsertar en större syntetisk IT-konsultprofil, `bidded register-demo-tender` registrerar en lokal text-PDF, och `bidded.evidence` kan konvertera profilfakta till idempotenta `company_profile` evidence rows. |
-| Frontend | Ingen frontend i repot. Lovable är planerad som tunn demo-UI ovanpå Supabase i `US-025`. |
+| PDF-ingestion | `bidded.documents` kan ladda ned registrerade tender-PDF:er från Storage, extrahera text med PyMuPDF, ersätta deterministiska sidrefererade `document_chunks` och uppdatera `documents.parse_status`. |
+| Retrieval | `bidded.retrieval` kan hämta top-K `document_chunks` med deterministisk keyword fallback utan embeddinginställningar, plus en mockad embedding-adapter för pgvector-ready tester. |
+| Tender evidence board | `bidded.evidence` kan föreslå, validera, deduplicera, upserta och slå upp `tender_document` evidence rows från retrieved chunks med stabila citation keys. |
+| Evidence Scout node | `bidded.orchestration.evidence_scout` skapar sex kategoribundna retrieval-frågor, validerar mockade Claude-output mot resolved evidence IDs och låter graphen append:a `evidence_scout`/`evidence` agent_outputs endast för giltiga scoutfakta. |
+| Specialist motion node | `bidded.orchestration.specialist_motions` bygger evidence-locked Round 1 requests utan peer motions eller privat context, validerar strict `Round1Motion` output och append:ar fyra `round_1_motion` agent_outputs. |
+| Focused rebuttal node | `bidded.orchestration.specialist_rebuttals` bygger Round 2 requests med shared evidence board, alla validerade Round 1-motions, fokuspunkter för oenighet/blockers/missing info och append:ar fyra `round_2_rebuttal` agent_outputs först efter validering. |
+| Judge decision node | `bidded.orchestration.judge` bygger evidence-locked Judge requests, validerar strict `JudgeDecision` output, gate:ar formella compliance blockers till `no_bid`, append:ar `final_decision` agent_output och skriver Supabase-kompatibla `bid_decisions` payloads. |
+| Pending agent runs | `bidded create-pending-run` validerar vald demo tender, demo company och tender document innan en `pending` `agent_runs`-rad med evidence-locked run config skapas. |
+| Worker lifecycle CLI | `bidded worker` kör en specificerad pending run eller äldsta pending demo-run, uppdaterar `agent_runs`, kör graphen och persisterar normaliserade `agent_outputs` och `bid_decisions`. |
+| Frontend | Ingen frontend i repot. Lovable är fortsatt tänkt som tunn demo-UI ovanpå Supabase, men `US-025` och framåt prioriterar kravklassificering, regulatory glossary, hybrid retrieval och kvalitetshöjande audits innan en ny handoff-story. |
 
 README:n beskriver därför både nuläget och den stack som PRD:n definierar att vi bygger mot. När stories implementeras ska planerade delar flyttas till faktiskt levererade delar.
 
@@ -71,7 +83,7 @@ Agentartefakter och UI-output ska vara engelska enligt PRD:n, men beslutskontext
 | Lokal automation | Make | `make ralph` kör Ralph med Codex CLI. |
 | LLM för implementation | Codex CLI | Makefile sätter `RALPH_CODEX_CMD="codex exec --model ..."` för Ralph-sessioner. |
 | Miljö | `.env` via Makefile include | `.env.example` dokumenterar runtimevariabler utan secrets. |
-| App-runtime | Python/LangGraph/Supabase | Python-scaffold, dependency-kontrakt och idempotent demo-company seed finns; övriga live integrations byggs i senare stories. |
+| App-runtime | Python/LangGraph/Supabase | Python-scaffold, dependency-kontrakt, idempotent demo-company seed och fast graph routing shell finns; övriga live integrations byggs i senare stories. |
 
 ## Arkitektur
 
@@ -228,16 +240,16 @@ PRD:n beskriver en lokal CLI/worker. Den kan nu:
 - seeda demo-bolaget idempotent
 - registrera en lokal text-PDF som tenderdokument
 - ladda upp PDF:en till Supabase Storage och spara dokumentrad med checksumma
+- skapa en `pending` agent run utan att köra LLM eller dokumentprocessing
+- köra en specificerad `agent_run` via ID eller plocka äldsta pending run för demo-bolaget
+- uppdatera run-status till `running`, `succeeded`, `failed` eller `needs_human_review`
+- skriva normaliserade `agent_outputs` och `bid_decisions` utan raw full prompts som default audit artifact
+- logga tillräckligt lokalt för demooperation medan Supabase förblir source of truth
 
 Planerade kommande kommandon ska kunna:
 
 - konvertera seedade bolagsfakta till `company_profile` evidence items
 - extrahera och chunka text-PDF:er
-- skapa en `pending` agent run utan att köra LLM eller dokumentprocessing
-- köra en specificerad `agent_run` via ID eller plocka äldsta pending run för demo-bolaget
-- uppdatera run-status till `running`, `succeeded`, `failed` eller `needs_human_review`
-- skriva normaliserade `agent_outputs` och `bid_decisions`
-- logga tillräckligt lokalt för demooperation medan Supabase förblir source of truth
 
 Seed-kommandot kräver `SUPABASE_URL` och `SUPABASE_SERVICE_ROLE_KEY`:
 
@@ -256,6 +268,20 @@ gitignored: `data/demo/incoming/Bilaga Skakrav.pdf`.
   --issuing-authority "Example Municipality" \
   --procurement-reference "REF-2026-001" \
   --metadata procedure=open
+```
+
+Pending run och worker-körning:
+
+```bash
+.venv/bin/bidded create-pending-run \
+  --tender-id "$TENDER_ID" \
+  --company-id "$COMPANY_ID" \
+  --document-id "$DOCUMENT_ID"
+
+.venv/bin/bidded worker --run-id "$AGENT_RUN_ID"
+
+# Eller kör äldsta pending demo-run:
+.venv/bin/bidded worker
 ```
 
 ## Miljövariabler
@@ -301,7 +327,7 @@ python3 -m venv .venv
 .venv/bin/ruff check .
 ```
 
-Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandot, tenderregistreringen och company-evidence buildern finns; övriga worker-kommandon byggs i senare stories.
+Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandot, tenderregistreringen, PDF-ingestionen, evidence builders, graph routing shell, worker lifecycle CLI och mocked end-to-end coverage finns; övriga operator- och demo-kommandon byggs i senare stories.
 
 ## Teststrategi
 
@@ -350,7 +376,32 @@ Roadmapen drivs av `ralph/prd.json`; Ralph-state pekar alltid på nästa ej klar
 | US-022 | Add worker lifecycle CLI |
 | US-023 | Add retry stop policy |
 | US-024 | Test mocked end-to-end run |
-| US-025 | Prepare Lovable handoff |
+| US-025 | Add Requirement Type Contract |
+| US-026 | Classify tender evidence requirement types |
+| US-027 | Add curated regulatory glossary |
+| US-028 | Use requirement types in compliance and Judge reasoning |
+| US-029 | Add embedding model contract |
+| US-030 | Generate and store chunk embeddings |
+| US-031 | Add Supabase pgvector search |
+| US-032 | Add hybrid retrieval |
+| US-033 | Add evidence recall audit |
+| US-034 | Add demo environment doctor |
+| US-035 | Seed replayable demo states |
+| US-036 | Harden worker claiming |
+| US-037 | Add operator run controls |
+| US-038 | Add live demo smoke command |
+| US-039 | Add demo step trace |
+| US-040 | Export decision bundle |
+| US-041 | Write demo runbook |
+| US-042 | Define golden demo cases |
+| US-043 | Add eval runner CLI |
+| US-044 | Score evidence coverage |
+| US-045 | Add verdict regression checks |
+| US-046 | Track prompt schema versions |
+| US-047 | Diff normalized decisions |
+| US-048 | Add adversarial fixtures |
+| US-049 | Export eval report |
+| US-050 | Compare live and mock evals |
 
 ## Out Of Scope För Nuvarande PRD
 

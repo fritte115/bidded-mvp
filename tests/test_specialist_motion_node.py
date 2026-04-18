@@ -1,0 +1,253 @@
+from __future__ import annotations
+
+from dataclasses import replace
+from typing import Any
+from uuid import UUID
+
+from bidded.orchestration import (
+    AgentRunStatus,
+    BidRunState,
+    DocumentChunkState,
+    EvidenceItemState,
+    EvidenceSourceType,
+    GraphRouteNode,
+    SpecialistRole,
+    default_graph_node_handlers,
+    run_bidded_graph_shell,
+)
+from bidded.orchestration.specialist_motions import (
+    Round1SpecialistRequest,
+    build_round_1_specialist_handler,
+)
+
+RUN_ID = UUID("11111111-1111-4111-8111-111111111111")
+COMPANY_ID = UUID("22222222-2222-4222-8222-222222222222")
+TENDER_ID = UUID("33333333-3333-4333-8333-333333333333")
+DOCUMENT_ID = UUID("44444444-4444-4444-8444-444444444444")
+CHUNK_ID = UUID("55555555-5555-4555-8555-555555555555")
+TENDER_EVIDENCE_ID = UUID("66666666-6666-4666-8666-666666666666")
+COMPANY_EVIDENCE_ID = UUID("77777777-7777-4777-8777-777777777777")
+
+
+class RecordingRound1Model:
+    def __init__(self) -> None:
+        self.requests: list[Round1SpecialistRequest] = []
+
+    def draft_motion(self, request: Round1SpecialistRequest) -> dict[str, Any]:
+        self.requests.append(request)
+        tender_ref = {
+            "evidence_key": "TENDER-SHALL-001",
+            "source_type": "tender_document",
+            "evidence_id": str(TENDER_EVIDENCE_ID),
+        }
+        company_ref = {
+            "evidence_key": "COMPANY-CERT-001",
+            "source_type": "company_profile",
+            "evidence_id": str(COMPANY_EVIDENCE_ID),
+        }
+        formal_blockers = []
+        if request.agent_role.value == SpecialistRole.COMPLIANCE.value:
+            formal_blockers = [
+                {
+                    "claim": (
+                        "The tender requires ISO 27001 proof before submission."
+                    ),
+                    "evidence_refs": [tender_ref],
+                }
+            ]
+
+        return {
+            "agent_role": request.agent_role.value,
+            "vote": "conditional_bid",
+            "confidence": 0.76,
+            "top_findings": [
+                {
+                    "claim": (
+                        "The tender requires ISO 27001 and the company profile "
+                        "cites ISO 27001."
+                    ),
+                    "evidence_refs": [tender_ref, company_ref],
+                }
+            ],
+            "role_specific_risks": [
+                {
+                    "claim": f"{request.agent_role.value} needs certificate validity.",
+                    "evidence_refs": [company_ref],
+                }
+            ],
+            "formal_blockers": formal_blockers,
+            "potential_blockers": [],
+            "assumptions": ["The certificate remains valid through submission."],
+            "missing_info": ["Certificate expiry date."],
+            "recommended_actions": ["Confirm certificate validity."],
+        }
+
+
+class InvalidFormalBlockerModel(RecordingRound1Model):
+    def draft_motion(self, request: Round1SpecialistRequest) -> dict[str, Any]:
+        payload = super().draft_motion(request)
+        if request.agent_role.value == SpecialistRole.WIN_STRATEGIST.value:
+            payload["formal_blockers"] = [
+                {
+                    "claim": "Win Strategist must not mark formal blockers.",
+                    "evidence_refs": [
+                        {
+                            "evidence_key": "TENDER-SHALL-001",
+                            "source_type": "tender_document",
+                            "evidence_id": str(TENDER_EVIDENCE_ID),
+                        }
+                    ],
+                }
+            ]
+        return payload
+
+
+def _ready_state() -> BidRunState:
+    return BidRunState(
+        run_id=RUN_ID,
+        company_id=COMPANY_ID,
+        tender_id=TENDER_ID,
+        document_ids=[DOCUMENT_ID],
+        run_context={
+            "tenant_key": "demo",
+            "private_context": "must not reach Round 1 specialists",
+            "document_parse_statuses": {str(DOCUMENT_ID): "parsed"},
+        },
+        chunks=[
+            DocumentChunkState(
+                chunk_id=CHUNK_ID,
+                document_id=DOCUMENT_ID,
+                chunk_index=0,
+                page_start=1,
+                page_end=1,
+                text="The supplier shall provide ISO 27001 certification.",
+            )
+        ],
+        evidence_board=[
+            EvidenceItemState(
+                evidence_id=TENDER_EVIDENCE_ID,
+                evidence_key="TENDER-SHALL-001",
+                source_type=EvidenceSourceType.TENDER_DOCUMENT,
+                excerpt="The supplier shall provide ISO 27001 certification.",
+                normalized_meaning="ISO 27001 certification is mandatory.",
+                category="shall_requirement",
+                confidence=0.94,
+                source_metadata={"source_label": "Tender page 1"},
+                document_id=DOCUMENT_ID,
+                chunk_id=CHUNK_ID,
+                page_start=1,
+                page_end=1,
+            ),
+            EvidenceItemState(
+                evidence_id=COMPANY_EVIDENCE_ID,
+                evidence_key="COMPANY-CERT-001",
+                source_type=EvidenceSourceType.COMPANY_PROFILE,
+                excerpt="The company maintains ISO 27001 certification.",
+                normalized_meaning="The company profile cites ISO 27001.",
+                category="certification",
+                confidence=0.91,
+                source_metadata={"source_label": "Company profile"},
+                company_id=COMPANY_ID,
+                field_path="certifications.iso_27001",
+            ),
+        ],
+    )
+
+
+def test_round_1_specialists_get_evidence_locked_requests_and_persist_rows() -> None:
+    model = RecordingRound1Model()
+    handlers = replace(
+        default_graph_node_handlers(),
+        round_1_specialist=build_round_1_specialist_handler(model),
+    )
+
+    result = run_bidded_graph_shell(_ready_state(), handlers=handlers)
+
+    assert result.state.status is AgentRunStatus.SUCCEEDED
+    assert GraphRouteNode.ROUND_1_JOIN in result.visited_nodes
+    assert {request.agent_role.value for request in model.requests} == {
+        role.value for role in SpecialistRole
+    }
+    expected_evidence_keys = ["TENDER-SHALL-001", "COMPANY-CERT-001"]
+    assert [
+        [item.evidence_key for item in request.evidence_board]
+        for request in model.requests
+    ] == [expected_evidence_keys] * 4
+    assert all(request.scout_output is not None for request in model.requests)
+
+    request_fields = set(Round1SpecialistRequest.model_fields)
+    assert "motions" not in request_fields
+    assert "rebuttals" not in request_fields
+    assert "run_context" not in request_fields
+    assert "private_context" not in request_fields
+
+    assert set(result.state.motions) == set(SpecialistRole)
+    motion_rows = [
+        output
+        for output in result.state.agent_outputs
+        if output.round_name == "round_1_motion"
+    ]
+    assert len(motion_rows) == 4
+    assert {row.agent_role for row in motion_rows} == {
+        role.value for role in SpecialistRole
+    }
+    assert all(row.output_type == "motion" for row in motion_rows)
+    assert all(row.evidence_refs for row in motion_rows)
+
+    for row in motion_rows:
+        payload = row.payload
+        assert payload["vote"] == "conditional_bid"
+        assert payload["confidence"] == 0.76
+        assert payload["top_findings"][0]["evidence_refs"]
+        assert payload["role_specific_risks"][0]["evidence_refs"]
+        assert payload["assumptions"] == [
+            "The certificate remains valid through submission."
+        ]
+        assert payload["missing_info"] == ["Certificate expiry date."]
+        assert payload["recommended_actions"] == ["Confirm certificate validity."]
+
+    blockers_by_role = {
+        row.agent_role: row.payload["formal_blockers"] for row in motion_rows
+    }
+    assert blockers_by_role[SpecialistRole.COMPLIANCE.value]
+    assert blockers_by_role[SpecialistRole.WIN_STRATEGIST.value] == []
+    assert blockers_by_role[SpecialistRole.DELIVERY_CFO.value] == []
+    assert blockers_by_role[SpecialistRole.RED_TEAM.value] == []
+
+
+def test_non_compliance_formal_blocker_fails_before_round_1_persistence() -> None:
+    handlers = replace(
+        default_graph_node_handlers(),
+        round_1_specialist=build_round_1_specialist_handler(
+            InvalidFormalBlockerModel()
+        ),
+    )
+
+    result = run_bidded_graph_shell(_ready_state(), handlers=handlers)
+
+    assert result.visited_nodes[:2] == (
+        GraphRouteNode.PREFLIGHT,
+        GraphRouteNode.EVIDENCE_SCOUT,
+    )
+    assert set(result.visited_nodes[2:6]) == {
+        GraphRouteNode.ROUND_1_COMPLIANCE,
+        GraphRouteNode.ROUND_1_WIN_STRATEGIST,
+        GraphRouteNode.ROUND_1_DELIVERY_CFO,
+        GraphRouteNode.ROUND_1_RED_TEAM,
+    }
+    assert result.visited_nodes[-3:] == (
+        GraphRouteNode.ROUND_1_JOIN,
+        GraphRouteNode.FAILED,
+        GraphRouteNode.END,
+    )
+    assert result.state.status is AgentRunStatus.FAILED
+    assert result.state.retry_counts == {
+        GraphRouteNode.ROUND_1_WIN_STRATEGIST.value: 2
+    }
+    assert result.state.motions == {}
+    assert not any(
+        output.round_name == "round_1_motion"
+        for output in result.state.agent_outputs
+    )
+    assert result.state.validation_errors
+    assert "formal_blockers" in result.state.validation_errors[-1].message
