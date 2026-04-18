@@ -3,7 +3,7 @@
 > This file is read ONLY when the current User Story has an `iterationMode` field.
 > For standard (non-iterative) stories, this file is not loaded.
 
-These rules SUPPLEMENT the standard workflow in `scripts/ralph/CLAUDE.md`. Follow all CLAUDE.md steps as usual, with the overrides below.
+These rules SUPPLEMENT the standard workflow in `ralph/CLAUDE.md`. Follow all CLAUDE.md steps as usual, with the overrides below.
 
 ---
 
@@ -47,7 +47,7 @@ NEVER attempt multiple iterations in a single session. A new session will be spa
 
 Before starting work, plan how to distribute effort across `maxIterations`:
 
-1. **Read the story's `notes` field (in `scripts/ralph/prd.json`) and `scripts/ralph/progress.md`** to understand what previous iterations did
+1. **Read the story's `notes` field (in `ralph/prd.json`) and `ralph/progress.md`** to understand what previous iterations did
 2. **Distribute work logically**: each iteration should focus on a distinct subset or aspect
 3. **Reserve later iterations for review**: if `maxIterations` is 3+, the last 1-2 iterations should review and fix issues from earlier ones rather than doing net-new work
 4. **Avoid redundancy**: if a previous iteration already handled something, move on
@@ -74,7 +74,7 @@ feat: [Story ID] - [Story Title] (iteration N)
 If a review iteration finds no issues to fix:
 - This is a **valid outcome** — it means earlier iterations did their job
 - Update `notes` with: `"Iteration X/N: Reviewed [scope] — no changes required"`
-- Commit only the `scripts/ralph/prd.json` update (the PRD change itself is the meaningful output)
+- Commit only the `ralph/prd.json` update (the PRD change itself is the meaningful output)
 - Do NOT invent unnecessary changes to satisfy "meaningful progress"
 
 ---
@@ -84,13 +84,13 @@ If a review iteration finds no issues to fix:
 If quality checks fail during an iterative session:
 - Attempt to fix the issue within the same session
 - If the fix succeeds: proceed normally (update progress, update PRD, update state, single commit)
-- If you cannot fix it: document the failure in `scripts/ralph/progress.md`, do **NOT** increment `currentIteration`, and end the session. The next session will retry the same iteration with fresh context.
+- If you cannot fix it: document the failure in `ralph/progress.md`, do **NOT** increment `currentIteration`, and end the session. The next session will retry the same iteration with fresh context.
 
 ---
 
-## PRD Update Rules (overrides the standard PRD update step in `scripts/ralph/CLAUDE.md`)
+## PRD Update Rules (overrides the standard PRD update step in `ralph/CLAUDE.md`)
 
-At the END of each session, update `scripts/ralph/prd.json` for the current story:
+At the END of each session, update `ralph/prd.json` for the current story:
 
 1. Increment `currentIteration` (e.g., 0 → 1)
 2. Append to `notes` using format: `"Iteration X/N: [what was done]"` — separate entries with ` | `

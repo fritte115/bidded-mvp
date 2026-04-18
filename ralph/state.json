@@ -3,7 +3,7 @@
   "currentStory": "US-001",
   "storyTitle": "Scaffold Python agent core",
   "nextAction": "implement",
-  "progressTokens": 285,
+  "progressTokens": 255,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"
