@@ -228,15 +228,16 @@ def test_unsupported_mocked_claude_fact_fails_before_persistence() -> None:
     assert result.visited_nodes == (
         GraphRouteNode.PREFLIGHT,
         GraphRouteNode.EVIDENCE_SCOUT,
-        GraphRouteNode.RETRY_HANDLER,
         GraphRouteNode.FAILED,
         GraphRouteNode.END,
     )
+    assert len(mock_claude.requests) == 3
+    assert result.state.retry_counts == {GraphRouteNode.EVIDENCE_SCOUT.value: 2}
     assert result.state.status is AgentRunStatus.FAILED
     assert result.state.scout_output is None
     assert result.state.agent_outputs == []
-    assert result.state.validation_errors[0].field_path == "findings[0].evidence_refs"
-    assert "not present in evidence_board" in result.state.validation_errors[0].message
+    assert result.state.validation_errors[-1].field_path == "findings[0].evidence_refs"
+    assert "not present in evidence_board" in result.state.validation_errors[-1].message
 
 
 def test_evidence_scout_schema_rejects_bid_recommendations() -> None:

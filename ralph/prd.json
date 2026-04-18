@@ -356,8 +356,8 @@
         "Tests cover retry success, retry exhaustion, missing/unparsed document, empty evidence board, join conditions, needs_human_review, failed, and succeeded END paths; pytest and ruff check pass."
       ],
       "priority": 23,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added bounded two-retry LLM node policy, role-scoped specialist retry counts, join/terminal stop guards, and persistence/NHR failure paths. Complete."
     },
     {
       "id": "US-024",

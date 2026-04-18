@@ -144,14 +144,50 @@ def test_routing_edge_table_documents_orchestrator_controlled_topology() -> None
     )
 
 
-def test_invalid_output_routes_to_retry_handler_and_failed_status() -> None:
-    handlers = replace(
-        default_graph_node_handlers(),
-        evidence_scout=lambda _: InvalidGraphOutput(
+def test_retryable_scout_output_succeeds_after_one_retry() -> None:
+    defaults = default_graph_node_handlers()
+    call_count = 0
+
+    def flaky_scout(state: BidRunState):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return InvalidGraphOutput(
+                source=GraphRouteNode.EVIDENCE_SCOUT,
+                message="Scout output omitted required evidence references.",
+                field_path="scout_output.findings[0].evidence_refs",
+            )
+        return defaults.evidence_scout(state)
+
+    handlers = replace(defaults, evidence_scout=flaky_scout)
+
+    result = run_bidded_graph_shell(_ready_state(), handlers=handlers)
+
+    assert result.state.status is AgentRunStatus.SUCCEEDED
+    assert call_count == 2
+    assert result.state.retry_counts == {GraphRouteNode.EVIDENCE_SCOUT.value: 1}
+    assert result.state.scout_output is not None
+    assert result.state.last_error is None
+    assert result.state.validation_errors[0].field_path == (
+        "scout_output.findings[0].evidence_refs"
+    )
+
+
+def test_retryable_scout_output_fails_after_retry_exhaustion() -> None:
+    call_count = 0
+
+    def always_invalid_scout(_: BidRunState):
+        nonlocal call_count
+        call_count += 1
+        return InvalidGraphOutput(
             source=GraphRouteNode.EVIDENCE_SCOUT,
             message="Scout output omitted required evidence references.",
             field_path="scout_output.findings[0].evidence_refs",
-        ),
+        )
+
+    handlers = replace(
+        default_graph_node_handlers(),
+        evidence_scout=always_invalid_scout,
     )
 
     result = run_bidded_graph_shell(_ready_state(), handlers=handlers)
@@ -159,18 +195,105 @@ def test_invalid_output_routes_to_retry_handler_and_failed_status() -> None:
     assert result.visited_nodes == (
         GraphRouteNode.PREFLIGHT,
         GraphRouteNode.EVIDENCE_SCOUT,
-        GraphRouteNode.RETRY_HANDLER,
         GraphRouteNode.FAILED,
         GraphRouteNode.END,
     )
+    assert call_count == 3
     assert result.state.status is AgentRunStatus.FAILED
-    assert result.state.retry_counts == {GraphRouteNode.EVIDENCE_SCOUT.value: 1}
+    assert result.state.retry_counts == {GraphRouteNode.EVIDENCE_SCOUT.value: 2}
     assert result.state.last_error is not None
     assert result.state.last_error.retryable is False
-    assert "Retry handling reached" in result.state.last_error.message
-    assert result.state.validation_errors[0].field_path == (
+    assert "Retry limit reached after 2 retries" in result.state.last_error.message
+    assert result.state.validation_errors[-1].field_path == (
         "scout_output.findings[0].evidence_refs"
     )
+
+
+def test_round_1_retry_counts_are_scoped_per_specialist_role() -> None:
+    defaults = default_graph_node_handlers()
+    calls = {role: 0 for role in SpecialistRole}
+
+    def flaky_round_1(state: BidRunState, role: SpecialistRole):
+        calls[role] += 1
+        if role is SpecialistRole.COMPLIANCE and calls[role] == 1:
+            return InvalidGraphOutput(
+                source=GraphRouteNode.ROUND_1_COMPLIANCE,
+                message="Compliance motion cited unresolved evidence.",
+                field_path="evidence_refs[0]",
+            )
+        return defaults.round_1_specialist(state, role)
+
+    handlers = replace(defaults, round_1_specialist=flaky_round_1)
+
+    result = run_bidded_graph_shell(_ready_state(), handlers=handlers)
+
+    assert result.state.status is AgentRunStatus.SUCCEEDED
+    assert calls[SpecialistRole.COMPLIANCE] == 2
+    assert {
+        role: count
+        for role, count in calls.items()
+        if role is not SpecialistRole.COMPLIANCE
+    } == {
+        SpecialistRole.WIN_STRATEGIST: 1,
+        SpecialistRole.DELIVERY_CFO: 1,
+        SpecialistRole.RED_TEAM: 1,
+    }
+    assert result.state.retry_counts == {GraphRouteNode.ROUND_1_COMPLIANCE.value: 1}
+    assert set(result.state.motions) == set(SpecialistRole)
+
+
+def test_round_2_retry_counts_are_scoped_per_specialist_role() -> None:
+    defaults = default_graph_node_handlers()
+    calls = {role: 0 for role in SpecialistRole}
+
+    def flaky_round_2(state: BidRunState, role: SpecialistRole):
+        calls[role] += 1
+        if role is SpecialistRole.RED_TEAM and calls[role] == 1:
+            return InvalidGraphOutput(
+                source=GraphRouteNode.ROUND_2_RED_TEAM,
+                message="Red Team rebuttal cited unresolved evidence.",
+                field_path="evidence_refs[0]",
+            )
+        return defaults.round_2_rebuttal(state, role)
+
+    handlers = replace(defaults, round_2_rebuttal=flaky_round_2)
+
+    result = run_bidded_graph_shell(_ready_state(), handlers=handlers)
+
+    assert result.state.status is AgentRunStatus.SUCCEEDED
+    assert calls[SpecialistRole.RED_TEAM] == 2
+    assert {
+        role: count
+        for role, count in calls.items()
+        if role is not SpecialistRole.RED_TEAM
+    } == {
+        SpecialistRole.COMPLIANCE: 1,
+        SpecialistRole.WIN_STRATEGIST: 1,
+        SpecialistRole.DELIVERY_CFO: 1,
+    }
+    assert result.state.retry_counts == {GraphRouteNode.ROUND_2_RED_TEAM.value: 1}
+    assert set(result.state.rebuttals) == set(SpecialistRole)
+
+
+def test_round_1_join_blocks_round_2_until_all_roles_are_valid() -> None:
+    defaults = default_graph_node_handlers()
+
+    def duplicate_compliance_motion(state: BidRunState, role: SpecialistRole):
+        source_role = (
+            SpecialistRole.COMPLIANCE if role is SpecialistRole.RED_TEAM else role
+        )
+        return defaults.round_1_specialist(state, source_role)
+
+    handlers = replace(defaults, round_1_specialist=duplicate_compliance_motion)
+
+    result = run_bidded_graph_shell(_ready_state(), handlers=handlers)
+
+    assert result.state.status is AgentRunStatus.FAILED
+    assert GraphRouteNode.ROUND_2_COMPLIANCE not in result.visited_nodes
+    assert GraphRouteNode.ROUND_2_JOIN not in result.visited_nodes
+    assert GraphRouteNode.JUDGE not in result.visited_nodes
+    assert result.state.last_error is not None
+    assert "Invalid motions" in result.state.last_error.message
 
 
 @pytest.mark.parametrize(
@@ -263,3 +386,65 @@ def test_needs_human_review_decision_persists_then_routes_to_end() -> None:
         GraphRouteNode.NEEDS_HUMAN_REVIEW,
         GraphRouteNode.END,
     )
+
+
+def test_needs_human_review_requires_missing_or_conflicting_evidence() -> None:
+    defaults = default_graph_node_handlers()
+
+    def invalid_needs_human_review(state: BidRunState):
+        return defaults.judge(state).model_copy(
+            update={
+                "verdict": Verdict.NEEDS_HUMAN_REVIEW,
+                "rationale": "Needs review without identifying the evidence gap.",
+                "missing_info": [],
+                "potential_evidence_gaps": [],
+            }
+        )
+
+    persist_calls = 0
+
+    def record_persist(_: BidRunState):
+        nonlocal persist_calls
+        persist_calls += 1
+        return None
+
+    handlers = replace(
+        defaults,
+        judge=invalid_needs_human_review,
+        persist_decision=record_persist,
+    )
+
+    result = run_bidded_graph_shell(_ready_state(), handlers=handlers)
+
+    assert result.state.status is AgentRunStatus.FAILED
+    assert persist_calls == 0
+    assert result.visited_nodes[-3:] == (
+        GraphRouteNode.PERSIST_DECISION,
+        GraphRouteNode.FAILED,
+        GraphRouteNode.END,
+    )
+    assert result.state.last_error is not None
+    assert "needs_human_review" in result.state.last_error.message
+
+
+def test_persistence_failure_marks_failed_before_successful_end() -> None:
+    handlers = replace(
+        default_graph_node_handlers(),
+        persist_decision=lambda _: InvalidGraphOutput(
+            source=GraphRouteNode.PERSIST_DECISION,
+            message="bid_decisions insert failed.",
+            retryable=False,
+        ),
+    )
+
+    result = run_bidded_graph_shell(_ready_state(), handlers=handlers)
+
+    assert result.state.status is AgentRunStatus.FAILED
+    assert result.state.final_decision is not None
+    assert result.visited_nodes[-3:] == (
+        GraphRouteNode.PERSIST_DECISION,
+        GraphRouteNode.FAILED,
+        GraphRouteNode.END,
+    )
+    assert result.state.last_error is not None
+    assert result.state.last_error.source == GraphRouteNode.PERSIST_DECISION.value

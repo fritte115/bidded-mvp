@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-023",
-  "storyTitle": "Add retry stop policy",
+  "currentStory": "US-024",
+  "storyTitle": "Test mocked end-to-end run",
   "nextAction": "implement",
-  "progressTokens": 2145,
+  "progressTokens": 2220,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"

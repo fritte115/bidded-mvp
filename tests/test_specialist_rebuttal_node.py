@@ -279,13 +279,13 @@ def test_invalid_round_2_rebuttal_fails_before_round_2_persistence() -> None:
 
     result = run_bidded_graph_shell(_ready_state(), handlers=handlers)
 
-    assert result.visited_nodes[-4:] == (
+    assert result.visited_nodes[-3:] == (
         GraphRouteNode.ROUND_2_JOIN,
-        GraphRouteNode.RETRY_HANDLER,
         GraphRouteNode.FAILED,
         GraphRouteNode.END,
     )
     assert result.state.status is AgentRunStatus.FAILED
+    assert result.state.retry_counts == {GraphRouteNode.ROUND_2_RED_TEAM.value: 2}
     assert set(result.state.motions) == set(SpecialistRole)
     assert result.state.rebuttals == {}
     assert any(

@@ -81,6 +81,23 @@ class GraphRunResult:
     visited_nodes: tuple[GraphRouteNode, ...]
 
 
+_MAX_LLM_RETRIES = 2
+
+
+@dataclass(frozen=True)
+class _RetryAttempt:
+    source: str
+    message: str
+    field_path: str | None = None
+
+
+@dataclass(frozen=True)
+class _RetryPolicyResult:
+    output: Any | None
+    invalid_output: InvalidGraphOutput | None
+    retry_attempts: tuple[_RetryAttempt, ...]
+
+
 @dataclass(frozen=True)
 class Round1MotionResult:
     """Validated Round 1 motion plus its immutable audit row."""
@@ -137,6 +154,8 @@ class _GraphExecutionState(TypedDict, total=False):
     trace: Annotated[list[GraphRouteNode], add]
     round_1_motion_updates: Annotated[list[Round1MotionResult], add]
     round_2_rebuttal_updates: Annotated[list[Round2RebuttalResult], add]
+    round_1_retry_attempts: Annotated[list[_RetryAttempt], add]
+    round_2_retry_attempts: Annotated[list[_RetryAttempt], add]
     invalid_outputs: Annotated[list[InvalidGraphOutput], add]
 
 
@@ -175,9 +194,11 @@ _ROUTING_EDGE_TABLE: tuple[GraphEdgeSpec, ...] = (
     ),
     GraphEdgeSpec(
         source=GraphRouteNode.EVIDENCE_SCOUT,
-        condition="invalid scout artifact",
-        destinations=(GraphRouteNode.RETRY_HANDLER,),
-        description="Schema or evidence validation failures are orchestrator-routed.",
+        condition="invalid scout artifact before retry exhaustion",
+        destinations=(GraphRouteNode.RETRY_HANDLER, GraphRouteNode.FAILED),
+        description=(
+            "Schema or evidence validation failures are retried up to policy limit."
+        ),
     ),
     GraphEdgeSpec(
         source=GraphRouteNode.EVIDENCE_SCOUT,
@@ -187,8 +208,8 @@ _ROUTING_EDGE_TABLE: tuple[GraphEdgeSpec, ...] = (
     ),
     GraphEdgeSpec(
         source=GraphRouteNode.ROUND_1_JOIN,
-        condition="invalid or missing Round 1 artifact",
-        destinations=(GraphRouteNode.RETRY_HANDLER,),
+        condition="invalid or missing Round 1 artifact before retry exhaustion",
+        destinations=(GraphRouteNode.RETRY_HANDLER, GraphRouteNode.FAILED),
         description="Round 1 join validates all specialist motions before continuing.",
     ),
     GraphEdgeSpec(
@@ -199,8 +220,8 @@ _ROUTING_EDGE_TABLE: tuple[GraphEdgeSpec, ...] = (
     ),
     GraphEdgeSpec(
         source=GraphRouteNode.ROUND_2_JOIN,
-        condition="invalid or missing Round 2 artifact",
-        destinations=(GraphRouteNode.RETRY_HANDLER,),
+        condition="invalid or missing Round 2 artifact before retry exhaustion",
+        destinations=(GraphRouteNode.RETRY_HANDLER, GraphRouteNode.FAILED),
         description="Round 2 join validates all rebuttals before Judge routing.",
     ),
     GraphEdgeSpec(
@@ -211,8 +232,8 @@ _ROUTING_EDGE_TABLE: tuple[GraphEdgeSpec, ...] = (
     ),
     GraphEdgeSpec(
         source=GraphRouteNode.JUDGE,
-        condition="invalid Judge artifact",
-        destinations=(GraphRouteNode.RETRY_HANDLER,),
+        condition="invalid Judge artifact before retry exhaustion",
+        destinations=(GraphRouteNode.RETRY_HANDLER, GraphRouteNode.FAILED),
         description="Invalid final decisions are retried by orchestrator policy.",
     ),
     GraphEdgeSpec(
@@ -243,9 +264,9 @@ _ROUTING_EDGE_TABLE: tuple[GraphEdgeSpec, ...] = (
     ),
     GraphEdgeSpec(
         source=GraphRouteNode.RETRY_HANDLER,
-        condition="retry handling reached in shell",
+        condition="unexpected retryable error fallback",
         destinations=(GraphRouteNode.FAILED,),
-        description="The shell exposes retry routing; bounded retries arrive later.",
+        description="Bounded node retries should normally fail before this fallback.",
     ),
     GraphEdgeSpec(
         source=GraphRouteNode.FAILED,
@@ -331,6 +352,7 @@ def build_bidded_graph_shell(
         _route_after_evidence_scout,
         {
             GraphRouteNode.RETRY_HANDLER: GraphRouteNode.RETRY_HANDLER,
+            GraphRouteNode.FAILED: GraphRouteNode.FAILED,
             **{node: node for node in _ROUND_1_ROLE_NODES.values()},
         },
     )
@@ -340,6 +362,7 @@ def build_bidded_graph_shell(
         _route_after_round_1_join,
         {
             GraphRouteNode.RETRY_HANDLER: GraphRouteNode.RETRY_HANDLER,
+            GraphRouteNode.FAILED: GraphRouteNode.FAILED,
             **{node: node for node in _ROUND_2_ROLE_NODES.values()},
         },
     )
@@ -349,6 +372,7 @@ def build_bidded_graph_shell(
         _route_after_round_2_join,
         {
             GraphRouteNode.RETRY_HANDLER: GraphRouteNode.RETRY_HANDLER,
+            GraphRouteNode.FAILED: GraphRouteNode.FAILED,
             GraphRouteNode.JUDGE: GraphRouteNode.JUDGE,
         },
     )
@@ -357,6 +381,7 @@ def build_bidded_graph_shell(
         _route_after_judge,
         {
             GraphRouteNode.RETRY_HANDLER: GraphRouteNode.RETRY_HANDLER,
+            GraphRouteNode.FAILED: GraphRouteNode.FAILED,
             GraphRouteNode.PERSIST_DECISION: GraphRouteNode.PERSIST_DECISION,
         },
     )
@@ -390,6 +415,8 @@ def run_bidded_graph_shell(
             "trace": [],
             "round_1_motion_updates": [],
             "round_2_rebuttal_updates": [],
+            "round_1_retry_attempts": [],
+            "round_2_retry_attempts": [],
             "invalid_outputs": [],
         }
     )
@@ -438,31 +465,43 @@ def _evidence_scout_node(
 ) -> Callable[[_GraphExecutionState], _GraphExecutionState]:
     def node(execution_state: _GraphExecutionState) -> _GraphExecutionState:
         state = _state_from_execution(execution_state)
-        output = handlers.evidence_scout(state)
-        if isinstance(output, InvalidGraphOutput):
-            updated = _apply_invalid_output(
-                state,
-                GraphNodeName.EVIDENCE_SCOUT,
-                output,
-            )
-        else:
+
+        def run_once() -> ScoutOutputState | InvalidGraphOutput:
+            output = handlers.evidence_scout(state)
+            if isinstance(output, InvalidGraphOutput):
+                return output
+
             invalid_output = _validate_scout_output_state(output, state)
             if invalid_output is not None:
-                updated = _apply_invalid_output(
-                    state,
-                    GraphNodeName.EVIDENCE_SCOUT,
-                    invalid_output,
-                )
-            else:
-                updated = state.apply_node_update(
-                    GraphNodeName.EVIDENCE_SCOUT,
-                    {
-                        "scout_output": output,
-                        "agent_outputs": [_agent_output_from_scout_output(output)],
-                        "current_step": GraphRouteNode.EVIDENCE_SCOUT,
-                        "last_error": None,
-                    },
-                )
+                return invalid_output
+            return output
+
+        retry_result = _run_with_retry_policy(
+            GraphRouteNode.EVIDENCE_SCOUT,
+            run_once,
+        )
+        updated = _apply_retry_attempts(
+            state,
+            GraphNodeName.EVIDENCE_SCOUT,
+            retry_result.retry_attempts,
+        )
+        if retry_result.invalid_output is not None:
+            updated = _apply_invalid_output(
+                updated,
+                GraphNodeName.EVIDENCE_SCOUT,
+                retry_result.invalid_output,
+            )
+        else:
+            output = retry_result.output
+            updated = updated.apply_node_update(
+                GraphNodeName.EVIDENCE_SCOUT,
+                {
+                    "scout_output": output,
+                    "agent_outputs": [_agent_output_from_scout_output(output)],
+                    "current_step": GraphRouteNode.EVIDENCE_SCOUT,
+                    "last_error": None,
+                },
+            )
         return {"bid_state": updated, "trace": [GraphRouteNode.EVIDENCE_SCOUT]}
 
     return node
@@ -476,19 +515,32 @@ def _round_1_specialist_node(
 
     def node(execution_state: _GraphExecutionState) -> _GraphExecutionState:
         state = _state_from_execution(execution_state)
-        output = handlers.round_1_specialist(state, role)
-        if isinstance(output, InvalidGraphOutput):
-            return {"invalid_outputs": [output], "trace": [route_node]}
-        return {
-            "round_1_motion_updates": [_coerce_round_1_motion_result(output)],
+        retry_result = _run_with_retry_policy(
+            route_node,
+            lambda: handlers.round_1_specialist(state, role),
+        )
+        updates: _GraphExecutionState = {
             "trace": [route_node],
         }
+        if retry_result.retry_attempts:
+            updates["round_1_retry_attempts"] = list(retry_result.retry_attempts)
+        if retry_result.invalid_output is not None:
+            updates["invalid_outputs"] = [retry_result.invalid_output]
+        else:
+            updates["round_1_motion_updates"] = [
+                _coerce_round_1_motion_result(retry_result.output)
+            ]
+        return updates
 
     return node
 
 
 def _round_1_join_node(execution_state: _GraphExecutionState) -> _GraphExecutionState:
-    state = _state_from_execution(execution_state)
+    state = _apply_retry_attempts(
+        _state_from_execution(execution_state),
+        GraphNodeName.ROUND_1_SPECIALIST,
+        execution_state.get("round_1_retry_attempts", []),
+    )
     invalid_outputs = execution_state.get("invalid_outputs", [])
     if invalid_outputs:
         updated = _apply_join_invalid_outputs(
@@ -537,19 +589,32 @@ def _round_2_rebuttal_node(
 
     def node(execution_state: _GraphExecutionState) -> _GraphExecutionState:
         state = _state_from_execution(execution_state)
-        output = handlers.round_2_rebuttal(state, role)
-        if isinstance(output, InvalidGraphOutput):
-            return {"invalid_outputs": [output], "trace": [route_node]}
-        return {
-            "round_2_rebuttal_updates": [_coerce_round_2_rebuttal_result(output)],
+        retry_result = _run_with_retry_policy(
+            route_node,
+            lambda: handlers.round_2_rebuttal(state, role),
+        )
+        updates: _GraphExecutionState = {
             "trace": [route_node],
         }
+        if retry_result.retry_attempts:
+            updates["round_2_retry_attempts"] = list(retry_result.retry_attempts)
+        if retry_result.invalid_output is not None:
+            updates["invalid_outputs"] = [retry_result.invalid_output]
+        else:
+            updates["round_2_rebuttal_updates"] = [
+                _coerce_round_2_rebuttal_result(retry_result.output)
+            ]
+        return updates
 
     return node
 
 
 def _round_2_join_node(execution_state: _GraphExecutionState) -> _GraphExecutionState:
-    state = _state_from_execution(execution_state)
+    state = _apply_retry_attempts(
+        _state_from_execution(execution_state),
+        GraphNodeName.ROUND_2_REBUTTAL,
+        execution_state.get("round_2_retry_attempts", []),
+    )
     invalid_outputs = execution_state.get("invalid_outputs", [])
     if invalid_outputs:
         updated = _apply_join_invalid_outputs(
@@ -596,15 +661,27 @@ def _judge_node(
 ) -> Callable[[_GraphExecutionState], _GraphExecutionState]:
     def node(execution_state: _GraphExecutionState) -> _GraphExecutionState:
         state = _state_from_execution(execution_state)
-        output = handlers.judge(state)
-        if isinstance(output, InvalidGraphOutput):
-            updated = _apply_invalid_output(state, GraphNodeName.JUDGE, output)
+        retry_result = _run_with_retry_policy(
+            GraphRouteNode.JUDGE,
+            lambda: handlers.judge(state),
+        )
+        updated = _apply_retry_attempts(
+            state,
+            GraphNodeName.JUDGE,
+            retry_result.retry_attempts,
+        )
+        if retry_result.invalid_output is not None:
+            updated = _apply_invalid_output(
+                updated,
+                GraphNodeName.JUDGE,
+                retry_result.invalid_output,
+            )
         else:
-            result = _coerce_judge_decision_result(output)
+            result = _coerce_judge_decision_result(retry_result.output)
             agent_outputs = (
                 [result.agent_output] if result.agent_output is not None else []
             )
-            updated = state.apply_node_update(
+            updated = updated.apply_node_update(
                 GraphNodeName.JUDGE,
                 {
                     "final_decision": result.decision,
@@ -623,21 +700,7 @@ def _persist_decision_node(
 ) -> Callable[[_GraphExecutionState], _GraphExecutionState]:
     def node(execution_state: _GraphExecutionState) -> _GraphExecutionState:
         state = _state_from_execution(execution_state)
-        invalid_output = handlers.persist_decision(state)
-        if invalid_output is not None:
-            updated = state.apply_node_update(
-                GraphNodeName.PERSIST_DECISION,
-                {
-                    "status": AgentRunStatus.FAILED,
-                    "current_step": GraphRouteNode.FAILED,
-                    "last_error": RuntimeErrorState(
-                        source=invalid_output.source,
-                        message=invalid_output.message,
-                        retryable=False,
-                    ),
-                },
-            )
-        elif state.final_decision is None:
+        if state.final_decision is None:
             updated = state.apply_node_update(
                 GraphNodeName.PERSIST_DECISION,
                 {
@@ -650,20 +713,51 @@ def _persist_decision_node(
                     ),
                 },
             )
-        else:
-            status = (
-                AgentRunStatus.NEEDS_HUMAN_REVIEW
-                if state.final_decision.verdict is Verdict.NEEDS_HUMAN_REVIEW
-                else AgentRunStatus.SUCCEEDED
-            )
+        elif _invalid_needs_human_review_decision(state.final_decision):
             updated = state.apply_node_update(
                 GraphNodeName.PERSIST_DECISION,
                 {
-                    "status": status,
-                    "current_step": GraphRouteNode.PERSIST_DECISION,
-                    "last_error": None,
+                    "status": AgentRunStatus.FAILED,
+                    "current_step": GraphRouteNode.FAILED,
+                    "last_error": RuntimeErrorState(
+                        source=GraphRouteNode.PERSIST_DECISION,
+                        message=(
+                            "needs_human_review requires critical missing "
+                            "information or evidence gaps."
+                        ),
+                        retryable=False,
+                    ),
                 },
             )
+        else:
+            invalid_output = handlers.persist_decision(state)
+            if invalid_output is not None:
+                updated = state.apply_node_update(
+                    GraphNodeName.PERSIST_DECISION,
+                    {
+                        "status": AgentRunStatus.FAILED,
+                        "current_step": GraphRouteNode.FAILED,
+                        "last_error": RuntimeErrorState(
+                            source=invalid_output.source,
+                            message=invalid_output.message,
+                            retryable=False,
+                        ),
+                    },
+                )
+            else:
+                status = (
+                    AgentRunStatus.NEEDS_HUMAN_REVIEW
+                    if state.final_decision.verdict is Verdict.NEEDS_HUMAN_REVIEW
+                    else AgentRunStatus.SUCCEEDED
+                )
+                updated = state.apply_node_update(
+                    GraphNodeName.PERSIST_DECISION,
+                    {
+                        "status": status,
+                        "current_step": GraphRouteNode.PERSIST_DECISION,
+                        "last_error": None,
+                    },
+                )
         return {"bid_state": updated, "trace": [GraphRouteNode.PERSIST_DECISION]}
 
     return node
@@ -709,25 +803,37 @@ def _route_after_preflight(state: _GraphExecutionState) -> GraphRouteNode:
 def _route_after_evidence_scout(
     state: _GraphExecutionState,
 ) -> Sequence[GraphRouteNode]:
-    if _has_retryable_error(_state_from_execution(state)):
+    bid_state = _state_from_execution(state)
+    if bid_state.status is AgentRunStatus.FAILED:
+        return (GraphRouteNode.FAILED,)
+    if _has_retryable_error(bid_state):
         return (GraphRouteNode.RETRY_HANDLER,)
     return tuple(_ROUND_1_ROLE_NODES.values())
 
 
 def _route_after_round_1_join(state: _GraphExecutionState) -> Sequence[GraphRouteNode]:
-    if _has_retryable_error(_state_from_execution(state)):
+    bid_state = _state_from_execution(state)
+    if bid_state.status is AgentRunStatus.FAILED:
+        return (GraphRouteNode.FAILED,)
+    if _has_retryable_error(bid_state):
         return (GraphRouteNode.RETRY_HANDLER,)
     return tuple(_ROUND_2_ROLE_NODES.values())
 
 
 def _route_after_round_2_join(state: _GraphExecutionState) -> GraphRouteNode:
-    if _has_retryable_error(_state_from_execution(state)):
+    bid_state = _state_from_execution(state)
+    if bid_state.status is AgentRunStatus.FAILED:
+        return GraphRouteNode.FAILED
+    if _has_retryable_error(bid_state):
         return GraphRouteNode.RETRY_HANDLER
     return GraphRouteNode.JUDGE
 
 
 def _route_after_judge(state: _GraphExecutionState) -> GraphRouteNode:
-    if _has_retryable_error(_state_from_execution(state)):
+    bid_state = _state_from_execution(state)
+    if bid_state.status is AgentRunStatus.FAILED:
+        return GraphRouteNode.FAILED
+    if _has_retryable_error(bid_state):
         return GraphRouteNode.RETRY_HANDLER
     return GraphRouteNode.PERSIST_DECISION
 
@@ -1044,6 +1150,7 @@ def _validate_role_outputs(
             source=join_node,
             message=f"Invalid {field_name}: {'; '.join(details)}.",
             field_path=field_name,
+            retryable=False,
         )
     return None
 
@@ -1054,9 +1161,98 @@ def _apply_join_invalid_outputs(
     invalid_outputs: Sequence[InvalidGraphOutput],
     join_node: GraphRouteNode,
 ) -> BidRunState:
+    if len(invalid_outputs) == 1:
+        return _apply_invalid_output(state, node, invalid_outputs[0])
+
     message = "; ".join(output.message for output in invalid_outputs)
-    invalid = InvalidGraphOutput(source=join_node, message=message)
+    invalid = InvalidGraphOutput(source=join_node, message=message, retryable=False)
     return _apply_invalid_output(state, node, invalid)
+
+
+def _run_with_retry_policy(
+    source: GraphRouteNode,
+    run_once: Callable[[], Any],
+) -> _RetryPolicyResult:
+    retry_attempts: list[_RetryAttempt] = []
+    while True:
+        output = run_once()
+        if not isinstance(output, InvalidGraphOutput):
+            return _RetryPolicyResult(
+                output=output,
+                invalid_output=None,
+                retry_attempts=tuple(retry_attempts),
+            )
+
+        invalid_output = _invalid_output_for_source(output, source)
+        if not invalid_output.retryable:
+            return _RetryPolicyResult(
+                output=None,
+                invalid_output=invalid_output,
+                retry_attempts=tuple(retry_attempts),
+            )
+
+        if len(retry_attempts) >= _MAX_LLM_RETRIES:
+            return _RetryPolicyResult(
+                output=None,
+                invalid_output=InvalidGraphOutput(
+                    source=invalid_output.source,
+                    message=(
+                        f"{invalid_output.message} Retry limit reached after "
+                        f"{_MAX_LLM_RETRIES} retries."
+                    ),
+                    field_path=invalid_output.field_path,
+                    retryable=False,
+                ),
+                retry_attempts=tuple(retry_attempts),
+            )
+
+        retry_attempts.append(
+            _RetryAttempt(
+                source=_source_key(invalid_output.source),
+                message=invalid_output.message,
+                field_path=invalid_output.field_path,
+            )
+        )
+
+
+def _invalid_output_for_source(
+    invalid_output: InvalidGraphOutput,
+    source: GraphRouteNode,
+) -> InvalidGraphOutput:
+    return InvalidGraphOutput(
+        source=_source_key(source),
+        message=invalid_output.message,
+        field_path=invalid_output.field_path,
+        retryable=invalid_output.retryable,
+    )
+
+
+def _apply_retry_attempts(
+    state: BidRunState,
+    node: GraphNodeName,
+    retry_attempts: Sequence[_RetryAttempt],
+) -> BidRunState:
+    if not retry_attempts:
+        return state
+
+    retry_counts = dict(state.retry_counts)
+    for attempt in retry_attempts:
+        retry_counts[attempt.source] = retry_counts.get(attempt.source, 0) + 1
+
+    return state.apply_node_update(
+        node,
+        {
+            "retry_counts": retry_counts,
+            "validation_errors": [
+                ValidationIssueState(
+                    source=attempt.source,
+                    message=attempt.message,
+                    field_path=attempt.field_path,
+                )
+                for attempt in retry_attempts
+            ],
+        },
+    )
 
 
 def _apply_invalid_output(
@@ -1064,11 +1260,13 @@ def _apply_invalid_output(
     node: GraphNodeName,
     invalid_output: InvalidGraphOutput,
 ) -> BidRunState:
+    source = _source_key(invalid_output.source)
+    failed = not invalid_output.retryable
     updates: dict[str, Any] = {
-        "status": AgentRunStatus.RUNNING,
-        "current_step": invalid_output.source,
+        "status": AgentRunStatus.FAILED if failed else AgentRunStatus.RUNNING,
+        "current_step": GraphRouteNode.FAILED if failed else source,
         "last_error": RuntimeErrorState(
-            source=invalid_output.source,
+            source=source,
             message=invalid_output.message,
             retryable=invalid_output.retryable,
         ),
@@ -1076,12 +1274,18 @@ def _apply_invalid_output(
     if "validation_errors" in BidRunState.node_contract(node).owned_write_fields:
         updates["validation_errors"] = [
             ValidationIssueState(
-                source=invalid_output.source,
+                source=source,
                 message=invalid_output.message,
                 field_path=invalid_output.field_path,
             )
         ]
     return state.apply_node_update(node, updates)
+
+
+def _invalid_needs_human_review_decision(decision: FinalDecisionState) -> bool:
+    return decision.verdict is Verdict.NEEDS_HUMAN_REVIEW and not (
+        decision.missing_info or decision.potential_evidence_gaps
+    )
 
 
 def _replace_runtime_state(
@@ -1106,6 +1310,10 @@ def _replace_runtime_state(
 
 def _has_retryable_error(state: BidRunState) -> bool:
     return state.last_error is not None and state.last_error.retryable
+
+
+def _source_key(source: str | GraphRouteNode) -> str:
+    return source.value if isinstance(source, GraphRouteNode) else str(source)
 
 
 def _state_from_execution(execution_state: _GraphExecutionState) -> BidRunState:

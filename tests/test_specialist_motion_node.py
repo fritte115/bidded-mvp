@@ -235,17 +235,19 @@ def test_non_compliance_formal_blocker_fails_before_round_1_persistence() -> Non
         GraphRouteNode.ROUND_1_DELIVERY_CFO,
         GraphRouteNode.ROUND_1_RED_TEAM,
     }
-    assert result.visited_nodes[-4:] == (
+    assert result.visited_nodes[-3:] == (
         GraphRouteNode.ROUND_1_JOIN,
-        GraphRouteNode.RETRY_HANDLER,
         GraphRouteNode.FAILED,
         GraphRouteNode.END,
     )
     assert result.state.status is AgentRunStatus.FAILED
+    assert result.state.retry_counts == {
+        GraphRouteNode.ROUND_1_WIN_STRATEGIST.value: 2
+    }
     assert result.state.motions == {}
     assert not any(
         output.round_name == "round_1_motion"
         for output in result.state.agent_outputs
     )
     assert result.state.validation_errors
-    assert "formal_blockers" in result.state.validation_errors[0].message
+    assert "formal_blockers" in result.state.validation_errors[-1].message
