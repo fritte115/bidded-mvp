@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-013",
-  "storyTitle": "Create pending run context",
+  "currentStory": "US-025",
+  "storyTitle": "Add Requirement Type Contract",
   "nextAction": "implement",
-  "progressTokens": 1410,
+  "progressTokens": 2295,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"

@@ -18,6 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
         "bidded.db",
         "bidded.documents",
         "bidded.evidence",
+        "bidded.retrieval",
         "bidded.agents",
         "bidded.orchestration",
         "bidded.cli",

@@ -197,8 +197,8 @@
         "pytest and ruff check pass for pending run creation tests."
       ],
       "priority": 13,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added pending run service and CLI command with deterministic config and Supabase row validation. Complete."
     },
     {
       "id": "US-014",
@@ -213,8 +213,8 @@
         "pytest and ruff check pass for PDF ingestion logic."
       ],
       "priority": 14,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added registered tender PDF ingestion with PyMuPDF extraction, deterministic page chunks, parser status persistence, and tests. Complete."
     },
     {
       "id": "US-015",
@@ -229,8 +229,8 @@
         "pytest and ruff check pass for retrieval logic."
       ],
       "priority": 15,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added document chunk retrieval with keyword fallback, optional mock embedding scoring, and top-K metadata tests. Complete."
     },
     {
       "id": "US-016",
@@ -245,8 +245,8 @@
         "pytest and ruff check pass for tender evidence-board logic."
       ],
       "priority": 16,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added tender candidate extraction, strict provenance validation, stable citation keys, idempotent upsert persistence, and evidence-key lookup. Complete."
     },
     {
       "id": "US-017",
@@ -261,8 +261,8 @@
         "Tests cover the mocked success path, invalid output path, missing/unparsed document path, empty evidence path, and final END path; pytest and ruff check pass."
       ],
       "priority": 17,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added fixed LangGraph routing shell with preflight prerequisite checks, explicit edge table, mocked handlers, retry route, failed, needs_human_review, and END tests. Complete."
     },
     {
       "id": "US-018",
@@ -277,8 +277,8 @@
         "pytest and ruff check pass for Evidence Scout logic."
       ],
       "priority": 18,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented Evidence Scout schemas, six-pack retrieval request, evidence-board validation, and evidence_scout/evidence agent output append. Complete."
     },
     {
       "id": "US-019",
@@ -293,8 +293,8 @@
         "pytest and ruff check pass for mocked parallel motion orchestration."
       ],
       "priority": 19,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented evidence-locked Round 1 specialist motion handling, validation, formal-blocker enforcement, and round_1_motion audit rows. Complete."
     },
     {
       "id": "US-020",
@@ -309,8 +309,8 @@
         "pytest and ruff check pass for mocked rebuttal orchestration."
       ],
       "priority": 20,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented focused Round 2 rebuttal requests, validation, Red Team focus, and round_2_rebuttal audit rows. Complete."
     },
     {
       "id": "US-021",
@@ -325,8 +325,8 @@
         "pytest and ruff check pass for mocked Judge scenarios including bid, no_bid, conditional_bid, and needs_human_review."
       ],
       "priority": 21,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented Judge request validation, formal blocker no_bid gating, final_decision audit rows, and bid_decisions persistence payloads. Complete."
     },
     {
       "id": "US-022",
@@ -340,8 +340,8 @@
         "pytest and ruff check pass for lifecycle tests with Supabase and LLM calls mocked."
       ],
       "priority": 22,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added worker lifecycle service and CLI for pending run execution, status transitions, audit outputs, and decisions. Complete."
     },
     {
       "id": "US-023",
@@ -356,8 +356,8 @@
         "Tests cover retry success, retry exhaustion, missing/unparsed document, empty evidence board, join conditions, needs_human_review, failed, and succeeded END paths; pytest and ruff check pass."
       ],
       "priority": 23,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added bounded two-retry LLM node policy, role-scoped specialist retry counts, join/terminal stop guards, and persistence/NHR failure paths. Complete."
     },
     {
       "id": "US-024",
@@ -372,22 +372,394 @@
         "pytest and ruff check pass for the end-to-end suite."
       ],
       "priority": 24,
+      "passes": true,
+      "notes": "Added mocked worker-level E2E coverage that seeds/registers/builds evidence, runs all swarm rounds, rejects unsupported claims, and verifies blocker gating. Complete."
+    },
+    {
+      "id": "US-025",
+      "title": "Add Requirement Type Contract",
+      "description": "As a developer, I need a typed requirement classification contract so that tender evidence, scout findings, and frontend-readable outputs can distinguish procurement requirement types.",
+      "acceptanceCriteria": [
+        "Define RequirementType with exactly shall_requirement, qualification_requirement, exclusion_ground, financial_standing, legal_or_regulatory_reference, quality_management, submission_document, and contract_obligation.",
+        "Add nullable requirement_type to tender evidence payloads, graph state evidence, and Evidence Scout findings while preserving existing category behavior.",
+        "Add a Supabase migration for nullable evidence_items.requirement_type with allowed-value validation when present.",
+        "Legacy evidence rows without requirement_type remain loadable.",
+        "Tests cover enum validation, migration contract, serialization, legacy rows, and invalid requirement types; pytest and ruff check pass."
+      ],
+      "priority": 25,
       "passes": false,
       "notes": ""
     },
     {
-      "id": "US-025",
-      "title": "Prepare Lovable handoff",
-      "description": "As a founder, I need a Lovable-ready Supabase contract so that a thin demo UI can create runs and display evidence, motions, rebuttals, and decisions without owning agent logic.",
+      "id": "US-026",
+      "title": "Classify tender evidence requirement types",
+      "description": "As a bid manager, I need tender evidence classified by requirement type so that hard requirements, qualification criteria, exclusions, documents, and contract obligations are not mixed together.",
       "acceptanceCriteria": [
-        "A handoff document describes the Supabase tables, columns, statuses, and query patterns Lovable should use for a read-first demo UI.",
-        "The handoff explains that Lovable may create pending agent_runs and read results, but the Python CLI worker owns the long-running LangGraph/Claude execution.",
-        "The handoff includes recommended UI sections for run status, evidence board, Round 1 motions, Round 2 rebuttals, Judge decision, compliance matrix, risk register, missing information, and next actions.",
-        "A seed or fixture command can create at least one pending or completed demo run shape that Lovable can render without requiring live agent execution.",
-        "The handoff explicitly lists non-goals for this PRD: full Next.js/React UI, OCR, DOCX parsing, auth/RLS, real tender search, and live embedding-provider dependency.",
-        "pytest and ruff check pass after adding any handoff fixtures or helper scripts."
+        "Tender evidence extraction assigns requirement_type when a sentence clearly matches one of the eight values.",
+        "Swedish examples are covered: kreditupplysning, stabil ekonomisk bas, konkurs, tvångslikvidation, ackord, brott avseende yrkesutövning, SOSFS 2011:9, and ledningssystem.",
+        "Ambiguous evidence keeps category but may leave requirement_type null rather than guessing.",
+        "Tests cover deterministic classification, Swedish/English terms, ambiguous no-classification behavior, and persisted payload shape; pytest and ruff check pass."
       ],
-      "priority": 25,
+      "priority": 26,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-027",
+      "title": "Add curated regulatory glossary",
+      "description": "As a bid manager, I need a curated procurement glossary so that common legal, financial, and quality-system phrases are recognized consistently without a full legal corpus.",
+      "acceptanceCriteria": [
+        "Add deterministic glossary entries with stable ID, match patterns, requirement type, display label, reference hint, suggested proof/action, and blocker hint.",
+        "Initial entries cover financial standing, exclusion grounds, professional misconduct, quality management/SOSFS, submission documents, and contract reporting obligations.",
+        "Glossary matching annotates tender evidence metadata with matched glossary IDs and hints, but does not create new evidence sources.",
+        "Tests cover normalization, Swedish diacritics, no-match behavior, multiple-match precedence, and metadata shape; pytest and ruff check pass."
+      ],
+      "priority": 27,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-028",
+      "title": "Use requirement types in compliance and Judge reasoning",
+      "description": "As a bid manager, I need Compliance and Judge outputs to use requirement types so that blockers, missing information, and recommended actions become more precise.",
+      "acceptanceCriteria": [
+        "Compliance and Judge request payloads include evidence requirement_type and glossary annotations.",
+        "exclusion_ground and unmet hard qualification evidence may become formal blocker candidates only with supporting evidence.",
+        "Missing company proof for financial standing, quality management, or certificates becomes missing_info, recommended_actions, or potential_blockers, not automatic no_bid.",
+        "Judge compliance matrix and final decision payloads surface requirement types for relevant blockers, risks, missing information, and actions.",
+        "Tests cover hard exclusion, missing financial proof, SOSFS/quality missing info, submission-document action, and non-gating missing company evidence; pytest and ruff check pass."
+      ],
+      "priority": 28,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-029",
+      "title": "Add embedding model contract",
+      "description": "As a developer, I need a fixed embedding model contract so that stored chunk vectors and query vectors are comparable in pgvector.",
+      "acceptanceCriteria": [
+        "Settings define embedding provider, model name, dimensions, and enabled/disabled mode.",
+        "Default live model is OpenAI text-embedding-3-small with 1536 dimensions; mock mode remains deterministic for tests.",
+        "Runtime validation rejects providers/models whose dimensions do not match document_chunks.embedding vector(1536).",
+        "Chunk metadata records embedding provider, model, dimensions, and version when embeddings are generated.",
+        "Tests cover matching dimensions, mismatched dimensions, mock mode, missing credentials, and metadata shape; pytest and ruff check pass."
+      ],
+      "priority": 29,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-030",
+      "title": "Generate and store chunk embeddings",
+      "description": "As a developer, I need document chunk embeddings generated during ingestion so that semantic search can retrieve procurement text by meaning, not just exact words.",
+      "acceptanceCriteria": [
+        "Ingestion can populate document_chunks.embedding for parsed text chunks when live embeddings are enabled.",
+        "Mock embeddings remain the default for deterministic tests and local non-live flows.",
+        "Embedding generation is idempotent and skips chunks whose metadata shows the current embedding model/version is already present.",
+        "Failures in live embedding generation fall back to keyword retrieval unless the operator explicitly requires embeddings.",
+        "Tests cover live adapter mocked calls, idempotent skips, fallback behavior, metadata updates, and no live network dependency; pytest and ruff check pass."
+      ],
+      "priority": 30,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-031",
+      "title": "Add Supabase pgvector search",
+      "description": "As a developer, I need a Supabase pgvector search path so that semantic retrieval can run inside Postgres instead of fetching all chunks into Python.",
+      "acceptanceCriteria": [
+        "Add a migration with an HNSW cosine index for non-null document_chunks.embedding.",
+        "Add a match_document_chunks RPC function scoped by tenant_key and optional document_id.",
+        "The function returns chunk fields plus similarity score and excludes rows without embeddings.",
+        "Python retrieval can call the RPC when live embeddings are enabled and falls back cleanly when unavailable.",
+        "Tests cover SQL contract, RPC request shape, no-embedding rows, document scoping, and fallback behavior; pytest and ruff check pass."
+      ],
+      "priority": 31,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-032",
+      "title": "Add hybrid retrieval",
+      "description": "As a bid manager, I need hybrid retrieval combining keyword, glossary, and embeddings so that Evidence Scout finds both exact legal phrases and semantically similar requirements.",
+      "acceptanceCriteria": [
+        "Retrieval combines keyword candidates, glossary-triggered candidates, and pgvector candidates.",
+        "Results are deduplicated by chunk ID and ranked with deterministic scoring metadata.",
+        "Returned metadata includes keyword score, glossary matches, embedding score, final score, and retrieval method hybrid.",
+        "Hybrid retrieval remains usable without live embeddings by combining keyword and glossary paths.",
+        "Tests cover keyword-only, glossary-only, embedding-only, merged candidates, deterministic tie-breaks, and Evidence Scout request integration; pytest and ruff check pass."
+      ],
+      "priority": 32,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-033",
+      "title": "Add evidence recall audit",
+      "description": "As a bid manager, I need a recall audit after evidence extraction so that suspiciously missing requirement types are flagged before agents reason over an incomplete evidence board.",
+      "acceptanceCriteria": [
+        "After tender evidence extraction, the audit checks whether glossary signals or chunk text indicate important requirement types that are absent from the evidence board.",
+        "The audit can flag missing submission_document, qualification_requirement, financial_standing, exclusion_ground, and quality_management coverage.",
+        "Audit findings become structured warnings or missing_info, not automatic blockers.",
+        "Evidence Scout, Compliance, and Judge can read recall warnings in their request payloads.",
+        "Tests cover present coverage, missing submission documents, missing financial standing, glossary-signal mismatch, and no false hard blocker behavior; pytest and ruff check pass."
+      ],
+      "priority": 33,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-034",
+      "title": "Add demo environment doctor",
+      "description": "As an operator, I need a demo doctor command so that missing environment, Supabase, Storage, or Claude setup is detected before a live demo.",
+      "acceptanceCriteria": [
+        "A CLI command checks required demo environment variables and reports missing values without printing secrets.",
+        "The command verifies Supabase database connectivity and confirms the expected demo tables are present.",
+        "The command verifies the configured Storage bucket is reachable with a mocked or live-safe read/write probe.",
+        "Anthropic connectivity is checked only when explicitly requested or when a key is present, and failures are reported as live-LLM unavailable rather than generic errors.",
+        "Tests mock external clients and cover success, missing env, missing table, missing bucket, and secret redaction; pytest and ruff check pass."
+      ],
+      "priority": 34,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-035",
+      "title": "Seed replayable demo states",
+      "description": "As an operator, I need replayable demo run fixtures so that the demo can show pending, successful, failed, and needs-human-review states without live agent execution.",
+      "acceptanceCriteria": [
+        "A seed command creates deterministic demo company, tender, evidence, representative agent_runs, and agent_outputs or bid_decisions where applicable for pending, succeeded, failed, and needs_human_review states.",
+        "Seeded rows are scoped with explicit fixture metadata so the command never mutates real or manually created runs.",
+        "Running the seed twice is idempotent and does not duplicate fixture runs, evidence items, agent outputs, or decisions.",
+        "Seeded succeeded and needs_human_review runs contain valid evidence IDs and validated payload shapes compatible with existing Pydantic schemas.",
+        "Tests cover idempotence, fixture scoping, valid evidence references, and seeded run readability; pytest and ruff check pass."
+      ],
+      "priority": 35,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-036",
+      "title": "Harden worker claiming",
+      "description": "As an operator, I need safe worker claiming so that two local workers cannot execute the same pending agent run during a demo.",
+      "acceptanceCriteria": [
+        "Worker startup claims a pending run atomically before execution and returns no run when another worker has already claimed it.",
+        "Terminal runs with status succeeded, failed, or needs_human_review cannot be claimed or executed again by the worker.",
+        "Claiming records started_at and worker metadata without changing validated agent outputs or bid decisions.",
+        "If SQL support is needed, a migration or helper function implements the atomic claim with deterministic contract tests.",
+        "Tests cover normal claim, double-claim, terminal-run rejection, and no-pending-run behavior; pytest and ruff check pass."
+      ],
+      "priority": 36,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-037",
+      "title": "Add operator run controls",
+      "description": "As an operator, I need local run status, retry, and stale-reset commands so that a failed or stuck demo can be recovered without editing Supabase by hand.",
+      "acceptanceCriteria": [
+        "A run status command prints current status, timestamps, error details, output counts, decision presence, and last recorded step for a selected run.",
+        "A retry command creates a new pending run linked to the failed or needs_human_review source run instead of mutating immutable agent_outputs.",
+        "A reset-stale command marks old running runs as failed only when they exceed a configured age and records an explicit operator reason.",
+        "Commands refuse to mutate succeeded runs unless a documented force flag is provided, and force usage is recorded in metadata.",
+        "Tests cover status output, retry lineage, stale reset, terminal protections, and mocked persistence failures; pytest and ruff check pass."
+      ],
+      "priority": 37,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-038",
+      "title": "Add live demo smoke command",
+      "description": "As an operator, I need an opt-in smoke command so that the real Supabase and Storage demo path can be checked before presentation while normal tests stay deterministic.",
+      "acceptanceCriteria": [
+        "A CLI command runs a bounded smoke flow covering demo seed, tender PDF registration, ingestion, evidence creation, pending run creation, worker execution, and decision readback.",
+        "The command accepts a local PDF path and falls back to generated or fixture data when the real gitignored demo PDF is absent.",
+        "The default smoke path uses mocked LLM output, while an explicit live-LLM flag enables real Claude calls for manual rehearsal.",
+        "Smoke output summarizes each step, terminal run status, decision verdict, evidence count, and any failure reason without printing secrets.",
+        "Automated tests mock Supabase, Storage, PDF processing, and Claude and cover PDF-present, PDF-absent, mocked-LLM, and live-LLM flag handling; pytest and ruff check pass."
+      ],
+      "priority": 38,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-039",
+      "title": "Add demo step trace",
+      "description": "As an operator, I need a compact per-run step trace so that demo failures can be understood without inspecting raw prompts or database internals.",
+      "acceptanceCriteria": [
+        "The worker records a compact demo_trace in agent_runs metadata with step name, status, timestamps, duration, and short error code.",
+        "Trace entries never include raw prompts, secrets, full PDF text, or private free-form context.",
+        "Run status output can display the trace in a verbose mode with the latest failed or incomplete step highlighted.",
+        "Trace recording is append-only for completed steps and preserves existing run metadata.",
+        "Tests cover successful traces, failed traces, redaction, append-only behavior, and verbose status rendering; pytest and ruff check pass."
+      ],
+      "priority": 39,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-040",
+      "title": "Export decision bundle",
+      "description": "As an operator, I need a decision export so that the final recommendation, evidence, risks, and actions can be shown even if the UI is unavailable.",
+      "acceptanceCriteria": [
+        "A CLI export command writes a selected run as Markdown and JSON using bid_decisions, agent_outputs, and evidence_items.",
+        "The export includes verdict, confidence, cited memo, evidence keys, compliance blockers, potential blockers, risk register, missing information, and recommended actions.",
+        "Exports fail with a clear message when the run has no persisted final decision.",
+        "Markdown output is readable without database access and JSON output preserves stable keys for downstream tooling.",
+        "Tests cover succeeded export, needs_human_review export, missing-decision failure, evidence citation rendering, and deterministic output ordering; pytest and ruff check pass."
+      ],
+      "priority": 40,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-041",
+      "title": "Write demo runbook",
+      "description": "As an operator, I need a demo runbook so that setup, smoke checks, recovery, and fallback replay can be followed under hackathon time pressure.",
+      "acceptanceCriteria": [
+        "A runbook documents pre-demo setup, required environment variables, Supabase migration expectations, Storage bucket setup, and secret-handling rules.",
+        "The runbook documents the normal live demo path using doctor, smoke, worker, status, and export commands.",
+        "The runbook documents fallback paths for missing PDF, unavailable Claude, Supabase failure, stuck running runs, and UI unavailability.",
+        "The runbook explicitly states that normal tests remain mocked and that live smoke is manual and opt-in.",
+        "pytest and ruff check pass after adding the documentation."
+      ],
+      "priority": 41,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-042",
+      "title": "Define golden demo cases",
+      "description": "As a developer, I need a small golden case set so that Bidded's core bid/no-bid behaviors can be regression-tested without procurement domain guesswork.",
+      "acceptanceCriteria": [
+        "Golden cases are represented as deterministic fixtures with tender evidence, company evidence, expected verdict, expected blockers, expected missing_info, and required evidence references.",
+        "The initial set covers obvious bid, hard compliance no_bid, conditional_bid with next actions, needs_human_review from conflicting evidence, missing company evidence, and unsupported agent claim rejection.",
+        "Each case explains why the expected outcome follows from the fixture evidence and Bidded decision rules rather than undocumented domain judgment.",
+        "Fixtures avoid private customer data and do not require live Claude, live Supabase, OCR, DOCX, or a real tender PDF.",
+        "Tests validate fixture schema, unique case IDs, expected verdict values, and presence of required evidence references; pytest and ruff check pass."
+      ],
+      "priority": 42,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-043",
+      "title": "Add eval runner CLI",
+      "description": "As a developer, I need an eval runner so that golden cases can be executed consistently after prompt, schema, retrieval, or orchestration changes.",
+      "acceptanceCriteria": [
+        "A CLI command runs all golden cases or a selected case ID and returns a non-zero exit code when any required expectation fails.",
+        "The runner can execute with recorded or mocked agent outputs without calling live Claude or live Supabase.",
+        "The runner reports expected versus actual verdict, missing required blockers, unexpected hard blockers, validation errors, and evidence-reference failures.",
+        "Eval results are deterministic and can be written to JSON for later comparison.",
+        "Tests cover all-cases execution, selected-case execution, pass result, fail result, and JSON output; pytest and ruff check pass."
+      ],
+      "priority": 43,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-044",
+      "title": "Score evidence coverage",
+      "description": "As a developer, I need evidence coverage scoring so that golden evals can detect unsupported material claims and weak citation behavior.",
+      "acceptanceCriteria": [
+        "An eval scorer computes citation coverage for material findings, blockers, Judge decisions, risk register entries, and recommended actions.",
+        "The scorer distinguishes tender_document evidence, company_profile evidence, and comparison claims that require both when both are available.",
+        "Unsupported material claims are counted separately from assumptions, missing_info, and potential_evidence_gaps.",
+        "Coverage output includes per-case score, unsupported claim count, missing citation details, and pass/fail threshold.",
+        "Tests cover full coverage, missing tender citation, missing company citation, unsupported claim, and allowed missing_info; pytest and ruff check pass."
+      ],
+      "priority": 44,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-045",
+      "title": "Add verdict regression checks",
+      "description": "As a developer, I need verdict regression checks so that core decision outcomes do not silently drift after implementation or prompt changes.",
+      "acceptanceCriteria": [
+        "Golden cases define allowed verdicts and any required hard blocker, missing_info, or recommended_action expectations.",
+        "The eval runner fails when a case returns a verdict outside its allowed set.",
+        "Hard compliance blocker cases require no_bid regardless of other specialist votes.",
+        "Missing company evidence cases must not fail solely because evidence is absent when the expected rule is missing_info or human review.",
+        "Tests cover stable verdict pass, verdict drift failure, compliance blocker override, and missing-evidence non-gating behavior; pytest and ruff check pass."
+      ],
+      "priority": 45,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-046",
+      "title": "Track prompt schema versions",
+      "description": "As a developer, I need prompt, schema, retrieval, and model version metadata so that changed eval outcomes can be explained after future iterations.",
+      "acceptanceCriteria": [
+        "Agent outputs or run metadata record prompt_version, schema_version, retrieval_version, model_name, and eval_fixture_version when available.",
+        "Version metadata is populated for mocked eval runs and normal worker runs without requiring live Claude.",
+        "The eval runner includes version metadata in JSON results and summary output.",
+        "Missing version metadata is surfaced as a warning in eval output but does not block non-eval worker execution.",
+        "Tests cover metadata population, warning behavior, JSON serialization, and backwards-compatible loading of older runs without version fields; pytest and ruff check pass."
+      ],
+      "priority": 46,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-047",
+      "title": "Diff normalized decisions",
+      "description": "As a developer, I need a normalized decision diff so that baseline and candidate runs can be compared without noisy prose diffs.",
+      "acceptanceCriteria": [
+        "A diff command compares two eval results or persisted runs by verdict, confidence, blockers, risks, missing_info, recommended_actions, and cited evidence keys.",
+        "The diff ignores non-material prose ordering where normalized structured fields are unchanged.",
+        "The command emits human-readable text and JSON output with added, removed, and changed decision elements.",
+        "A non-zero exit code is returned when material decision fields differ and a strict flag is used.",
+        "Tests cover identical decisions, changed verdict, changed blockers, changed evidence keys, prose-only differences, and strict-mode exit codes; pytest and ruff check pass."
+      ],
+      "priority": 47,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-048",
+      "title": "Add adversarial fixtures",
+      "description": "As a developer, I need adversarial procurement fixtures so that evals exercise subtle evidence, compliance, and missing-information failures before real demos.",
+      "acceptanceCriteria": [
+        "Adversarial fixtures cover near-miss certifications, hidden shall requirements, stale company evidence, conflicting deadlines, weak margin, and Red Team blocker challenges.",
+        "Each fixture has a documented expected behavior using Bidded rules and avoids requiring external legal or procurement expertise to interpret.",
+        "The eval runner can include or exclude adversarial fixtures through a CLI flag or fixture group selector.",
+        "Adversarial fixtures use only synthetic or repo-safe data and do not require private tenders or customer information.",
+        "Tests validate fixture grouping, expected outcome metadata, and at least one failing-output example for each adversarial category; pytest and ruff check pass."
+      ],
+      "priority": 48,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-049",
+      "title": "Export eval report",
+      "description": "As a developer, I need an eval report export so that golden case quality can be reviewed after local runs or before demos.",
+      "acceptanceCriteria": [
+        "The eval runner can export Markdown and JSON reports with case status, expected versus actual verdict, evidence coverage score, unsupported claim count, and validation errors.",
+        "Reports include aggregate pass rate, failed case list, version metadata, and runtime summary.",
+        "Markdown reports are readable in a terminal or repository viewer, while JSON reports preserve stable keys for automation.",
+        "Report export is deterministic for the same eval input and output directory.",
+        "Tests cover all-pass report, mixed-pass report, JSON schema shape, Markdown content, and deterministic ordering; pytest and ruff check pass."
+      ],
+      "priority": 49,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-050",
+      "title": "Compare live and mock evals",
+      "description": "As a developer, I need an opt-in live-versus-mock eval comparison so that live Claude behavior can be rehearsed without making it a normal test dependency.",
+      "acceptanceCriteria": [
+        "An eval command can run selected golden cases with mocked outputs and, when explicitly requested, live Claude outputs.",
+        "Live eval mode requires explicit confirmation or flag and never runs during normal pytest or default eval commands.",
+        "The comparison report highlights verdict differences, validation failures, evidence coverage changes, latency, and token or cost metadata when available.",
+        "If Anthropic credentials are absent, live comparison exits with a clear unavailable status while mock evals still run.",
+        "Tests mock the live client and cover disabled-by-default behavior, missing credentials, successful comparison, validation failure comparison, and report output; pytest and ruff check pass."
+      ],
+      "priority": 50,
       "passes": false,
       "notes": ""
     }
