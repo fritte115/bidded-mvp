@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-004",
-  "storyTitle": "Add chunk evidence schema",
+  "currentStory": "US-005",
+  "storyTitle": "Define graph state schema",
   "nextAction": "implement",
-  "progressTokens": 570,
+  "progressTokens": 660,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"

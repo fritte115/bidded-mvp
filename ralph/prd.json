@@ -60,8 +60,8 @@
         "company_profile evidence requires company_id, field_path, excerpt, and source label metadata."
       ],
       "priority": 4,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added document_chunks and evidence_items migrations with nullable vector embeddings and tender/company provenance constraints. Complete."
     },
     {
       "id": "US-005",

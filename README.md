@@ -16,7 +16,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | `Makefile` | Kör Ralph-loop med Codex CLI via `make ralph`. |
 | `.env.example` | Dokumenterar Claude, Supabase Storage och optional embedding-provider utan secrets. |
 | Applikationskod | Grundpaket finns under `src/bidded` med subpackages för config, db, documents, evidence, agents, orchestration och cli. |
-| Supabase-migrations | Core domain- och agent audit-migrations finns; chunk/evidence-schema byggs i `US-004`. |
+| Supabase-migrations | Core domain-, agent audit- och chunk/evidence-migrations finns; graph state byggs i `US-005`. |
 | Frontend | Ingen frontend i repot. Lovable är planerad som tunn demo-UI ovanpå Supabase i `US-025`. |
 
 README:n beskriver därför både nuläget och den stack som PRD:n definierar att vi bygger mot. När stories implementeras ska planerade delar flyttas till faktiskt levererade delar.
