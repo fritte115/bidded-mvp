@@ -325,8 +325,8 @@
         "pytest and ruff check pass for mocked Judge scenarios including bid, no_bid, conditional_bid, and needs_human_review."
       ],
       "priority": 21,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented Judge request validation, formal blocker no_bid gating, final_decision audit rows, and bid_decisions persistence payloads. Complete."
     },
     {
       "id": "US-022",

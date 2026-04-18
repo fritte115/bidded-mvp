@@ -97,6 +97,14 @@ class Round2RebuttalResult:
     agent_output: AgentOutputState | None = None
 
 
+@dataclass(frozen=True)
+class JudgeDecisionResult:
+    """Validated Judge decision plus its immutable audit row."""
+
+    decision: FinalDecisionState
+    agent_output: AgentOutputState | None = None
+
+
 ScoutHandler = Callable[[BidRunState], ScoutOutputState | InvalidGraphOutput]
 Round1Handler = Callable[
     [BidRunState, SpecialistRole],
@@ -106,7 +114,10 @@ Round2Handler = Callable[
     [BidRunState, SpecialistRole],
     RebuttalState | Round2RebuttalResult | InvalidGraphOutput,
 ]
-JudgeHandler = Callable[[BidRunState], FinalDecisionState | InvalidGraphOutput]
+JudgeHandler = Callable[
+    [BidRunState],
+    FinalDecisionState | JudgeDecisionResult | InvalidGraphOutput,
+]
 PersistHandler = Callable[[BidRunState], InvalidGraphOutput | None]
 
 
@@ -589,10 +600,15 @@ def _judge_node(
         if isinstance(output, InvalidGraphOutput):
             updated = _apply_invalid_output(state, GraphNodeName.JUDGE, output)
         else:
+            result = _coerce_judge_decision_result(output)
+            agent_outputs = (
+                [result.agent_output] if result.agent_output is not None else []
+            )
             updated = state.apply_node_update(
                 GraphNodeName.JUDGE,
                 {
-                    "final_decision": output,
+                    "final_decision": result.decision,
+                    "agent_outputs": agent_outputs,
                     "current_step": GraphRouteNode.JUDGE,
                     "last_error": None,
                 },
@@ -947,6 +963,29 @@ def _agent_output_from_rebuttal_state(rebuttal: RebuttalState) -> AgentOutputSta
     )
 
 
+def _coerce_judge_decision_result(
+    output: FinalDecisionState | JudgeDecisionResult,
+) -> JudgeDecisionResult:
+    if isinstance(output, JudgeDecisionResult):
+        return output
+    return JudgeDecisionResult(
+        decision=output,
+        agent_output=_agent_output_from_final_decision_state(output),
+    )
+
+
+def _agent_output_from_final_decision_state(
+    decision: FinalDecisionState,
+) -> AgentOutputState:
+    return AgentOutputState(
+        agent_role=GraphNodeName.JUDGE.value,
+        round_name="final_decision",
+        output_type="decision",
+        payload=decision.model_dump(mode="json"),
+        evidence_refs=_dedupe_evidence_refs(decision.evidence_refs),
+    )
+
+
 def _matching_state_evidence_item(
     evidence_ref: EvidenceRef,
     evidence_board: Sequence[EvidenceItemState],
@@ -1085,6 +1124,7 @@ __all__ = [
     "GraphRouteNode",
     "GraphRunResult",
     "InvalidGraphOutput",
+    "JudgeDecisionResult",
     "Round1MotionResult",
     "Round2RebuttalResult",
     "build_bidded_graph_shell",

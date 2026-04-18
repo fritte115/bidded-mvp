@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-021",
-  "storyTitle": "Implement Judge decision",
+  "currentStory": "US-022",
+  "storyTitle": "Add worker lifecycle CLI",
   "nextAction": "implement",
-  "progressTokens": 2040,
+  "progressTokens": 2070,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"

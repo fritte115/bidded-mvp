@@ -15,7 +15,7 @@ Started: 2026-04-18
 - **Bidded CLI Boundary**: Keep CLI help/package imports free of live client construction; create external clients only inside real command execution paths and keep seed helpers injectable for tests.
 - **Bidded Document Pipeline Contract**: Keep tender registration and PDF ingestion in `src/bidded/documents`; registered text-PDFs use mocked Storage, PyMuPDF extraction, deterministic page chunks, and parser status metadata.
 - **Bidded Pending Run Contract**: Create `agent_runs` through an orchestration service that validates demo company, tender, and tender document rows, inserts `pending`, and leaves processing for later graph steps.
-- **Bidded Agent Audit Contract**: `agent_outputs` are immutable rows keyed by `agent_role`, `round_name`, and `output_type`; `bid_decisions` surface Judge `evidence_ids`.
+- **Bidded Agent Audit Contract**: `agent_outputs` are immutable rows keyed by `agent_role`, `round_name`, and `output_type`; Judge `bid_decisions` surface evidence IDs and link source agent outputs through metadata.
 - **Bidded Graph State/Routing Contract**: `BidRunState.apply_node_update` enforces node ownership and reducers; `src/bidded/orchestration/graph.py` owns the fixed LangGraph shell, preflight checks, Evidence Scout audit append, explicit edge table, mocked handlers, and terminal routing.
 - **Bidded Agent Tool Policy Contract**: `src/bidded/agents/tool_policy.py` is the source of truth for LLM-agent denied tools, bounded retrieval, artifact access, and orchestrator-owned side effects.
 - **Bidded Agent Output Schema Contract**: `src/bidded/agents/schemas.py` is the strict Pydantic surface for Evidence Scout output, motions, rebuttals, Judge decisions, evidence refs, material claim evidence-ID validation, typed evidence gaps, validation errors, specialist role bounds, and Round 1 motion audit rows.
@@ -130,4 +130,9 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added focused Round 2 rebuttal orchestration with cross-motion requests, Red Team focus points, strict evidence validation, and `round_2_rebuttal` audit rows.
 - **Files**: src/bidded/orchestration/specialist_rebuttals.py, src/bidded/orchestration/graph.py, src/bidded/orchestration/__init__.py, tests/test_specialist_rebuttal_node.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
 - **Key learnings**: Persist Round 2 rebuttals at the join only after all four focused outputs validate, mirroring Round 1 audit-row behavior.
+---
+## 2026-04-18 20:46 CEST - US-021
+- **Implemented**: Added Judge decision orchestration with formal-blocker `no_bid` gating, evidence-backed verdict validation, `final_decision` audit rows, and `bid_decisions` persistence payloads.
+- **Files**: src/bidded/orchestration/judge.py, src/bidded/orchestration/graph.py, src/bidded/orchestration/state.py, src/bidded/orchestration/__init__.py, tests/test_judge_decision_node.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
+- **Key learnings**: Keep Judge artifact validation separate from orchestrator-owned `bid_decisions` persistence and link source `agent_outputs` through metadata.
 ---
