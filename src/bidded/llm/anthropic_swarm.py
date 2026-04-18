@@ -317,7 +317,7 @@ def anthropic_graph_handlers(
     from bidded.orchestration.specialist_motions import build_round_1_specialist_handler
     from bidded.orchestration.specialist_rebuttals import build_round_2_rebuttal_handler
 
-    resolved_model = (model or "claude-sonnet-4-20250514").strip()
+    resolved_model = (model or "claude-3-5-sonnet-20241022").strip()
     defaults = default_graph_node_handlers()
     return replace(
         defaults,

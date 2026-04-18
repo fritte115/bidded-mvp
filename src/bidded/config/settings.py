@@ -9,7 +9,8 @@ class BiddedSettings(BaseSettings):
     anthropic_api_key: str | None = None
     #: ``evidence_locked`` (default, deterministic) or ``anthropic`` (Claude API).
     bidded_swarm_backend: str = "evidence_locked"
-    anthropic_model: str = "claude-sonnet-4-20250514"
+    #: Model id for Messages API; must exist for your Anthropic account.
+    anthropic_model: str = "claude-3-5-sonnet-20241022"
     supabase_url: str | None = None
     supabase_service_role_key: str | None = None
     supabase_storage_bucket: str = "public-procurements"
