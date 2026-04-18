@@ -21,7 +21,7 @@ from bidded.orchestration import (
     create_pending_run_context,
     run_worker_once,
 )
-from bidded.orchestration.evidence_locked_swarm import evidence_locked_graph_handlers
+from bidded.llm.factory import resolve_graph_handlers
 from bidded.retrieval import RetrievalError
 
 app = FastAPI(title="Bidded Agent API")
@@ -147,7 +147,7 @@ def start_run(req: StartRunRequest) -> dict[str, str]:
                 worker_client,
                 run_id=run_id,
                 log=print,
-                graph_handlers=evidence_locked_graph_handlers(),
+                graph_handlers=resolve_graph_handlers(worker_settings),
             )
         except WorkerLifecycleError as exc:
             print(f"[worker] run {run_id} failed: {exc}")

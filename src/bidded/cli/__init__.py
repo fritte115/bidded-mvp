@@ -16,7 +16,7 @@ from bidded.orchestration import (
     create_pending_run_context,
     run_worker_once,
 )
-from bidded.orchestration.evidence_locked_swarm import evidence_locked_graph_handlers
+from bidded.llm.factory import resolve_graph_handlers
 
 DEMO_TENDER_PDF_HINT = "data/demo/incoming/Bilaga Skakrav.pdf"
 
@@ -228,7 +228,7 @@ def _run_worker_command(args: argparse.Namespace) -> int:
             run_id=args.run_id,
             company_id=args.company_id,
             log=print,
-            graph_handlers=evidence_locked_graph_handlers(),
+            graph_handlers=resolve_graph_handlers(settings),
         )
     except (RuntimeError, WorkerLifecycleError) as exc:
         print(str(exc), file=sys.stderr)
