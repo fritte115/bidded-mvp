@@ -101,8 +101,39 @@ def _tender_items(board: Sequence[EvidenceItemState]) -> list[EvidenceItemState]
     return [e for e in board if e.source_type is EvidenceSourceType.TENDER_DOCUMENT]
 
 
+def _sorted_tender_items(board: Sequence[EvidenceItemState]) -> list[EvidenceItemState]:
+    """Stable order so multi-document runs iterate all PDFs predictably."""
+    tender = _tender_items(board)
+    return sorted(
+        tender,
+        key=lambda e: (
+            str(e.document_id),
+            e.page_start or 0,
+            str(e.chunk_id or ""),
+            e.evidence_key or "",
+        ),
+    )
+
+
 def _company_items(board: Sequence[EvidenceItemState]) -> list[EvidenceItemState]:
     return [e for e in board if e.source_type is EvidenceSourceType.COMPANY_PROFILE]
+
+
+def _sorted_company_items(board: Sequence[EvidenceItemState]) -> list[EvidenceItemState]:
+    company = _company_items(board)
+    return sorted(company, key=lambda e: (e.field_path or "", e.evidence_key or ""))
+
+
+def _document_citation_hint(item: EvidenceItemState) -> str:
+    """Short provenance for UI when multiple tender PDFs are on the board."""
+    meta = item.source_metadata or {}
+    label = meta.get("source_label") or meta.get("filename") or meta.get("title")
+    if isinstance(label, str) and label.strip():
+        return f" — {label.strip()}"
+    if item.document_id is not None:
+        short = str(item.document_id).split("-", maxsplit=1)[0]
+        return f" — tender doc {short}…"
+    return ""
 
 
 def _find_evidence_for_chunk(
@@ -188,16 +219,20 @@ class EvidenceLockedRound1Model:
 
     def draft_motion(self, request: Round1SpecialistRequest) -> dict[str, Any]:
         board = request.evidence_board
-        tender = _tender_items(board)
-        company = _company_items(board)
+        tender = _sorted_tender_items(board)
+        company = _sorted_company_items(board)
         if not tender:
             msg = "Round 1 requires at least one tender_document evidence item."
             raise ValueError(msg)
 
-        t0, t1 = tender[0], tender[min(1, len(tender) - 1)]
-        c0 = company[0] if company else t1
-
         role = request.agent_role
+        n_t = len(tender)
+        off = _pick_tender_offset(role, n_t)
+        t0 = tender[off % n_t]
+        t_risk = tender[(off + max(1, n_t // 2)) % n_t] if n_t > 1 else t0
+        nc = len(company)
+        c0 = company[off % nc] if nc else t0
+
         seed = int(
             hashlib.sha256(f"{role.value}:{t0.evidence_key}".encode()).hexdigest()[:8],
             16,
@@ -205,25 +240,29 @@ class EvidenceLockedRound1Model:
         confidence = round(0.55 + (seed % 20) / 100.0, 2)
 
         role_label = _specialist_display_name(role)
+        doc0 = _document_citation_hint(t0)
         top_claim = (
             f"{role_label} review: tender excerpt aligns with cited procurement "
-            f"language: {_truncate(t0.excerpt)}"
+            f"language{doc0}: {_truncate(t0.excerpt)}"
         )
-        if company:
+        if nc:
             top_claim += (
                 f" Company evidence at {c0.field_path or 'profile'} supports "
                 f"comparison: {_truncate(c0.excerpt)}."
             )
 
         top_findings = [
-            {"claim": top_claim, "evidence_refs": [_ref(t0), _ref(c0)] if company else [_ref(t0)]}
+            {
+                "claim": top_claim,
+                "evidence_refs": [_ref(t0), _ref(c0)] if nc else [_ref(t0)],
+            }
         ]
 
         risk_claim = (
             f"{role_label} flags execution risk on staffing, timing, or liability "
-            f"language in: {_truncate(t1.excerpt)}"
+            f"language{_document_citation_hint(t_risk)} in: {_truncate(t_risk.excerpt)}"
         )
-        role_specific_risks = [{"claim": risk_claim, "evidence_refs": [_ref(t1)]}]
+        role_specific_risks = [{"claim": risk_claim, "evidence_refs": [_ref(t_risk)]}]
 
         formal_blockers: list[dict[str, Any]] = []
         # Reserve formal_blockers for disqualification / exclusion language, not
@@ -248,18 +287,110 @@ class EvidenceLockedRound1Model:
                     break
 
         potential_blockers: list[dict[str, Any]] = []
-        if company and tender:
+        if nc and n_t:
+            pb_claims: dict[AgentRole, str] = {
+                AgentRole.COMPLIANCE_OFFICER: (
+                    "Potential gap: map each shall/must line in the cited tender "
+                    "excerpts to a named exhibit; trace formal gates across all "
+                    "uploaded procurement PDFs."
+                ),
+                AgentRole.WIN_STRATEGIST: (
+                    "Potential gap: tie win themes and price story to evaluation "
+                    "criteria found in the rotated tender excerpts above; avoid "
+                    "generic claims not keyed to a document line."
+                ),
+                AgentRole.DELIVERY_CFO: (
+                    "Potential gap: align staffing, milestones, and liability caps "
+                    "with obligations spread across tender documents; confirm "
+                    "capacity evidence covers every cited schedule risk."
+                ),
+                AgentRole.RED_TEAM: (
+                    "Potential gap: stress-test residual exposure where tender PDFs "
+                    "disagree or where company proof is thin for any cited "
+                    "obligation."
+                ),
+            }
             potential_blockers.append(
                 {
-                    "claim": (
-                        "Potential gap: map tender obligations to concrete company "
-                        "proof points; verify every material obligation is covered."
+                    "claim": pb_claims.get(
+                        role,
+                        (
+                            "Potential gap: map tender obligations to concrete company "
+                            "proof points; verify every material obligation is covered."
+                        ),
                     ),
                     "evidence_refs": [_ref(t0), _ref(c0)],
                 }
             )
 
         vote = self._vote_for_role(role, formal_blockers)
+
+        assumptions_r1: dict[AgentRole, list[str]] = {
+            AgentRole.COMPLIANCE_OFFICER: [
+                "Vendor assumptions are excluded unless each is tied to evidence_key "
+                "citations on the board."
+            ],
+            AgentRole.WIN_STRATEGIST: [
+                "Commercial upside is excluded as a finding unless supported by tender "
+                "evaluation text and company evidence refs."
+            ],
+            AgentRole.DELIVERY_CFO: [
+                "Delivery dates and FTE levels are treated as assumptions unless "
+                "anchored to cited tender schedule language and company capacity fields."
+            ],
+            AgentRole.RED_TEAM: [
+                "Residual risk ratings are excluded unless contradictions are cited "
+                "between tender excerpts and company_profile items."
+            ],
+        }
+        missing_r1: dict[AgentRole, list[str]] = {
+            AgentRole.COMPLIANCE_OFFICER: [
+                "Confirm every mandatory upload referenced across tender PDFs is "
+                "listed with the correct file name in the submission pack."
+            ],
+            AgentRole.WIN_STRATEGIST: [
+                "Clarify award criteria weighting if evaluation rules differ "
+                "between annexes or documents."
+            ],
+            AgentRole.DELIVERY_CFO: [
+                "Attach named CVs and substitution rules if staffing is scored against "
+                "tender requirements."
+            ],
+            AgentRole.RED_TEAM: [
+                "Flag insurance, liability, and exit clauses that vary by document "
+                "version before bid sign-off."
+            ],
+        }
+        gaps_r1: dict[AgentRole, list[str]] = {
+            AgentRole.COMPLIANCE_OFFICER: [
+                "Cross-check disqualification triggers in each tender PDF against "
+                "the compliance matrix."
+            ],
+            AgentRole.WIN_STRATEGIST: [
+                "Map differentiators to measurable sub-criteria per evaluation section."
+            ],
+            AgentRole.DELIVERY_CFO: [
+                "Compare milestone burn-down to slippage remedies in all schedule excerpts."
+            ],
+            AgentRole.RED_TEAM: [
+                "Identify single points of failure where multiple PDFs impose "
+                "overlapping obligations."
+            ],
+        }
+        actions_r1: dict[AgentRole, list[str]] = {
+            AgentRole.COMPLIANCE_OFFICER: [
+                "Publish one compliance matrix row per shall line with evidence_key."
+            ],
+            AgentRole.WIN_STRATEGIST: [
+                "Align win themes with scored criteria from each tender document."
+            ],
+            AgentRole.DELIVERY_CFO: [
+                "Attach staffing histogram versus required FTE by phase."
+            ],
+            AgentRole.RED_TEAM: [
+                "Run a pre-mortem on the top three failure modes before bid sign-off."
+            ],
+        }
 
         return {
             "agent_role": role.value,
@@ -269,18 +400,33 @@ class EvidenceLockedRound1Model:
             "role_specific_risks": role_specific_risks,
             "formal_blockers": formal_blockers,
             "potential_blockers": potential_blockers,
-            "assumptions": [
-                "Vendor assumptions are excluded unless tied to evidence_key citations."
-            ],
-            "missing_info": [
-                "Any unstated customer references or CVs named in tender must be attached."
-            ],
-            "potential_evidence_gaps": [
-                "Review subcontractor and insurance proofs if tender text requires them."
-            ],
-            "recommended_actions": [
-                "Cross-walk each shall/must line to an exhibit before submission.",
-            ],
+            "assumptions": assumptions_r1.get(
+                role,
+                [
+                    "Vendor assumptions are excluded unless tied to evidence_key "
+                    "citations."
+                ],
+            ),
+            "missing_info": missing_r1.get(
+                role,
+                [
+                    "Any unstated customer references or CVs named in tender must "
+                    "be attached."
+                ],
+            ),
+            "potential_evidence_gaps": gaps_r1.get(
+                role,
+                [
+                    "Review subcontractor and insurance proofs if tender text "
+                    "requires them."
+                ],
+            ),
+            "recommended_actions": actions_r1.get(
+                role,
+                [
+                    "Cross-walk each shall/must line to an exhibit before submission."
+                ],
+            ),
             "validation_errors": [],
         }
 
@@ -375,8 +521,8 @@ class EvidenceLockedRound2Model:
         board = request.evidence_board
         motions = request.motions
         role = request.agent_role
-        tender = _tender_items(board)
-        company = _company_items(board)
+        tender = _sorted_tender_items(board)
+        company = _sorted_company_items(board)
         if not tender:
             msg = "Round 2 requires tender evidence on the board."
             raise ValueError(msg)
@@ -548,8 +694,8 @@ class EvidenceLockedJudgeModel:
 
     def decide(self, request: JudgeDecisionRequest) -> dict[str, Any]:
         board = request.evidence_board
-        tender = _tender_items(board)
-        company = _company_items(board)
+        tender = _sorted_tender_items(board)
+        company = _sorted_company_items(board)
         if not tender:
             msg = "Judge requires tender evidence."
             raise ValueError(msg)

@@ -299,7 +299,7 @@ export default function RunDetail() {
             {run.round1.length === 0 ? (
               <p className="text-sm text-muted-foreground">Pending…</p>
             ) : (
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-4">
                 {run.round1.map((m) => (
                   <AgentMotionCard key={m.agent} motion={m} />
                 ))}
@@ -311,7 +311,7 @@ export default function RunDetail() {
             {run.round2.length === 0 ? (
               <p className="text-sm text-muted-foreground">Awaiting Round 1 completion…</p>
             ) : (
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-4">
                 {run.round2.map((m) => (
                   <AgentMotionCard key={m.agent} motion={m} highlightDisagreement />
                 ))}

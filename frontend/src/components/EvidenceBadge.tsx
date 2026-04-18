@@ -17,7 +17,8 @@ export function EvidenceBadge({
       title={title ?? id}
       onClick={onClick}
       className={cn(
-        "inline-flex items-center rounded-md border border-border bg-secondary px-1.5 py-0.5 font-mono text-[11px] font-medium text-secondary-foreground",
+        "inline-flex max-w-full items-center align-middle leading-normal",
+        "rounded-md border border-border bg-secondary px-1.5 py-0.5 font-mono text-[11px] font-medium text-secondary-foreground",
         onClick && "cursor-pointer hover:border-primary/40 hover:text-primary",
         className,
       )}

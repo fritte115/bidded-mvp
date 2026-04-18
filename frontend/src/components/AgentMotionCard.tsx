@@ -43,10 +43,10 @@ function highlightEvidence(text: string) {
       <EvidenceBadge
         key={i}
         id={p}
-        className="mx-0.5 max-w-full align-baseline break-all"
+        className="my-0.5 inline-flex max-w-full align-middle break-all sm:mx-0.5"
       />
     ) : (
-      <span key={i} className="break-words">
+      <span key={i} className="break-words [overflow-wrap:anywhere]">
         {p}
       </span>
     );
@@ -56,7 +56,7 @@ function highlightEvidence(text: string) {
 function FindingRow({ finding }: { finding: AgentMotionFinding }) {
   return (
     <div className="space-y-1.5 rounded-md border border-border bg-secondary/30 px-3 py-2.5">
-      <p className="text-sm leading-snug break-words text-foreground">
+      <p className="text-sm leading-relaxed break-words text-foreground [overflow-wrap:anywhere]">
         {highlightEvidence(finding.claim)}
       </p>
       {finding.evidenceKeys.length > 0 && (
@@ -83,7 +83,7 @@ export function AgentMotionCard({
 
   return (
     <>
-      <Card className="flex flex-col">
+      <Card className="flex min-w-0 flex-col overflow-hidden">
         <CardHeader className="space-y-3 pb-3">
           <div className="flex items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-2">
@@ -94,12 +94,14 @@ export function AgentMotionCard({
           </div>
           <ConfidenceBar value={motion.confidence} />
         </CardHeader>
-        <CardContent className="flex-1 space-y-3 pt-0">
-          <ul className="space-y-1.5 text-sm text-foreground">
+        <CardContent className="min-w-0 flex-1 space-y-3 pt-0">
+          <ul className="space-y-3 text-sm text-foreground">
             {motion.findings.map((f, i) => (
-              <li key={i} className="flex gap-2">
-                <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-muted-foreground" />
-                <span className="leading-snug">{highlightEvidence(f)}</span>
+              <li key={i} className="flex gap-2.5">
+                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground" />
+                <div className="min-w-0 flex-1 leading-relaxed [overflow-wrap:anywhere]">
+                  {highlightEvidence(f)}
+                </div>
               </li>
             ))}
           </ul>
@@ -174,9 +176,11 @@ export function AgentMotionCard({
               </p>
               <ul className="space-y-1.5 text-sm text-foreground">
                 {motion.findings.map((f, i) => (
-                  <li key={i} className="flex gap-2">
-                    <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-muted-foreground" />
-                    <span className="leading-snug">{highlightEvidence(f)}</span>
+                  <li key={i} className="flex gap-2.5">
+                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground" />
+                    <div className="min-w-0 flex-1 leading-relaxed [overflow-wrap:anywhere]">
+                      {highlightEvidence(f)}
+                    </div>
                   </li>
                 ))}
               </ul>
