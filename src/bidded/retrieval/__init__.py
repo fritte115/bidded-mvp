@@ -25,8 +25,18 @@ class SupabaseDocumentChunkQuery(Protocol):
     def execute(self) -> Any: ...
 
 
+class SupabaseDocumentChunkRpc(Protocol):
+    def execute(self) -> Any: ...
+
+
 class SupabaseDocumentChunkClient(Protocol):
     def table(self, table_name: str) -> SupabaseDocumentChunkQuery: ...
+
+    def rpc(
+        self,
+        function_name: str,
+        params: dict[str, Any],
+    ) -> SupabaseDocumentChunkRpc: ...
 
 
 class EmbeddingAdapter(Protocol):
@@ -55,6 +65,7 @@ def retrieve_document_chunks(
     top_k: int = 5,
     tenant_key: str = DEMO_TENANT_KEY,
     embedding_adapter: EmbeddingAdapter | None = None,
+    match_threshold: float = 0.0,
 ) -> list[RetrievedDocumentChunk]:
     """Return top matching document chunks using embeddings or keyword fallback."""
 
@@ -63,15 +74,35 @@ def retrieve_document_chunks(
         raise RetrievalError("query must not be empty.")
     if top_k <= 0:
         raise RetrievalError("top_k must be greater than zero.")
+    if match_threshold < 0 or match_threshold > 1:
+        raise RetrievalError("match_threshold must be between 0 and 1.")
+
+    normalized_document_id = _normalize_uuid_or_none(document_id)
+    if embedding_adapter is not None and _is_live_embedding_adapter(
+        embedding_adapter
+    ):
+        rpc_results = _retrieve_with_supabase_rpc(
+            client,
+            query=normalized_query,
+            document_id=normalized_document_id,
+            top_k=top_k,
+            tenant_key=tenant_key,
+            embedding_adapter=embedding_adapter,
+            match_threshold=match_threshold,
+        )
+        if rpc_results:
+            return rpc_results
 
     response = _document_chunk_query(
         client,
-        document_id=_normalize_uuid_or_none(document_id),
+        document_id=normalized_document_id,
         tenant_key=tenant_key,
     ).execute()
     rows = _response_rows(response)
 
-    if embedding_adapter is not None:
+    if embedding_adapter is not None and not _is_live_embedding_adapter(
+        embedding_adapter
+    ):
         embedding_results = _rank_by_embedding(
             rows,
             query=normalized_query,
@@ -82,6 +113,43 @@ def retrieve_document_chunks(
             return embedding_results
 
     return _rank_by_keyword(rows, query=normalized_query, top_k=top_k)
+
+
+def _retrieve_with_supabase_rpc(
+    client: SupabaseDocumentChunkClient,
+    *,
+    query: str,
+    document_id: UUID | None,
+    top_k: int,
+    tenant_key: str,
+    embedding_adapter: EmbeddingAdapter,
+    match_threshold: float,
+) -> list[RetrievedDocumentChunk] | None:
+    rpc = getattr(client, "rpc", None)
+    if not callable(rpc):
+        return None
+
+    try:
+        query_embedding = embedding_adapter.embed_text(query)
+        if len(query_embedding) != embedding_adapter.dimensions:
+            return None
+        response = rpc(
+            "match_document_chunks",
+            {
+                "query_embedding": query_embedding,
+                "match_count": top_k,
+                "match_threshold": match_threshold,
+                "tenant_key": tenant_key,
+                "document_id": str(document_id) if document_id is not None else None,
+            },
+        ).execute()
+        return [_retrieved_rpc_chunk(row) for row in _response_rows(response)]
+    except Exception:
+        return None
+
+
+def _is_live_embedding_adapter(embedding_adapter: EmbeddingAdapter) -> bool:
+    return getattr(embedding_adapter, "mode", None) == "live"
 
 
 def _rank_by_keyword(
@@ -199,6 +267,22 @@ def _retrieved_chunk(
     )
 
 
+def _retrieved_rpc_chunk(row: Mapping[str, Any]) -> RetrievedDocumentChunk:
+    normalized_row = dict(row)
+    if "chunk_id" in normalized_row and "id" not in normalized_row:
+        normalized_row["id"] = normalized_row["chunk_id"]
+    if (
+        "chunk_document_id" in normalized_row
+        and "document_id" not in normalized_row
+    ):
+        normalized_row["document_id"] = normalized_row["chunk_document_id"]
+    return _retrieved_chunk(
+        normalized_row,
+        method="supabase_pgvector",
+        score=_similarity_score(row.get("similarity")),
+    )
+
+
 def _keyword_score(query: str, text: str) -> float:
     query_terms = _tokens(query)
     if not query_terms:
@@ -298,6 +382,13 @@ def _int_value(value: object) -> int:
         return int(str(value))
     except (TypeError, ValueError) as exc:
         raise RetrievalError("document chunk integer field is invalid.") from exc
+
+
+def _similarity_score(value: object) -> float:
+    try:
+        return round(float(str(value)), 6)
+    except (TypeError, ValueError) as exc:
+        raise RetrievalError("pgvector similarity score is invalid.") from exc
 
 
 __all__ = [

@@ -38,15 +38,45 @@ class RecordingQuery:
         return type("Response", (), {"data": filtered})()
 
 
+class RecordingRpcQuery:
+    def __init__(
+        self,
+        client: RecordingSupabaseClient,
+        function_name: str,
+        params: dict[str, Any],
+    ) -> None:
+        self.client = client
+        self.function_name = function_name
+        self.params = params
+
+    def execute(self) -> object:
+        self.client.rpcs.append((self.function_name, self.params))
+        if self.client.rpc_error is not None:
+            raise self.client.rpc_error
+        return type("Response", (), {"data": self.client.rpc_rows})()
+
+
 class RecordingSupabaseClient:
-    def __init__(self, chunks: list[dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        chunks: list[dict[str, Any]],
+        *,
+        rpc_rows: list[dict[str, Any]] | None = None,
+        rpc_error: Exception | None = None,
+    ) -> None:
         self.rows = {"document_chunks": chunks}
+        self.rpc_rows = list(rpc_rows or [])
+        self.rpc_error = rpc_error
         self.selects: list[tuple[str, str | None]] = []
+        self.rpcs: list[tuple[str, dict[str, Any]]] = []
         self.table_names: list[str] = []
 
     def table(self, table_name: str) -> RecordingQuery:
         self.table_names.append(table_name)
         return RecordingQuery(self, table_name)
+
+    def rpc(self, function_name: str, params: dict[str, Any]) -> RecordingRpcQuery:
+        return RecordingRpcQuery(self, function_name, params)
 
 
 def _chunk(**overrides: Any) -> dict[str, Any]:
@@ -63,6 +93,21 @@ def _chunk(**overrides: Any) -> dict[str, Any]:
     }
     row.update(overrides)
     return row
+
+
+class RecordingLiveEmbeddingAdapter:
+    name = "openai_embedding"
+    dimensions = DOCUMENT_CHUNK_EMBEDDING_DIMENSIONS
+    mode = "live"
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self.vector = [0.0 for _ in range(self.dimensions)]
+        self.vector[0] = 1.0
+
+    def embed_text(self, text: str) -> list[float]:
+        self.calls.append(text)
+        return self.vector
 
 
 def test_retrieve_document_chunks_uses_keyword_fallback_without_embeddings() -> None:
@@ -99,6 +144,110 @@ def test_retrieve_document_chunks_uses_keyword_fallback_without_embeddings() -> 
     assert results[0].metadata["source_label"] == "Tender.pdf"
     assert results[0].metadata["retrieval"]["method"] == "keyword"
     assert results[0].metadata["retrieval"]["score"] > 0
+    assert client.table_names == ["document_chunks"]
+
+
+def test_retrieve_document_chunks_calls_rpc_for_live_embeddings() -> None:
+    embedding_adapter = RecordingLiveEmbeddingAdapter()
+    client = RecordingSupabaseClient(
+        [],
+        rpc_rows=[
+            {
+                "chunk_id": "chunk-security",
+                "chunk_document_id": str(DOCUMENT_ID),
+                "page_start": 4,
+                "page_end": 4,
+                "chunk_index": 0,
+                "text": "Information security requirements include ISO 27001.",
+                "metadata": {"source_label": "Tender.pdf"},
+                "similarity": 0.917423,
+            }
+        ],
+    )
+
+    results = retrieve_document_chunks(
+        client,
+        query="ISO 27001 information security",
+        document_id=DOCUMENT_ID,
+        top_k=1,
+        tenant_key="demo",
+        embedding_adapter=embedding_adapter,
+        match_threshold=0.25,
+    )
+
+    assert [result.chunk_id for result in results] == ["chunk-security"]
+    assert results[0].document_id == DOCUMENT_ID
+    assert results[0].metadata["retrieval"] == {
+        "method": "supabase_pgvector",
+        "score": 0.917423,
+    }
+    assert embedding_adapter.calls == ["ISO 27001 information security"]
+    assert client.table_names == []
+
+    assert len(client.rpcs) == 1
+    function_name, params = client.rpcs[0]
+    assert function_name == "match_document_chunks"
+    assert params["query_embedding"] == embedding_adapter.vector
+    assert params["match_count"] == 1
+    assert params["match_threshold"] == 0.25
+    assert params["tenant_key"] == "demo"
+    assert params["document_id"] == str(DOCUMENT_ID)
+
+
+def test_retrieve_document_chunks_falls_back_when_live_rpc_unavailable() -> None:
+    embedding_adapter = RecordingLiveEmbeddingAdapter()
+    client = RecordingSupabaseClient(
+        [
+            _chunk(
+                id="chunk-keyword",
+                text="Supplier must provide ISO 27001 certification.",
+            ),
+            _chunk(
+                id="chunk-other",
+                text="The project begins with onboarding workshops.",
+            ),
+        ],
+        rpc_error=RuntimeError("match_document_chunks unavailable"),
+    )
+
+    results = retrieve_document_chunks(
+        client,
+        query="ISO 27001 certification",
+        document_id=DOCUMENT_ID,
+        top_k=1,
+        embedding_adapter=embedding_adapter,
+    )
+
+    assert [result.chunk_id for result in results] == ["chunk-keyword"]
+    assert results[0].metadata["retrieval"]["method"] == "keyword"
+    assert client.rpcs[0][0] == "match_document_chunks"
+    assert client.table_names == ["document_chunks"]
+
+
+def test_retrieve_document_chunks_falls_back_when_rpc_has_no_embeddings() -> None:
+    embedding_adapter = RecordingLiveEmbeddingAdapter()
+    client = RecordingSupabaseClient(
+        [
+            _chunk(
+                id="chunk-keyword",
+                text="Supplier must provide ISO 27001 certification.",
+                embedding=None,
+            )
+        ],
+        rpc_rows=[],
+    )
+
+    results = retrieve_document_chunks(
+        client,
+        query="ISO 27001 certification",
+        document_id=DOCUMENT_ID,
+        top_k=1,
+        embedding_adapter=embedding_adapter,
+    )
+
+    assert [result.chunk_id for result in results] == ["chunk-keyword"]
+    assert results[0].metadata["retrieval"]["method"] == "keyword"
+    assert client.rpcs[0][0] == "match_document_chunks"
     assert client.table_names == ["document_chunks"]
 
 

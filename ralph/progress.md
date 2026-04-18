@@ -11,7 +11,7 @@ Started: 2026-04-18
 - **Bidded Evidence Contract**: Material claims require excerpt-level `evidence_items` with source-specific provenance, `source_metadata.source_label`, and nullable `requirement_type`; formal blockers require exclusion/qualification tender evidence, while unsupported points become assumptions, missing_info, validation errors, or potential blockers.
 - **Bidded Orchestration Contract**: The orchestrator owns Supabase writes, validation, status transitions, worker lifecycle, and persistence; LLM agents produce validated artifacts only.
 - **Bidded Quality Gates**: Use deterministic pytest tests and Ruff for story completion; live smoke checks are optional unless a story explicitly requires them.
-- **Bidded Supabase Migrations**: Keep hosted Supabase SQL under `supabase/migrations/` with deterministic pytest contract tests, demo `tenant_key = 'demo'` checks, and no Auth/RLS unless a story adds it.
+- **Bidded Supabase Migrations**: Keep hosted Supabase SQL under `supabase/migrations/` with deterministic pytest contract tests, demo `tenant_key = 'demo'` checks, pgvector RPC/index contracts, and no Auth/RLS unless a story adds it.
 - **Bidded CLI Boundary**: Keep CLI help/package imports free of live client construction; create external clients only inside real command execution paths and keep command services injectable for tests.
 - **Bidded Document Pipeline Contract**: Keep tender registration, PDF ingestion, and chunk embedding persistence in `src/bidded/documents`; registered text-PDFs use mocked Storage, PyMuPDF extraction, deterministic page chunks, optional Python-owned embeddings, and parser status metadata.
 - **Bidded Pending Run Contract**: Create `agent_runs` through an orchestration service that validates demo company, tender, and tender document rows, inserts `pending`, and leaves processing for later graph steps.
@@ -183,4 +183,9 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added Python-owned document chunk embedding generation, live adapter construction with mocked-call coverage, idempotent metadata skips, ingestion integration, and keyword fallback behavior.
 - **Files**: src/bidded/embeddings.py, src/bidded/documents/chunk_embeddings.py, src/bidded/documents/pdf_ingestion.py, src/bidded/documents/__init__.py, src/bidded/retrieval/__init__.py, tests/test_chunk_embedding_generation.py, tests/test_embedding_contract.py, tests/test_pdf_ingestion.py, tests/test_document_chunk_retrieval.py, README.md, ralph/progress.md, ralph/CLAUDE.md, ralph/prd.json, ralph/state.json
 - **Key learnings**: Store chunk embedding provenance under `document_chunks.metadata.embedding` and treat generation failures as keyword fallback unless embeddings are required.
+---
+## 2026-04-19 01:29 CEST - US-031
+- **Implemented**: Added Supabase pgvector HNSW search migration and live retrieval RPC path with deterministic keyword fallback.
+- **Files**: supabase/migrations/20260419013000_add_pgvector_search.sql, src/bidded/retrieval/__init__.py, tests/test_supabase_migrations.py, tests/test_document_chunk_retrieval.py, ralph/progress.md, ralph/CLAUDE.md, ralph/prd.json, ralph/state.json
+- **Key learnings**: Keep live semantic retrieval in Supabase via `match_document_chunks`, and preserve keyword fallback when RPC/embeddings are unavailable or no embedded chunks match.
 ---

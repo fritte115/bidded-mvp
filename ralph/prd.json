@@ -477,8 +477,8 @@
         "Tests cover SQL contract, RPC request shape, no-embedding rows, document scoping, and fallback behavior; pytest and ruff check pass."
       ],
       "priority": 31,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added pgvector HNSW migration/RPC plus live retrieval RPC path with keyword fallback and tests. Complete."
     },
     {
       "id": "US-032",

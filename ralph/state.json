@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-031",
-  "storyTitle": "Add Supabase pgvector search",
+  "currentStory": "US-032",
+  "storyTitle": "Add hybrid retrieval",
   "nextAction": "implement",
-  "progressTokens": 2790,
+  "progressTokens": 2865,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

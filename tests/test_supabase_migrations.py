@@ -52,6 +52,19 @@ def _requirement_type_sql() -> str:
     return migration_files[0].read_text()
 
 
+def _pgvector_search_sql() -> str:
+    migration_files = sorted(
+        (PROJECT_ROOT / "supabase" / "migrations").glob(
+            "*_add_pgvector_search.sql"
+        )
+    )
+
+    assert [path.name for path in migration_files] == [
+        "20260419013000_add_pgvector_search.sql"
+    ]
+    return migration_files[0].read_text()
+
+
 def _table_body(sql: str, table_name: str) -> str:
     match = re.search(
         rf"create table if not exists public\.{table_name}\s*\((?P<body>.*?)\);",
@@ -401,3 +414,39 @@ def test_evidence_items_requirement_type_migration_contract() -> None:
         "contract_obligation",
     ]:
         assert f"'{requirement_type}'" in sql
+
+
+def test_pgvector_search_migration_adds_index_and_rpc_contract() -> None:
+    sql = re.sub(r"\s+", " ", _pgvector_search_sql().lower())
+
+    assert "create extension if not exists vector;" in sql
+    assert "create index if not exists document_chunks_embedding_hnsw_idx" in sql
+    assert "using hnsw (embedding vector_cosine_ops)" in sql
+    assert "where embedding is not null" in sql
+    assert "create or replace function public.match_document_chunks(" in sql
+    for required_fragment in [
+        "query_embedding vector(1536)",
+        "match_count integer default 5",
+        "match_threshold double precision default 0",
+        "tenant_key text default 'demo'",
+        "document_id uuid default null",
+        "returns table (",
+        "chunk_id uuid",
+        "chunk_document_id uuid",
+        "page_start integer",
+        "page_end integer",
+        "chunk_index integer",
+        "text text",
+        "metadata jsonb",
+        "similarity double precision",
+    ]:
+        assert required_fragment in sql
+
+    assert "dc.embedding is not null" in sql
+    assert "dc.tenant_key = match_document_chunks.tenant_key" in sql
+    assert (
+        "match_document_chunks.document_id is null "
+        "or dc.document_id = match_document_chunks.document_id"
+    ) in sql
+    assert "dc.embedding <=> query_embedding" in sql
+    assert "least(greatest(match_count, 1), 50)" in sql
