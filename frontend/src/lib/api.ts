@@ -377,6 +377,8 @@ export interface ProcurementLatestRun {
   startedAt: string;
   stage: string;
   decision: Verdict | null;
+  /** True when bid_decisions.verdict is needs_human_review */
+  needsJudgeReview: boolean;
 }
 
 export interface ProcurementDocumentRow {
@@ -403,6 +405,17 @@ function metadataParseNote(metadata: unknown): string | null {
   return null;
 }
 
+function verdictFromBidDecisionRow(
+  raw: string | null | undefined,
+): { decision: Verdict | null; needsJudgeReview: boolean } {
+  if (!raw) return { decision: null, needsJudgeReview: false };
+  if (raw === "needs_human_review") return { decision: null, needsJudgeReview: true };
+  if (raw === "bid") return { decision: "BID", needsJudgeReview: false };
+  if (raw === "no_bid") return { decision: "NO_BID", needsJudgeReview: false };
+  if (raw === "conditional_bid") return { decision: "CONDITIONAL_BID", needsJudgeReview: false };
+  return { decision: null, needsJudgeReview: false };
+}
+
 export async function fetchProcurements(): Promise<ProcurementRow[]> {
   const { data, error } = await supabase
     .from("tenders")
@@ -411,7 +424,14 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
       title,
       created_at,
       documents(original_filename, parse_status, metadata),
-      agent_runs(id, status, started_at, created_at, metadata)
+      agent_runs(
+        id,
+        status,
+        started_at,
+        created_at,
+        metadata,
+        bid_decisions(verdict)
+      )
     `)
     .eq("tenant_key", "demo")
     .order("created_at", { ascending: false });
@@ -432,6 +452,7 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
         started_at: string | null;
         created_at: string;
         metadata: Record<string, unknown>;
+        bid_decisions: { verdict: string }[] | { verdict: string } | null;
       }>
     ) ?? [];
 
@@ -446,6 +467,25 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
       parseNote: metadataParseNote(d.metadata),
     }));
 
+    let latestRunPayload: ProcurementLatestRun | null = null;
+    if (latestRun) {
+      const bd = latestRun.bid_decisions;
+      const verdictRow = Array.isArray(bd) ? bd[0] : bd;
+      const rawVerdict = verdictRow?.verdict;
+      const { decision, needsJudgeReview } = verdictFromBidDecisionRow(rawVerdict);
+      latestRunPayload = {
+        id: latestRun.id,
+        status: latestRun.status as RunStatus,
+        startedAt: latestRun.started_at ?? latestRun.created_at,
+        stage: dashboardStageLabel(
+          latestRun.status as RunStatus,
+          latestRun.metadata,
+        ),
+        decision,
+        needsJudgeReview,
+      };
+    }
+
     return {
       id: t.id as string,
       name: t.title as string,
@@ -453,18 +493,7 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
       documentFilenames: docs.map((d) => d.original_filename),
       documents: documentRows,
       documentCount: docs.length,
-      latestRun: latestRun
-        ? {
-            id: latestRun.id,
-            status: latestRun.status as RunStatus,
-            startedAt: latestRun.started_at ?? latestRun.created_at,
-            stage: dashboardStageLabel(
-              latestRun.status as RunStatus,
-              latestRun.metadata,
-            ),
-            decision: null,
-          }
-        : null,
+      latestRun: latestRunPayload,
     };
   });
 }

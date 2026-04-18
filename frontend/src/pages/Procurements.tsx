@@ -356,10 +356,14 @@ export default function Procurements() {
                           )}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
-                          {isActiveRun ? run?.stage ?? "—" : "—"}
+                          {run ? run.stage : "—"}
                         </TableCell>
                         <TableCell>
-                          {run?.decision ? (
+                          {run?.needsJudgeReview ? (
+                            <span className="inline-flex items-center rounded-sm border border-warning/30 bg-warning/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-warning">
+                              Review
+                            </span>
+                          ) : run?.decision ? (
                             <VerdictBadge verdict={run.decision} />
                           ) : (
                             <span className="text-muted-foreground">—</span>
