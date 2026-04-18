@@ -1,5 +1,24 @@
 """Agent role schemas, policy contracts, and deterministic adapters."""
 
+from bidded.agents.schemas import (
+    AgentRole,
+    AgentValidationError,
+    BidVerdict,
+    BlockerChallenge,
+    ComplianceMatrixItem,
+    EvidenceReference,
+    FinalVerdict,
+    JudgeDecision,
+    RiskRegisterItem,
+    Round1Motion,
+    Round2Rebuttal,
+    SourceType,
+    StrictAgentOutputModel,
+    SupportedClaim,
+    TargetedDisagreement,
+    UnsupportedClaim,
+    VoteSummary,
+)
 from bidded.agents.tool_policy import (
     AgentPolicySubject,
     AgentToolPolicy,
@@ -12,10 +31,27 @@ from bidded.agents.tool_policy import (
 
 __all__ = [
     "AgentPolicySubject",
+    "AgentRole",
     "AgentToolPolicy",
+    "AgentValidationError",
+    "BidVerdict",
+    "BlockerChallenge",
+    "ComplianceMatrixItem",
+    "EvidenceReference",
+    "FinalVerdict",
     "ForbiddenAgentTool",
+    "JudgeDecision",
     "PolicyArtifact",
+    "Round1Motion",
+    "Round2Rebuttal",
+    "RiskRegisterItem",
+    "SourceType",
+    "StrictAgentOutputModel",
+    "SupportedClaim",
+    "TargetedDisagreement",
     "ToolCapability",
+    "UnsupportedClaim",
+    "VoteSummary",
     "agent_tool_policy",
     "all_agent_tool_policies",
 ]

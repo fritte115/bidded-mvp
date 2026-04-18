@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-008",
-  "storyTitle": "Define agent output schemas",
+  "currentStory": "US-009",
+  "storyTitle": "Validate evidence claims",
   "nextAction": "implement",
-  "progressTokens": 960,
+  "progressTokens": 1050,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"

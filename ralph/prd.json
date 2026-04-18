@@ -121,8 +121,8 @@
         "pytest and ruff check pass for schema construction and serialization tests."
       ],
       "priority": 8,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added strict Pydantic schemas for agent roles, votes, motions, rebuttals, Judge decisions, validation errors, and serialization tests. Complete."
     },
     {
       "id": "US-009",

@@ -1,0 +1,206 @@
+from __future__ import annotations
+
+from enum import StrEnum
+from typing import Literal
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, model_validator
+
+
+class StrictAgentOutputModel(BaseModel):
+    """Base model for closed, audit-friendly agent output artifacts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class AgentRole(StrEnum):
+    """Agent roles that can produce validated Bidded artifacts."""
+
+    EVIDENCE_SCOUT = "evidence_scout"
+    COMPLIANCE_OFFICER = "compliance_officer"
+    WIN_STRATEGIST = "win_strategist"
+    DELIVERY_CFO = "delivery_cfo"
+    RED_TEAM = "red_team"
+    JUDGE = "judge"
+
+
+_SPECIALIST_ROLES = frozenset(
+    {
+        AgentRole.COMPLIANCE_OFFICER,
+        AgentRole.WIN_STRATEGIST,
+        AgentRole.DELIVERY_CFO,
+        AgentRole.RED_TEAM,
+    }
+)
+
+
+class BidVerdict(StrEnum):
+    """Bid/no-bid vote values used by specialist motions."""
+
+    BID = "bid"
+    NO_BID = "no_bid"
+    CONDITIONAL_BID = "conditional_bid"
+
+
+class FinalVerdict(StrEnum):
+    """Final Judge verdict values."""
+
+    BID = "bid"
+    NO_BID = "no_bid"
+    CONDITIONAL_BID = "conditional_bid"
+    NEEDS_HUMAN_REVIEW = "needs_human_review"
+
+
+class SourceType(StrEnum):
+    """Allowed v1 evidence source types."""
+
+    TENDER_DOCUMENT = "tender_document"
+    COMPANY_PROFILE = "company_profile"
+
+
+class EvidenceReference(StrictAgentOutputModel):
+    evidence_key: str = Field(min_length=1)
+    source_type: SourceType
+    evidence_id: UUID | None = None
+
+
+class AgentValidationError(StrictAgentOutputModel):
+    message: str = Field(min_length=1)
+    field_path: str | None = None
+    evidence_refs: list[EvidenceReference] = Field(default_factory=list)
+
+
+class SupportedClaim(StrictAgentOutputModel):
+    claim: str = Field(min_length=1)
+    evidence_refs: list[EvidenceReference] = Field(min_length=1)
+
+
+class TargetedDisagreement(StrictAgentOutputModel):
+    target_role: AgentRole
+    disputed_claim: str = Field(min_length=1)
+    rebuttal: str = Field(min_length=1)
+    evidence_refs: list[EvidenceReference] = Field(min_length=1)
+
+
+class UnsupportedClaim(StrictAgentOutputModel):
+    target_role: AgentRole
+    claim: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+
+
+class BlockerChallenge(StrictAgentOutputModel):
+    blocker: str = Field(min_length=1)
+    position: Literal["uphold", "downgrade", "reject"]
+    rationale: str = Field(min_length=1)
+    evidence_refs: list[EvidenceReference] = Field(default_factory=list)
+
+
+class Round1Motion(StrictAgentOutputModel):
+    agent_role: AgentRole
+    vote: BidVerdict
+    confidence: float = Field(ge=0, le=1)
+    top_findings: list[SupportedClaim] = Field(default_factory=list)
+    role_specific_risks: list[SupportedClaim] = Field(default_factory=list)
+    formal_blockers: list[SupportedClaim] = Field(default_factory=list)
+    potential_blockers: list[SupportedClaim] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    missing_info: list[str] = Field(default_factory=list)
+    recommended_actions: list[str] = Field(default_factory=list)
+    validation_errors: list[AgentValidationError] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_specialist_motion(self) -> Round1Motion:
+        if self.agent_role not in _SPECIALIST_ROLES:
+            raise ValueError("round 1 motion agent_role must be a specialist")
+
+        if (
+            self.formal_blockers
+            and self.agent_role is not AgentRole.COMPLIANCE_OFFICER
+        ):
+            raise ValueError(
+                "formal_blockers are only valid for compliance_officer motions"
+            )
+
+        return self
+
+
+class Round2Rebuttal(StrictAgentOutputModel):
+    agent_role: AgentRole
+    target_roles: list[AgentRole] = Field(min_length=1)
+    targeted_disagreements: list[TargetedDisagreement] = Field(default_factory=list)
+    unsupported_claims: list[UnsupportedClaim] = Field(default_factory=list)
+    blocker_challenges: list[BlockerChallenge] = Field(default_factory=list)
+    revised_stance: BidVerdict | None = None
+    evidence_refs: list[EvidenceReference] = Field(default_factory=list)
+    missing_info: list[str] = Field(default_factory=list)
+    recommended_actions: list[str] = Field(default_factory=list)
+    validation_errors: list[AgentValidationError] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_specialist_rebuttal(self) -> Round2Rebuttal:
+        if self.agent_role not in _SPECIALIST_ROLES:
+            raise ValueError("round 2 rebuttal agent_role must be a specialist")
+
+        if any(role not in _SPECIALIST_ROLES for role in self.target_roles):
+            raise ValueError("round 2 rebuttal target_roles must be specialists")
+
+        return self
+
+
+class VoteSummary(StrictAgentOutputModel):
+    bid: NonNegativeInt = 0
+    no_bid: NonNegativeInt = 0
+    conditional_bid: NonNegativeInt = 0
+
+
+class ComplianceMatrixItem(StrictAgentOutputModel):
+    requirement: str = Field(min_length=1)
+    status: Literal["met", "unmet", "unknown"]
+    assessment: str = Field(min_length=1)
+    evidence_refs: list[EvidenceReference] = Field(default_factory=list)
+
+
+class RiskRegisterItem(StrictAgentOutputModel):
+    risk: str = Field(min_length=1)
+    severity: Literal["low", "medium", "high"]
+    mitigation: str = Field(min_length=1)
+    evidence_refs: list[EvidenceReference] = Field(default_factory=list)
+
+
+class JudgeDecision(StrictAgentOutputModel):
+    agent_role: Literal[AgentRole.JUDGE] = AgentRole.JUDGE
+    verdict: FinalVerdict
+    confidence: float = Field(ge=0, le=1)
+    vote_summary: VoteSummary
+    disagreement_summary: str = Field(min_length=1)
+    compliance_matrix: list[ComplianceMatrixItem] = Field(default_factory=list)
+    compliance_blockers: list[SupportedClaim] = Field(default_factory=list)
+    potential_blockers: list[SupportedClaim] = Field(default_factory=list)
+    risk_register: list[RiskRegisterItem] = Field(default_factory=list)
+    missing_info: list[str] = Field(default_factory=list)
+    recommended_actions: list[str] = Field(default_factory=list)
+    cited_memo: str = Field(min_length=1)
+    evidence_ids: list[UUID] = Field(default_factory=list)
+    evidence_refs: list[EvidenceReference] = Field(default_factory=list)
+    validation_errors: list[AgentValidationError] = Field(default_factory=list)
+
+
+__all__ = [
+    "AgentRole",
+    "AgentValidationError",
+    "BidVerdict",
+    "BlockerChallenge",
+    "ComplianceMatrixItem",
+    "EvidenceReference",
+    "FinalVerdict",
+    "JudgeDecision",
+    "Round1Motion",
+    "Round2Rebuttal",
+    "RiskRegisterItem",
+    "SourceType",
+    "StrictAgentOutputModel",
+    "SupportedClaim",
+    "TargetedDisagreement",
+    "UnsupportedClaim",
+    "VoteSummary",
+]
