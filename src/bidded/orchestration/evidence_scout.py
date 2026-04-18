@@ -245,19 +245,15 @@ def _coerce_finding_item(
     return {k: v for k, v in out.items() if k in _FINDING_ALLOWED_KEYS}
 
 
-def _coerce_blocker_item(
-    item: Any,
-    board: Sequence[EvidenceItemState],
-) -> dict[str, Any]:
+def _coerce_blocker_item(item: Any) -> str:
+    """Scout potential_blockers are list[str] — extract claim text from any shape."""
     if isinstance(item, str):
-        return {"claim": item, "evidence_refs": []}
+        return item
     if isinstance(item, dict):
         out = _merge_title_detail_into_claim(item)
-        refs = out.get("evidence_refs")
-        if refs is not None:
-            out["evidence_refs"] = _coerce_refs_list(refs, board)
-        return out
-    return item
+        claim = (out.get("claim") or "").strip()
+        return claim or str(item)
+    return str(item)
 
 
 def _coerce_validation_error_item(item: Any) -> Any:
@@ -292,9 +288,7 @@ def _coerce_evidence_scout_mapping(
 
     blockers = out.get("potential_blockers")
     if isinstance(blockers, list):
-        out["potential_blockers"] = [
-            _coerce_blocker_item(b, evidence_board) for b in blockers
-        ]
+        out["potential_blockers"] = [_coerce_blocker_item(b) for b in blockers]
 
     validation_errors = out.get("validation_errors")
     if isinstance(validation_errors, list):
@@ -332,13 +326,6 @@ def validate_evidence_scout_output(
             field_path=f"findings[{finding_index}].evidence_refs",
         )
 
-    for blocker_index, blocker in enumerate(output.potential_blockers):
-        _validate_evidence_refs(
-            blocker.evidence_refs,
-            evidence_board=evidence_board,
-            field_path=f"potential_blockers[{blocker_index}].evidence_refs",
-        )
-
     return output
 
 
@@ -365,7 +352,7 @@ def scout_output_state_from_agent_output(
             for finding in output.findings
         ],
         missing_info=list(output.missing_info),
-        potential_blockers=[blocker.claim for blocker in output.potential_blockers],
+        potential_blockers=list(output.potential_blockers),
     )
 
 

@@ -166,7 +166,7 @@ class EvidenceScoutOutput(StrictAgentOutputModel):
     agent_role: Literal[AgentRole.EVIDENCE_SCOUT] = AgentRole.EVIDENCE_SCOUT
     findings: list[EvidenceScoutFinding] = Field(default_factory=list)
     missing_info: list[str] = Field(default_factory=list)
-    potential_blockers: list[SupportedClaim] = Field(default_factory=list)
+    potential_blockers: list[str] = Field(default_factory=list)
     validation_errors: list[AgentValidationError] = Field(default_factory=list)
 
 
