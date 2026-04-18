@@ -182,8 +182,8 @@
         "pytest and ruff check pass for registration logic using a fixture or generated PDF and mocked Supabase Storage."
       ],
       "priority": 12,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added register-demo-tender CLI plus injected Supabase Storage/tender/document registration tests and docs. Complete."
     },
     {
       "id": "US-013",

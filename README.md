@@ -20,7 +20,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Graph state | Typed `BidRunState` finns under `src/bidded/orchestration` med runtime control fields, audit artifacts, node ownership contracts och reducer-policy separerade. |
 | Agent tool policies | Immutable policy contracts finns under `src/bidded/agents/tool_policy.py` för LLM-agenternas läs/skrivgränser och orchestratorns side effects. |
 | Agent output schemas | Strict Pydantic schemas finns under `src/bidded/agents/schemas.py` för Round 1 motions, Round 2 rebuttals, Judge decisions och evidence-claim validation. |
-| Seedat demo-bolag | `bidded seed-demo-company` upsertar en större syntetisk IT-konsultprofil, och `bidded.evidence` kan konvertera profilfakta till idempotenta `company_profile` evidence rows. |
+| Seedat demo-bolag och demo-tender | `bidded seed-demo-company` upsertar en större syntetisk IT-konsultprofil, `bidded register-demo-tender` registrerar en lokal text-PDF, och `bidded.evidence` kan konvertera profilfakta till idempotenta `company_profile` evidence rows. |
 | Frontend | Ingen frontend i repot. Lovable är planerad som tunn demo-UI ovanpå Supabase i `US-025`. |
 
 README:n beskriver därför både nuläget och den stack som PRD:n definierar att vi bygger mot. När stories implementeras ska planerade delar flyttas till faktiskt levererade delar.
@@ -226,12 +226,12 @@ Detta är kärndifferentiatorn: systemet ska kunna visa varför ett beslut togs.
 PRD:n beskriver en lokal CLI/worker. Den kan nu:
 
 - seeda demo-bolaget idempotent
+- registrera en lokal text-PDF som tenderdokument
+- ladda upp PDF:en till Supabase Storage och spara dokumentrad med checksumma
 
 Planerade kommande kommandon ska kunna:
 
 - konvertera seedade bolagsfakta till `company_profile` evidence items
-- registrera en lokal text-PDF som tenderdokument
-- ladda upp PDF:en till Supabase Storage
 - extrahera och chunka text-PDF:er
 - skapa en `pending` agent run utan att köra LLM eller dokumentprocessing
 - köra en specificerad `agent_run` via ID eller plocka äldsta pending run för demo-bolaget
@@ -243,6 +243,19 @@ Seed-kommandot kräver `SUPABASE_URL` och `SUPABASE_SERVICE_ROLE_KEY`:
 
 ```bash
 .venv/bin/bidded seed-demo-company
+```
+
+Tenderregistrering kräver `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` och
+`SUPABASE_STORAGE_BUCKET`. Den föredragna lokala demo-filen, när den finns, är
+gitignored: `data/demo/incoming/Bilaga Skakrav.pdf`.
+
+```bash
+.venv/bin/bidded register-demo-tender \
+  data/demo/incoming/Bilaga\ Skakrav.pdf \
+  --title "Skakrav for IT consultancy" \
+  --issuing-authority "Example Municipality" \
+  --procurement-reference "REF-2026-001" \
+  --metadata procedure=open
 ```
 
 ## Miljövariabler
@@ -288,7 +301,7 @@ python3 -m venv .venv
 .venv/bin/ruff check .
 ```
 
-Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandot och company-evidence buildern finns; övriga worker-kommandon byggs i senare stories.
+Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandot, tenderregistreringen och company-evidence buildern finns; övriga worker-kommandon byggs i senare stories.
 
 ## Teststrategi
 
