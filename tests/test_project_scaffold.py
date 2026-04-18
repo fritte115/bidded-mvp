@@ -17,6 +17,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
         "bidded.config",
         "bidded.db",
         "bidded.documents",
+        "bidded.embeddings",
         "bidded.evidence",
         "bidded.retrieval",
         "bidded.agents",
@@ -67,10 +68,14 @@ def test_env_example_documents_required_runtime_settings() -> None:
 
     for setting_name in [
         "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
         "SUPABASE_URL",
         "SUPABASE_SERVICE_ROLE_KEY",
         "SUPABASE_STORAGE_BUCKET",
+        "EMBEDDING_MODE",
         "EMBEDDING_PROVIDER",
+        "EMBEDDING_MODEL",
+        "EMBEDDING_DIMENSIONS",
     ]:
         assert f"{setting_name}=" in env_example
 
@@ -80,12 +85,18 @@ def test_settings_load_from_environment(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "test-service-role")
     monkeypatch.setenv("SUPABASE_STORAGE_BUCKET", "demo-bucket")
-    monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+    monkeypatch.setenv("EMBEDDING_MODE", "mock")
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "openai")
+    monkeypatch.setenv("EMBEDDING_MODEL", "text-embedding-3-small")
+    monkeypatch.setenv("EMBEDDING_DIMENSIONS", "1536")
 
-    settings = BiddedSettings()
+    settings = BiddedSettings(_env_file=None)
 
     assert settings.anthropic_api_key == "test-anthropic"
     assert settings.supabase_url == "https://example.supabase.co"
     assert settings.supabase_service_role_key == "test-service-role"
     assert settings.supabase_storage_bucket == "demo-bucket"
-    assert settings.embedding_provider == "mock"
+    assert settings.embedding_mode == "mock"
+    assert settings.embedding_provider == "openai"
+    assert settings.embedding_model == "text-embedding-3-small"
+    assert settings.embedding_dimensions == 1536

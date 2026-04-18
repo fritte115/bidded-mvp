@@ -16,8 +16,8 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | `ralph/state.json` | Pekar på aktuell Ralph-story och nästa action. |
 | `plans/ralph-storie-plan.md` | Äldre plan/sammanfattning. Den behöver läsas som stödmaterial, inte som strikt source of truth. |
 | `Makefile` | Kör Ralph-loop med Codex CLI via `make ralph`. |
-| `.env.example` | Dokumenterar Claude, Supabase Storage och optional embedding-provider utan secrets. |
-| Applikationskod | Grundpaket finns under `src/bidded` med subpackages för config, db, documents, evidence, agents, orchestration och cli. |
+| `.env.example` | Dokumenterar Claude, Supabase Storage, OpenAI och embedding mode/model/dimensions utan secrets. |
+| Applikationskod | Grundpaket finns under `src/bidded` med subpackages för config, db, documents, embeddings, evidence, agents, orchestration och cli. |
 | Supabase-migrations | Core domain-, agent audit- och chunk/evidence-migrations finns. |
 | Graph state | Typed `BidRunState` finns under `src/bidded/orchestration` med runtime control fields, audit artifacts, node ownership contracts och reducer-policy separerade. |
 | Graph routing shell | `src/bidded/orchestration/graph.py` bygger en fast LangGraph-shell med preflight, Evidence Scout-validering, mocked agent handlers, explicit edge table, bounded retry/stop-policy, failed, needs_human_review och END. |
@@ -25,7 +25,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Agent output schemas | Strict Pydantic schemas finns under `src/bidded/agents/schemas.py` för Evidence Scout, Round 1 motions, Round 2 rebuttals, Judge decisions, evidence-claim validation, nullable `RequirementType` och kravtypade Judge-detaljer för blockers, risker, missing info och actions. |
 | Seedat demo-bolag och demo-tender | `bidded seed-demo-company` upsertar en större syntetisk IT-konsultprofil, `bidded register-demo-tender` registrerar en lokal text-PDF, och `bidded.evidence` kan konvertera profilfakta till idempotenta `company_profile` evidence rows. |
 | PDF-ingestion | `bidded.documents` kan ladda ned registrerade tender-PDF:er från Storage, extrahera text med PyMuPDF, ersätta deterministiska sidrefererade `document_chunks` och uppdatera `documents.parse_status`. |
-| Retrieval | `bidded.retrieval` kan hämta top-K `document_chunks` med deterministisk keyword fallback utan embeddinginställningar, plus en mockad embedding-adapter för pgvector-ready tester. |
+| Retrieval | `bidded.retrieval` kan hämta top-K `document_chunks` med deterministisk keyword fallback, en mockad embedding-adapter och ett fast 1536-dimensioners embeddingkontrakt för pgvector-ready tester. |
 | Tender evidence board | `bidded.evidence` kan föreslå, klassificera, validera, deduplicera, upserta och slå upp `tender_document` evidence rows från retrieved chunks med stabila citation keys, deterministisk nullable `requirement_type` och regulatory-glossary metadata. |
 | Evidence Scout node | `bidded.orchestration.evidence_scout` skapar sex kategoribundna retrieval-frågor, validerar mockade Claude-output mot resolved evidence IDs och låter graphen append:a `evidence_scout`/`evidence` agent_outputs endast för giltiga scoutfakta. |
 | Specialist motion node | `bidded.orchestration.specialist_motions` bygger evidence-locked Round 1 requests utan peer motions eller privat context, skickar kravtypad glossary-context, validerar strict `Round1Motion` output och tillåter formella Compliance-blockers bara för exclusion/qualification-evidens. |
@@ -70,7 +70,7 @@ Agentartefakter och UI-output ska vara engelska enligt PRD:n, men beslutskontext
 | Datamodell | SQL migrations + JSONB | Normaliserade tabeller där relationer är stabila, JSONB där agent- och domändata är mer flexibel. |
 | Validering | Pydantic | Strikta schemas för graph state, agentroller, verdicts, evidence refs, blockerare, rebuttals och Judge-beslut. |
 | PDF-processing | Text-PDF extraction | Endast textbaserade PDF:er är i scope. OCR och DOCX är uttryckligen non-goals för PRD:n. |
-| Retrieval | Keyword/full-text fallback + optional embeddings | Demo ska fungera utan live embeddings men vara redo för embedding/pgvector senare. |
+| Retrieval | Keyword/full-text fallback + optional embeddings | Demo ska fungera utan live embeddings men vara redo för ett fast 1536-dimensioners embedding/pgvector-kontrakt. |
 | Test | pytest | Deterministiska tester med mockad Claude, mockade embeddings och mockad Supabase där det behövs. |
 | Lint | Ruff | Kvalitetsgrind för Python-koden. |
 | UI | Lovable ovanpå Supabase | Planerad tunn demo-UI som skapar/läser runs men inte äger agentlogik. |

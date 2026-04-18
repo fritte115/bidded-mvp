@@ -445,8 +445,8 @@
         "Tests cover matching dimensions, mismatched dimensions, mock mode, missing credentials, and metadata shape; pytest and ruff check pass."
       ],
       "priority": 29,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added settings validation, fixed 1536-dim embedding contract, metadata helper, mock adapter metadata, env/docs, and tests. Complete."
     },
     {
       "id": "US-030",

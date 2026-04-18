@@ -9,6 +9,16 @@ from math import sqrt
 from typing import Any, Protocol
 from uuid import UUID
 
+from bidded.embeddings import (
+    DEFAULT_EMBEDDING_MODE,
+    DEFAULT_LIVE_EMBEDDING_MODEL,
+    DEFAULT_LIVE_EMBEDDING_PROVIDER,
+    DOCUMENT_CHUNK_EMBEDDING_DIMENSIONS,
+    EMBEDDING_CONTRACT_VERSION,
+    EmbeddingContract,
+    build_embedding_metadata,
+)
+
 DEMO_TENANT_KEY = "demo"
 
 
@@ -37,8 +47,12 @@ class EmbeddingAdapter(Protocol):
 
 @dataclass(frozen=True)
 class MockEmbeddingAdapter:
-    dimensions: int = 1536
+    dimensions: int = DOCUMENT_CHUNK_EMBEDDING_DIMENSIONS
     name: str = "mock_embedding"
+    provider: str = DEFAULT_LIVE_EMBEDDING_PROVIDER
+    model: str = DEFAULT_LIVE_EMBEDDING_MODEL
+    mode: str = DEFAULT_EMBEDDING_MODE
+    version: str = EMBEDDING_CONTRACT_VERSION
 
     def embed_text(self, text: str) -> list[float]:
         """Create deterministic token vectors without a hosted embedding service."""
@@ -54,6 +68,17 @@ class MockEmbeddingAdapter:
             )
             vector[vector_index] += float(count)
         return _normalize_vector(vector)
+
+    def embedding_metadata(self) -> dict[str, Any]:
+        return build_embedding_metadata(
+            EmbeddingContract(
+                provider=self.provider,
+                model=self.model,
+                dimensions=self.dimensions,
+                mode=self.mode,
+                version=self.version,
+            )
+        )
 
 
 @dataclass(frozen=True)

@@ -1,10 +1,10 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-029",
-  "storyTitle": "Add embedding model contract",
+  "currentStory": "US-030",
+  "storyTitle": "Generate and store chunk embeddings",
   "nextAction": "implement",
-  "progressTokens": 2625,
+  "progressTokens": 2715,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
-  "lastUpdated": "2026-04-18"
+  "lastUpdated": "2026-04-19"
 }

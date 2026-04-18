@@ -3,6 +3,10 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from bidded.embeddings import (
+    DOCUMENT_CHUNK_EMBEDDING_DIMENSIONS,
+    EMBEDDING_CONTRACT_VERSION,
+)
 from bidded.retrieval import MockEmbeddingAdapter, retrieve_document_chunks
 
 DOCUMENT_ID = UUID("55555555-5555-4555-8555-555555555555")
@@ -141,3 +145,18 @@ def test_retrieve_document_chunks_uses_mock_embedding_scores_when_configured() -
     assert results[0].page_start == 4
     assert results[0].metadata["retrieval"]["method"] == "mock_embedding"
     assert 0 < results[0].metadata["retrieval"]["score"] <= 1
+
+
+def test_mock_embedding_adapter_exposes_generation_metadata() -> None:
+    embedding_adapter = MockEmbeddingAdapter()
+
+    assert len(embedding_adapter.embed_text("ISO 27001 security")) == (
+        DOCUMENT_CHUNK_EMBEDDING_DIMENSIONS
+    )
+    assert embedding_adapter.embedding_metadata() == {
+        "provider": "openai",
+        "model": "text-embedding-3-small",
+        "dimensions": DOCUMENT_CHUNK_EMBEDDING_DIMENSIONS,
+        "mode": "mock",
+        "version": EMBEDDING_CONTRACT_VERSION,
+    }

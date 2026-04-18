@@ -173,3 +173,9 @@ No Ralph story sessions have completed yet.
 - **Files**: src/bidded/agents/schemas.py, src/bidded/agents/__init__.py, src/bidded/orchestration/requirement_context.py, src/bidded/orchestration/specialist_motions.py, src/bidded/orchestration/judge.py, tests/test_agent_output_schemas.py, tests/test_specialist_motion_node.py, tests/test_judge_decision_node.py, tests/test_mocked_end_to_end_run.py, README.md, ralph/progress.md, ralph/CLAUDE.md, ralph/prd.json, ralph/state.json
 - **Key learnings**: Keep formal no-bid gates tied to typed exclusion or hard qualification tender evidence; route financial, quality, and submission-document gaps through missing info, actions, or potential blockers.
 ---
+
+## 2026-04-19 01:02 CEST - US-029
+- **Implemented**: Added the fixed embedding model contract with settings validation, deterministic metadata helpers, mock adapter metadata, env docs, and contract tests.
+- **Files**: src/bidded/embeddings.py, src/bidded/config/settings.py, src/bidded/retrieval/__init__.py, tests/test_embedding_contract.py, tests/test_document_chunk_retrieval.py, tests/test_project_scaffold.py, .env.example, README.md, ralph/progress.md, ralph/CLAUDE.md, ralph/prd.json, ralph/state.json
+- **Key learnings**: Keep embedding provider/model/dimension validation separate from retrieval so ingestion and pgvector search can share the same 1536-dimension contract.
+---
