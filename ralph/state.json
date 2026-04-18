@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-013",
-  "storyTitle": "Create pending run context",
+  "currentStory": "US-014",
+  "storyTitle": "Ingest PDF chunks",
   "nextAction": "implement",
-  "progressTokens": 1410,
+  "progressTokens": 1470,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"

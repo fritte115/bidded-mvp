@@ -197,8 +197,8 @@
         "pytest and ruff check pass for pending run creation tests."
       ],
       "priority": 13,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added pending run service and CLI command with deterministic config and Supabase row validation. Complete."
     },
     {
       "id": "US-014",

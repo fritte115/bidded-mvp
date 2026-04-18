@@ -1,5 +1,11 @@
 """LangGraph orchestration state and node boundaries."""
 
+from bidded.orchestration.pending_run import (
+    PendingRunContextError,
+    PendingRunContextResult,
+    build_pending_run_config,
+    create_pending_run_context,
+)
 from bidded.orchestration.state import (
     AgentOutputState,
     AgentRunStatus,
@@ -33,6 +39,8 @@ __all__ = [
     "FinalDecisionState",
     "GraphNodeContract",
     "GraphNodeName",
+    "PendingRunContextError",
+    "PendingRunContextResult",
     "RebuttalState",
     "RuntimeErrorState",
     "ScoutFindingState",
@@ -42,4 +50,6 @@ __all__ = [
     "StateOwnershipError",
     "ValidationIssueState",
     "Verdict",
+    "build_pending_run_config",
+    "create_pending_run_context",
 ]

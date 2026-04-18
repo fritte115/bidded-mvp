@@ -9,6 +9,10 @@ from bidded import __version__
 from bidded.config import load_settings
 from bidded.db.seed_demo_company import seed_demo_company
 from bidded.documents import TenderPdfRegistrationError, register_demo_tender_pdf
+from bidded.orchestration import (
+    PendingRunContextError,
+    create_pending_run_context,
+)
 
 DEMO_TENDER_PDF_HINT = "data/demo/incoming/Bilaga Skakrav.pdf"
 
@@ -66,6 +70,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional procurement metadata; repeat for multiple key/value pairs.",
     )
     register_parser.set_defaults(handler=_run_register_demo_tender_command)
+
+    pending_run_parser = subparsers.add_parser(
+        "create-pending-run",
+        help="Create a pending Supabase-backed agent run.",
+        description=(
+            "Create a pending Supabase-backed agent run for an existing "
+            "demo tender, demo company, and registered tender document."
+        ),
+    )
+    pending_run_parser.add_argument(
+        "--tender-id",
+        required=True,
+        help="Existing demo tender UUID.",
+    )
+    pending_run_parser.add_argument(
+        "--company-id",
+        required=True,
+        help="Existing demo company UUID.",
+    )
+    pending_run_parser.add_argument(
+        "--document-id",
+        required=True,
+        help="Existing registered tender document UUID.",
+    )
+    pending_run_parser.set_defaults(handler=_run_create_pending_run_command)
     return parser
 
 
@@ -120,6 +149,24 @@ def _run_register_demo_tender_command(args: argparse.Namespace) -> int:
         f"{args.title} as document {result.document_id}; "
         f"storage path: {result.storage_path}."
     )
+    return 0
+
+
+def _run_create_pending_run_command(args: argparse.Namespace) -> int:
+    settings = load_settings()
+    try:
+        client = _create_supabase_client(settings)
+        result = create_pending_run_context(
+            client,
+            tender_id=args.tender_id,
+            company_id=args.company_id,
+            document_id=args.document_id,
+        )
+    except (RuntimeError, PendingRunContextError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    print(f"Created pending agent run {result.run_id}.")
     return 0
 
 
