@@ -167,7 +167,6 @@ export default function Procurements() {
     <>
       <PageHeader
         title="Procurements"
-        description="Register tender PDFs in Supabase Storage and track parse status. Swarm runs and verdicts are deferred to later PRD stories."
         actions={
           <>
             {selectedCount >= 2 && (
