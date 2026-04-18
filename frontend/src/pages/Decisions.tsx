@@ -27,7 +27,7 @@ export default function Decisions() {
 
   return (
     <>
-      <PageHeader title="Bid Decisions" description="Final judge outputs from completed runs." />
+      <PageHeader title="Bid Decisions" />
 
       <div className="mb-4 flex flex-col gap-2 sm:flex-row">
         <Select value={verdict} onValueChange={setVerdict}>
