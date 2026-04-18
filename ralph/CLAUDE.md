@@ -66,3 +66,4 @@ At the end of every non-compaction story session:
 - **Bidded Gate Baseline**: Until a full `make check` exists, story completion should at minimum satisfy deterministic `pytest` coverage for touched behavior plus `ruff check`.
 - **Bidded Supabase Migrations**: Timestamped SQL files live under `supabase/migrations/`; contract-test schema assumptions, keep v1 demo tables pinned to `tenant_key = 'demo'`, and avoid Auth/RLS unless a story adds it.
 - **Bidded CLI Boundary**: Keep CLI help and package imports free of live Supabase/Claude client construction; create external clients only inside real command execution paths.
+- **Bidded Agent Audit Contract**: Persist agent outputs as immutable audit rows keyed by `agent_role`, `round_name`, and `output_type`; final decisions expose Judge `evidence_ids`.

@@ -13,6 +13,7 @@ Started: 2026-04-18
 - **Bidded Quality Gates**: Use deterministic pytest tests and Ruff for story completion; live smoke checks are optional unless a story explicitly requires them.
 - **Bidded Supabase Migrations**: Keep hosted Supabase SQL under `supabase/migrations/` with deterministic pytest contract tests, demo `tenant_key = 'demo'` checks, and no Auth/RLS unless a story adds it.
 - **Bidded CLI Boundary**: Keep CLI help and package imports free of live Supabase/Claude client construction; create external clients only inside real command execution paths.
+- **Bidded Agent Audit Contract**: `agent_outputs` are immutable rows keyed by `agent_role`, `round_name`, and `output_type`; `bid_decisions` surface Judge `evidence_ids`.
 
 ## Session Log
 
@@ -28,4 +29,10 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added the core Supabase domain migration for companies, tenders, and documents with deterministic migration contract tests and README status updates.
 - **Files**: supabase/migrations/20260418180000_create_core_domain.sql, tests/test_supabase_migrations.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
 - **Key learnings**: Contract-test migration files directly so core Supabase storage assumptions stay deterministic without a live database.
+---
+
+## 2026-04-18 17:51 CEST - US-003
+- **Implemented**: Added the agent audit Supabase migration for runs, immutable role/round outputs, and final decisions with contract tests.
+- **Files**: supabase/migrations/20260418181000_create_agent_audit.sql, tests/test_supabase_migrations.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
+- **Key learnings**: Persist agent outputs by `agent_role`, `round_name`, and `output_type` so future graph nodes can write stable audit rows.
 ---

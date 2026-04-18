@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-003",
-  "storyTitle": "Add agent audit schema",
+  "currentStory": "US-004",
+  "storyTitle": "Add chunk evidence schema",
   "nextAction": "implement",
-  "progressTokens": 465,
+  "progressTokens": 570,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"

@@ -16,7 +16,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | `Makefile` | Kör Ralph-loop med Codex CLI via `make ralph`. |
 | `.env.example` | Dokumenterar Claude, Supabase Storage och optional embedding-provider utan secrets. |
 | Applikationskod | Grundpaket finns under `src/bidded` med subpackages för config, db, documents, evidence, agents, orchestration och cli. |
-| Supabase-migrations | Core domain-migration finns för `companies`, `tenders` och `documents`; agent audit- och chunk/evidence-schema byggs i `US-003` och `US-004`. |
+| Supabase-migrations | Core domain- och agent audit-migrations finns; chunk/evidence-schema byggs i `US-004`. |
 | Frontend | Ingen frontend i repot. Lovable är planerad som tunn demo-UI ovanpå Supabase i `US-025`. |
 
 README:n beskriver därför både nuläget och den stack som PRD:n definierar att vi bygger mot. När stories implementeras ska planerade delar flyttas till faktiskt levererade delar.
@@ -106,9 +106,9 @@ PRD:n definierar följande Supabase-tabeller:
 | `documents` | Registrerade dokument med storage path, checksum, content type, roll, parse-status och koppling till tender/company. |
 | `document_chunks` | Sidrefererade textchunks från PDF:er, med chunk index, metadata och nullable embedding/vector-placeholder. |
 | `evidence_items` | Excerpt-nivå evidens från tenderdokument och company profile, med stabila human-readable evidence keys. |
-| `agent_runs` | Livscykel för körningar: `pending`, `running`, `succeeded`, `failed`, `needs_human_review`, plus config och felmetadata. |
-| `agent_outputs` | En immutable rad per agent, runda och outputtyp. Innehåller validerad JSON, modellmetadata, timing/cost-estimat och validation errors. |
-| `bid_decisions` | Slutligt Judge-beslut kopplat till run och relevanta agent outputs. |
+| `agent_runs` | Livscykel för körningar: `pending`, `running`, `succeeded`, `failed`, `needs_human_review`, target tender/company, config och felmetadata. |
+| `agent_outputs` | En immutable rad per agentroll, runda och outputtyp. Innehåller validerad JSON, modellmetadata, timing/cost-estimat och validation errors. |
+| `bid_decisions` | Slutligt Judge-beslut kopplat till run med verdict, confidence, final JSON och `evidence_ids`. |
 
 Migrations ska vara deterministiska och inte kräva Supabase Auth eller RLS för demo-tenant.
 

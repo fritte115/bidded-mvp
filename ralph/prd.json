@@ -45,8 +45,8 @@
         "pytest and ruff check pass for any migration validation helpers or schema contract tests."
       ],
       "priority": 3,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added agent audit migration for agent_runs, immutable agent_outputs keyed by role/round/output type, and bid_decisions with evidence_ids. Complete."
     },
     {
       "id": "US-004",
