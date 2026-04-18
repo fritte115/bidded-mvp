@@ -107,6 +107,10 @@ def test_evidence_locked_swarm_graph_completes() -> None:
     for role_key in by_r1:
         assert by_r1[role_key] != by_r2[role_key]
 
+    by_vote = {o.agent_role: o.payload.get("vote") for o in motion_outputs}
+    assert by_vote["win_strategist"] == "conditional_bid"
+    assert by_vote["red_team"] == "conditional_bid"
+
 
 def _two_tender_pdf_evidence_state() -> BidRunState:
     """Two tender_document items from different PDFs (document_ids)."""
@@ -164,3 +168,8 @@ def test_round1_rotates_tender_excerpts_across_roles_when_multiple_pdfs() -> Non
         if o.payload.get("top_findings")
     }
     assert len(claims) >= 2
+
+    win = next(
+        o for o in motion_outputs if o.agent_role == "win_strategist"
+    )
+    assert win.payload.get("vote") == "bid"

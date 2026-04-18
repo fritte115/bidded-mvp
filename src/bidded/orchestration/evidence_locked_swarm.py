@@ -5,6 +5,10 @@ Uses the tender PDF evidence board (parsed chunks → evidence_items) plus seede
 company_profile evidence. No live LLM calls — outputs are derived from cited
 evidence only so runs are reproducible and audit payloads match Round1Motion /
 Round2Rebuttal / JudgeDecision schemas.
+
+The Anthropic API key in settings is not used by this graph path: there is no
+Anthropic SDK call here. A future LLM-backed handler would replace these
+adapters while keeping the same validated JSON contracts.
 """
 
 from __future__ import annotations
@@ -136,6 +140,85 @@ def _document_citation_hint(item: EvidenceItemState) -> str:
     return ""
 
 
+def _round1_primary_claim(
+    role: AgentRole,
+    role_label: str,
+    t0: EvidenceItemState,
+    c0: EvidenceItemState,
+    *,
+    nc: int,
+) -> str:
+    """Distinct specialist angles on the same cited tender line(s)."""
+    doc0 = _document_citation_hint(t0)
+    ex = _truncate(t0.excerpt)
+    if role is AgentRole.COMPLIANCE_OFFICER:
+        claim = (
+            f"{role_label}: mandatory gates, pass/fail uploads, and exclusion "
+            f"triggers in the cited procurement text{doc0}. Line under review: {ex}."
+        )
+    elif role is AgentRole.WIN_STRATEGIST:
+        claim = (
+            f"{role_label}: commercial winnability vs evaluation hurdles and "
+            f"price–quality trade-offs implied here{doc0}. Tender text: {ex}."
+        )
+    elif role is AgentRole.DELIVERY_CFO:
+        claim = (
+            f"{role_label}: delivery model, staffing, milestones, and liability "
+            f"exposure in this excerpt{doc0}. Reference: {ex}."
+        )
+    else:
+        claim = (
+            f"{role_label}: adversarial read — where optimism could hide scope, "
+            f"compliance, or execution gaps{doc0}. Excerpt: {ex}."
+        )
+    if nc:
+        comp = _truncate(c0.excerpt)
+        fp = c0.field_path or "profile"
+        claim += f" Company_profile cross-check ({fp}): {comp}."
+    return claim
+
+
+def _round1_risk_claim(
+    role: AgentRole,
+    role_label: str,
+    t_risk: EvidenceItemState,
+) -> str:
+    """Role-specific risk lens on a second (rotated) tender excerpt."""
+    doc_r = _document_citation_hint(t_risk)
+    ex = _truncate(t_risk.excerpt)
+    if role is AgentRole.COMPLIANCE_OFFICER:
+        return (
+            f"{role_label} — residual compliance risk if this obligation is "
+            f"mis-mapped to exhibits{doc_r}: {ex}"
+        )
+    if role is AgentRole.WIN_STRATEGIST:
+        return (
+            f"{role_label} — where evaluators could mark us down vs rivals on "
+            f"scored criteria tied to this language{doc_r}: {ex}"
+        )
+    if role is AgentRole.DELIVERY_CFO:
+        return (
+            f"{role_label} — schedule, capacity, or penalty exposure in this "
+            f"passage{doc_r}: {ex}"
+        )
+    return (
+        f"{role_label} — failure modes if we underbid scope or underestimate "
+        f"drag from this clause{doc_r}: {ex}"
+    )
+
+
+def _confidence_penalty_thin_board(*, n_tender: int, n_company: int) -> float:
+    """Lower point estimates when few evidence_items exist (single PDF, etc.)."""
+    penalty = 0.0
+    if n_tender < 2:
+        penalty += 0.1
+    if n_company < 2:
+        penalty += 0.06
+    if n_company == 0:
+        penalty += 0.08
+    return penalty
+
+
 def _find_evidence_for_chunk(
     board: Sequence[EvidenceItemState],
     *,
@@ -237,19 +320,12 @@ class EvidenceLockedRound1Model:
             hashlib.sha256(f"{role.value}:{t0.evidence_key}".encode()).hexdigest()[:8],
             16,
         )
-        confidence = round(0.55 + (seed % 20) / 100.0, 2)
+        base_confidence = 0.55 + (seed % 20) / 100.0
+        penalty = _confidence_penalty_thin_board(n_tender=n_t, n_company=nc)
+        confidence = round(max(0.28, min(0.88, base_confidence - penalty)), 2)
 
         role_label = _specialist_display_name(role)
-        doc0 = _document_citation_hint(t0)
-        top_claim = (
-            f"{role_label} review: tender excerpt aligns with cited procurement "
-            f"language{doc0}: {_truncate(t0.excerpt)}"
-        )
-        if nc:
-            top_claim += (
-                f" Company evidence at {c0.field_path or 'profile'} supports "
-                f"comparison: {_truncate(c0.excerpt)}."
-            )
+        top_claim = _round1_primary_claim(role, role_label, t0, c0, nc=nc)
 
         top_findings = [
             {
@@ -258,10 +334,7 @@ class EvidenceLockedRound1Model:
             }
         ]
 
-        risk_claim = (
-            f"{role_label} flags execution risk on staffing, timing, or liability "
-            f"language{_document_citation_hint(t_risk)} in: {_truncate(t_risk.excerpt)}"
-        )
+        risk_claim = _round1_risk_claim(role, role_label, t_risk)
         role_specific_risks = [{"claim": risk_claim, "evidence_refs": [_ref(t_risk)]}]
 
         formal_blockers: list[dict[str, Any]] = []
@@ -323,7 +396,12 @@ class EvidenceLockedRound1Model:
                 }
             )
 
-        vote = self._vote_for_role(role, formal_blockers)
+        vote = self._vote_for_role(
+            role,
+            formal_blockers,
+            n_tender=n_t,
+            n_company=nc,
+        )
 
         assumptions_r1: dict[AgentRole, list[str]] = {
             AgentRole.COMPLIANCE_OFFICER: [
@@ -434,13 +512,21 @@ class EvidenceLockedRound1Model:
         self,
         role: AgentRole,
         formal_blockers: list[dict[str, Any]],
+        *,
+        n_tender: int,
+        n_company: int,
     ) -> BidVerdict:
         if role is AgentRole.COMPLIANCE_OFFICER:
             return BidVerdict.NO_BID if formal_blockers else BidVerdict.CONDITIONAL_BID
         if role is AgentRole.WIN_STRATEGIST:
-            return BidVerdict.BID
+            # Strong "bid" only when multiple tender PDFs are represented on the board
+            # and company_profile evidence exists — otherwise stay conditional.
+            if n_company >= 1 and n_tender >= 2:
+                return BidVerdict.BID
+            return BidVerdict.CONDITIONAL_BID
         if role is AgentRole.DELIVERY_CFO:
             return BidVerdict.CONDITIONAL_BID
+        # Red Team: never recommends unconditional bid in Round 1.
         return BidVerdict.CONDITIONAL_BID
 
 
