@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-011",
-  "storyTitle": "Convert company facts to evidence",
+  "currentStory": "US-012",
+  "storyTitle": "Register demo tender PDF",
   "nextAction": "implement",
-  "progressTokens": 1200,
+  "progressTokens": 1290,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"

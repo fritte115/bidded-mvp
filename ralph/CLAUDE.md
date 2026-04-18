@@ -71,3 +71,4 @@ At the end of every non-compaction story session:
 - **Bidded Graph State Contract**: `BidRunState.apply_node_update` enforces `GraphNodeName` ownership, append-only audit artifacts, write-once decisions, and role-keyed specialist reducers.
 - **Bidded Agent Tool Policy Contract**: `src/bidded/agents/tool_policy.py` defines LLM-agent denied tools, bounded retrieval scope, artifact read/write policy, and orchestrator-owned side effects.
 - **Bidded Agent Output Schema Contract**: `src/bidded/agents/schemas.py` defines strict Pydantic artifact schemas for specialist motions, rebuttals, Judge decisions, evidence refs, material claim evidence-ID validation, typed evidence gaps, validation errors, and specialist role bounds.
+- **Bidded Company Evidence Contract**: `src/bidded/evidence/company_profile.py` builds deterministic `company_profile` evidence rows from the seeded company payload, with `field_path` provenance and idempotent `tenant_key,evidence_key` upserts.

@@ -20,7 +20,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Graph state | Typed `BidRunState` finns under `src/bidded/orchestration` med runtime control fields, audit artifacts, node ownership contracts och reducer-policy separerade. |
 | Agent tool policies | Immutable policy contracts finns under `src/bidded/agents/tool_policy.py` för LLM-agenternas läs/skrivgränser och orchestratorns side effects. |
 | Agent output schemas | Strict Pydantic schemas finns under `src/bidded/agents/schemas.py` för Round 1 motions, Round 2 rebuttals, Judge decisions och evidence-claim validation. |
-| Seedat demo-bolag | `bidded seed-demo-company` upsertar en större syntetisk IT-konsultprofil idempotent till `companies`. |
+| Seedat demo-bolag | `bidded seed-demo-company` upsertar en större syntetisk IT-konsultprofil, och `bidded.evidence` kan konvertera profilfakta till idempotenta `company_profile` evidence rows. |
 | Frontend | Ingen frontend i repot. Lovable är planerad som tunn demo-UI ovanpå Supabase i `US-025`. |
 
 README:n beskriver därför både nuläget och den stack som PRD:n definierar att vi bygger mot. När stories implementeras ska planerade delar flyttas till faktiskt levererade delar.
@@ -288,7 +288,7 @@ python3 -m venv .venv
 .venv/bin/ruff check .
 ```
 
-Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence- och seed-kommandot finns; övriga worker-kommandon byggs i senare stories.
+Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandot och company-evidence buildern finns; övriga worker-kommandon byggs i senare stories.
 
 ## Teststrategi
 

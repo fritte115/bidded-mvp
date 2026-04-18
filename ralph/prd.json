@@ -166,8 +166,8 @@
         "pytest and ruff check pass for company evidence conversion."
       ],
       "priority": 11,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added deterministic company_profile evidence conversion and idempotent evidence_items upsert service for seeded company facts. Complete."
     },
     {
       "id": "US-012",
