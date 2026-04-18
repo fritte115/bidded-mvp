@@ -107,12 +107,7 @@ export default function Dashboard() {
 
       <div className="mt-6">
         <div className="mb-3 flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold">Latest Verdicts</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Sample data only — live judge output will connect after the relevant PRD stories.
-            </p>
-          </div>
+          <h2 className="text-base font-semibold">Latest Verdicts</h2>
           <Button asChild variant="ghost" size="sm" className="text-xs text-primary">
             <Link to="/decisions">View all decisions <ArrowRight className="h-3 w-3" /></Link>
           </Button>
