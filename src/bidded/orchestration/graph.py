@@ -81,10 +81,18 @@ class GraphRunResult:
     visited_nodes: tuple[GraphRouteNode, ...]
 
 
+@dataclass(frozen=True)
+class Round1MotionResult:
+    """Validated Round 1 motion plus its immutable audit row."""
+
+    motion: SpecialistMotionState
+    agent_output: AgentOutputState | None = None
+
+
 ScoutHandler = Callable[[BidRunState], ScoutOutputState | InvalidGraphOutput]
 Round1Handler = Callable[
     [BidRunState, SpecialistRole],
-    SpecialistMotionState | InvalidGraphOutput,
+    SpecialistMotionState | Round1MotionResult | InvalidGraphOutput,
 ]
 Round2Handler = Callable[
     [BidRunState, SpecialistRole],
@@ -108,7 +116,7 @@ class GraphNodeHandlers:
 class _GraphExecutionState(TypedDict, total=False):
     bid_state: BidRunState
     trace: Annotated[list[GraphRouteNode], add]
-    round_1_motion_updates: Annotated[list[SpecialistMotionState], add]
+    round_1_motion_updates: Annotated[list[Round1MotionResult], add]
     round_2_rebuttal_updates: Annotated[list[RebuttalState], add]
     invalid_outputs: Annotated[list[InvalidGraphOutput], add]
 
@@ -452,7 +460,10 @@ def _round_1_specialist_node(
         output = handlers.round_1_specialist(state, role)
         if isinstance(output, InvalidGraphOutput):
             return {"invalid_outputs": [output], "trace": [route_node]}
-        return {"round_1_motion_updates": [output], "trace": [route_node]}
+        return {
+            "round_1_motion_updates": [_coerce_round_1_motion_result(output)],
+            "trace": [route_node],
+        }
 
     return node
 
@@ -468,7 +479,8 @@ def _round_1_join_node(execution_state: _GraphExecutionState) -> _GraphExecution
             GraphRouteNode.ROUND_1_JOIN,
         )
     else:
-        motions = execution_state.get("round_1_motion_updates", [])
+        motion_results = execution_state.get("round_1_motion_updates", [])
+        motions = [result.motion for result in motion_results]
         invalid = _validate_role_outputs(
             outputs=motions,
             field_name="motions",
@@ -481,10 +493,16 @@ def _round_1_join_node(execution_state: _GraphExecutionState) -> _GraphExecution
                 invalid,
             )
         else:
+            agent_outputs = [
+                result.agent_output
+                for result in motion_results
+                if result.agent_output is not None
+            ]
             updated = state.apply_node_update(
                 GraphNodeName.ROUND_1_SPECIALIST,
                 {
                     "motions": {motion.agent_role: motion for motion in motions},
+                    "agent_outputs": agent_outputs,
                     "current_step": GraphRouteNode.ROUND_1_JOIN,
                     "last_error": None,
                 },
@@ -870,6 +888,27 @@ def _agent_output_from_scout_output(output: ScoutOutputState) -> AgentOutputStat
     )
 
 
+def _coerce_round_1_motion_result(
+    output: SpecialistMotionState | Round1MotionResult,
+) -> Round1MotionResult:
+    if isinstance(output, Round1MotionResult):
+        return output
+    return Round1MotionResult(
+        motion=output,
+        agent_output=_agent_output_from_motion_state(output),
+    )
+
+
+def _agent_output_from_motion_state(motion: SpecialistMotionState) -> AgentOutputState:
+    return AgentOutputState(
+        agent_role=motion.agent_role.value,
+        round_name="round_1_motion",
+        output_type="motion",
+        payload=motion.model_dump(mode="json"),
+        evidence_refs=_dedupe_evidence_refs(motion.evidence_refs),
+    )
+
+
 def _matching_state_evidence_item(
     evidence_ref: EvidenceRef,
     evidence_board: Sequence[EvidenceItemState],
@@ -1008,6 +1047,7 @@ __all__ = [
     "GraphRouteNode",
     "GraphRunResult",
     "InvalidGraphOutput",
+    "Round1MotionResult",
     "build_bidded_graph_shell",
     "default_graph_node_handlers",
     "graph_routing_edge_table",

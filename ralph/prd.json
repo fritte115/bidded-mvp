@@ -293,8 +293,8 @@
         "pytest and ruff check pass for mocked parallel motion orchestration."
       ],
       "priority": 19,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented evidence-locked Round 1 specialist motion handling, validation, formal-blocker enforcement, and round_1_motion audit rows. Complete."
     },
     {
       "id": "US-020",

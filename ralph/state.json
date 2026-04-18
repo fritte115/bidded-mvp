@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-019",
-  "storyTitle": "Implement specialist motions",
+  "currentStory": "US-020",
+  "storyTitle": "Implement focused rebuttals",
   "nextAction": "implement",
-  "progressTokens": 1845,
+  "progressTokens": 1920,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"

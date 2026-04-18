@@ -28,6 +28,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Retrieval | `bidded.retrieval` kan hämta top-K `document_chunks` med deterministisk keyword fallback utan embeddinginställningar, plus en mockad embedding-adapter för pgvector-ready tester. |
 | Tender evidence board | `bidded.evidence` kan föreslå, validera, deduplicera, upserta och slå upp `tender_document` evidence rows från retrieved chunks med stabila citation keys. |
 | Evidence Scout node | `bidded.orchestration.evidence_scout` skapar sex kategoribundna retrieval-frågor, validerar mockade Claude-output mot resolved evidence IDs och låter graphen append:a `evidence_scout`/`evidence` agent_outputs endast för giltiga scoutfakta. |
+| Specialist motion node | `bidded.orchestration.specialist_motions` bygger evidence-locked Round 1 requests utan peer motions eller privat context, validerar strict `Round1Motion` output och append:ar fyra `round_1_motion` agent_outputs. |
 | Pending agent runs | `bidded create-pending-run` validerar vald demo tender, demo company och tender document innan en `pending` `agent_runs`-rad med evidence-locked run config skapas. |
 | Frontend | Ingen frontend i repot. Lovable är planerad som tunn demo-UI ovanpå Supabase i `US-025`. |
 
