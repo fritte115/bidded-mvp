@@ -192,7 +192,7 @@ def test_cli_register_demo_tender_accepts_metadata(
         captured_registration.update(kwargs)
         return SimpleNamespace(
             document_id="document-1",
-            storage_path="demo/tenders/skakrav/tender.pdf",
+            storage_path="demo/procurements/skakrav/tender.pdf",
         )
 
     monkeypatch.setattr(cli, "register_demo_tender_pdf", record_registration)

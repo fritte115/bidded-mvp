@@ -394,3 +394,18 @@ Det här är frågor som behöver stämmas av mot den Lovable-frontend som redan
 10. Hur hanteras demo-säkerhet i Supabase? PRD:n säger ingen Auth/RLS i v1, men om Lovable pratar direkt med Supabase från browsern behöver vi bestämma om det är öppen demo-åtkomst, read-only anon + RPC, eller en server-side wrapper.
 11. Ska Lovable kunna skapa en helt ny demo-run från fixture-data utan live agent execution, så att frontenden alltid kan visas även om Claude/Supabase-worker inte kör?
 12. Finns det redan komponenter eller naming conventions i Lovable-frontenden som bör styra våra tabellnamn, view-namn eller JSON-fältnamn?
+
+## Frontend
+
+The demo UI lives in `frontend/`. It is a React + Vite + TypeScript app (Lovable-generated) that connects to Supabase to create pending `agent_runs` and display results. All agent data is currently mock — Supabase wiring follows once the Python backend (US-001–US-024) is complete.
+
+```bash
+cd frontend
+cp .env.example .env
+# Fill in VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
+npm install
+npm run dev   # starts on localhost:8080
+npm run build # production build to frontend/dist/
+```
+
+See `frontend/INTEGRATION.md` for Supabase schema and data shape contracts that align with the Python backend.
