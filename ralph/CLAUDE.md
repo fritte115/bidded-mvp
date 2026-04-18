@@ -68,4 +68,4 @@ At the end of every non-compaction story session:
 - **Bidded CLI Boundary**: Keep CLI help and package imports free of live Supabase/Claude client construction; create external clients only inside real command execution paths.
 - **Bidded Agent Audit Contract**: Persist agent outputs as immutable audit rows keyed by `agent_role`, `round_name`, and `output_type`; final decisions expose Judge `evidence_ids`.
 - **Bidded Evidence Schema Contract**: `evidence_items` use `tender_document`/`company_profile` source types with explicit nullable provenance columns plus `source_metadata.source_label`; `document_chunks` keep nullable pgvector embeddings.
-- **Bidded Graph State Contract**: `BidRunState` lives in `src/bidded/orchestration`; runtime control fields are separate from persisted audit artifacts, and specialist motions/rebuttals are keyed by role.
+- **Bidded Graph State Contract**: `BidRunState.apply_node_update` enforces `GraphNodeName` ownership, append-only audit artifacts, write-once decisions, and role-keyed specialist reducers.

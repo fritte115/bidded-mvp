@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from enum import StrEnum
 from typing import Any, ClassVar
 from uuid import UUID
@@ -11,6 +12,10 @@ class StrictStateModel(BaseModel):
     """Base model for graph state artifacts with closed schemas."""
 
     model_config = ConfigDict(extra="forbid")
+
+
+class StateOwnershipError(ValueError):
+    """Raised when a graph node attempts an unauthorized state mutation."""
 
 
 class AgentRunStatus(StrEnum):
@@ -46,6 +51,25 @@ class SpecialistRole(StrEnum):
     WIN_STRATEGIST = "win_strategist"
     DELIVERY_CFO = "delivery_cfo"
     RED_TEAM = "red_team"
+
+
+class GraphNodeName(StrEnum):
+    """Known Bidded graph nodes with documented state ownership."""
+
+    PREFLIGHT = "preflight"
+    EVIDENCE_SCOUT = "evidence_scout"
+    ROUND_1_SPECIALIST = "round_1_specialist"
+    ROUND_2_REBUTTAL = "round_2_rebuttal"
+    JUDGE = "judge"
+    PERSIST_DECISION = "persist_decision"
+
+
+class GraphNodeContract(StrictStateModel):
+    """Documented read fields and owned write fields for one graph node."""
+
+    node: GraphNodeName
+    read_fields: frozenset[str] = Field(min_length=1)
+    owned_write_fields: frozenset[str] = Field(min_length=1)
 
 
 class RuntimeErrorState(StrictStateModel):
@@ -165,6 +189,15 @@ class ValidationIssueState(StrictStateModel):
     evidence_refs: list[EvidenceRef] = Field(default_factory=list)
 
 
+class AgentOutputState(StrictStateModel):
+    agent_role: str = Field(min_length=1)
+    round_name: str = Field(min_length=1)
+    output_type: str = Field(min_length=1)
+    payload: dict[str, Any] = Field(default_factory=dict)
+    validation_errors: list[ValidationIssueState] = Field(default_factory=list)
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list)
+
+
 class FinalDecisionState(StrictStateModel):
     verdict: Verdict
     confidence: float = Field(ge=0, le=1)
@@ -199,9 +232,144 @@ class BidRunState(StrictStateModel):
             "motions",
             "rebuttals",
             "validation_errors",
+            "agent_outputs",
             "final_decision",
         }
     )
+    _APPEND_ONLY_LIST_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "evidence_board",
+            "validation_errors",
+            "agent_outputs",
+        }
+    )
+    _WRITE_ONCE_ARTIFACT_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "scout_output",
+            "final_decision",
+        }
+    )
+    _ROLE_KEYED_REDUCER_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "motions",
+            "rebuttals",
+        }
+    )
+    _NODE_CONTRACTS: ClassVar[dict[GraphNodeName, GraphNodeContract]] = {
+        GraphNodeName.PREFLIGHT: GraphNodeContract(
+            node=GraphNodeName.PREFLIGHT,
+            read_fields=frozenset(
+                {
+                    "run_id",
+                    "company_id",
+                    "tender_id",
+                    "document_ids",
+                    "run_context",
+                    "chunks",
+                    "evidence_board",
+                }
+            ),
+            owned_write_fields=_RUNTIME_CONTROL_FIELDS | frozenset(
+                {
+                    "validation_errors",
+                }
+            ),
+        ),
+        GraphNodeName.EVIDENCE_SCOUT: GraphNodeContract(
+            node=GraphNodeName.EVIDENCE_SCOUT,
+            read_fields=frozenset(
+                {
+                    "run_id",
+                    "company_id",
+                    "tender_id",
+                    "document_ids",
+                    "run_context",
+                    "chunks",
+                    "evidence_board",
+                }
+            ),
+            owned_write_fields=_RUNTIME_CONTROL_FIELDS | frozenset(
+                {
+                    "evidence_board",
+                    "scout_output",
+                    "validation_errors",
+                    "agent_outputs",
+                }
+            ),
+        ),
+        GraphNodeName.ROUND_1_SPECIALIST: GraphNodeContract(
+            node=GraphNodeName.ROUND_1_SPECIALIST,
+            read_fields=frozenset(
+                {
+                    "run_context",
+                    "evidence_board",
+                    "scout_output",
+                    "working_retrieval_results",
+                }
+            ),
+            owned_write_fields=_RUNTIME_CONTROL_FIELDS | frozenset(
+                {
+                    "motions",
+                    "validation_errors",
+                    "agent_outputs",
+                }
+            ),
+        ),
+        GraphNodeName.ROUND_2_REBUTTAL: GraphNodeContract(
+            node=GraphNodeName.ROUND_2_REBUTTAL,
+            read_fields=frozenset(
+                {
+                    "run_context",
+                    "evidence_board",
+                    "scout_output",
+                    "motions",
+                    "working_retrieval_results",
+                }
+            ),
+            owned_write_fields=_RUNTIME_CONTROL_FIELDS | frozenset(
+                {
+                    "rebuttals",
+                    "validation_errors",
+                    "agent_outputs",
+                }
+            ),
+        ),
+        GraphNodeName.JUDGE: GraphNodeContract(
+            node=GraphNodeName.JUDGE,
+            read_fields=frozenset(
+                {
+                    "run_context",
+                    "evidence_board",
+                    "scout_output",
+                    "motions",
+                    "rebuttals",
+                    "validation_errors",
+                }
+            ),
+            owned_write_fields=_RUNTIME_CONTROL_FIELDS | frozenset(
+                {
+                    "final_decision",
+                    "validation_errors",
+                    "agent_outputs",
+                }
+            ),
+        ),
+        GraphNodeName.PERSIST_DECISION: GraphNodeContract(
+            node=GraphNodeName.PERSIST_DECISION,
+            read_fields=frozenset(
+                {
+                    "run_id",
+                    "company_id",
+                    "tender_id",
+                    "run_context",
+                    "agent_outputs",
+                    "final_decision",
+                    "status",
+                }
+            ),
+            owned_write_fields=_RUNTIME_CONTROL_FIELDS,
+        ),
+    }
 
     run_id: UUID
     company_id: UUID
@@ -214,6 +382,7 @@ class BidRunState(StrictStateModel):
     motions: dict[SpecialistRole, SpecialistMotionState] = Field(default_factory=dict)
     rebuttals: dict[SpecialistRole, RebuttalState] = Field(default_factory=dict)
     validation_errors: list[ValidationIssueState] = Field(default_factory=list)
+    agent_outputs: list[AgentOutputState] = Field(default_factory=list)
     retry_counts: dict[str, NonNegativeInt] = Field(default_factory=dict)
     final_decision: FinalDecisionState | None = None
     status: AgentRunStatus = AgentRunStatus.PENDING
@@ -229,6 +398,94 @@ class BidRunState(StrictStateModel):
     def persisted_audit_fields(cls) -> frozenset[str]:
         return cls._PERSISTED_AUDIT_FIELDS
 
+    @classmethod
+    def known_fields(cls) -> frozenset[str]:
+        return frozenset(cls.model_fields)
+
+    @classmethod
+    def append_only_fields(cls) -> frozenset[str]:
+        return cls._APPEND_ONLY_LIST_FIELDS | cls._WRITE_ONCE_ARTIFACT_FIELDS
+
+    @classmethod
+    def role_keyed_reducer_fields(cls) -> frozenset[str]:
+        return cls._ROLE_KEYED_REDUCER_FIELDS
+
+    @classmethod
+    def node_contracts(cls) -> dict[GraphNodeName, GraphNodeContract]:
+        return dict(cls._NODE_CONTRACTS)
+
+    @classmethod
+    def node_contract(cls, node: GraphNodeName | str) -> GraphNodeContract:
+        try:
+            node_name = GraphNodeName(node)
+        except ValueError as exc:
+            raise StateOwnershipError(f"Unknown graph node: {node!r}") from exc
+
+        return cls._NODE_CONTRACTS[node_name]
+
+    def apply_node_update(
+        self,
+        node: GraphNodeName | str,
+        updates: Mapping[str, Any],
+    ) -> BidRunState:
+        """Return a validated state after applying one owned node update."""
+
+        contract = self.node_contract(node)
+        update_fields = frozenset(updates)
+        unknown_fields = update_fields - self.known_fields()
+        if unknown_fields:
+            raise StateOwnershipError(
+                f"{contract.node.value} attempted unknown fields: "
+                f"{', '.join(sorted(unknown_fields))}"
+            )
+
+        unowned_fields = update_fields - contract.owned_write_fields
+        if unowned_fields:
+            raise StateOwnershipError(
+                f"{contract.node.value} does not own: "
+                f"{', '.join(sorted(unowned_fields))}"
+            )
+
+        merged_updates = {
+            field: self._merge_owned_update(field, value)
+            for field, value in updates.items()
+        }
+        payload = self.model_dump()
+        payload.update(merged_updates)
+        return type(self).model_validate(payload)
+
+    def _merge_owned_update(self, field: str, value: Any) -> Any:
+        if field in self._RUNTIME_CONTROL_FIELDS:
+            return value
+
+        if field in self._APPEND_ONLY_LIST_FIELDS:
+            if not isinstance(value, list):
+                raise StateOwnershipError(f"{field} updates must be a list")
+            return [*getattr(self, field), *value]
+
+        if field in self._WRITE_ONCE_ARTIFACT_FIELDS:
+            if getattr(self, field) is not None:
+                raise StateOwnershipError(f"{field} is write-once and already set")
+            return value
+
+        if field in self._ROLE_KEYED_REDUCER_FIELDS:
+            return self._merge_role_keyed_artifacts(field, value)
+
+        raise StateOwnershipError(f"{field} has no state reducer policy")
+
+    def _merge_role_keyed_artifacts(self, field: str, value: Any) -> dict[Any, Any]:
+        if not isinstance(value, Mapping):
+            raise StateOwnershipError(f"{field} updates must be keyed by agent role")
+
+        incoming = {SpecialistRole(role): artifact for role, artifact in value.items()}
+        existing = getattr(self, field)
+        duplicate_roles = frozenset(existing).intersection(incoming)
+        if duplicate_roles:
+            roles = ", ".join(sorted(role.value for role in duplicate_roles))
+            raise StateOwnershipError(f"state already has {field} for: {roles}")
+
+        return {**existing, **incoming}
+
     @model_validator(mode="after")
     def validate_role_keyed_artifacts(self) -> BidRunState:
         for role, motion in self.motions.items():
@@ -243,6 +500,7 @@ class BidRunState(StrictStateModel):
 
 
 __all__ = [
+    "AgentOutputState",
     "AgentRunStatus",
     "BidRunState",
     "DocumentChunkState",
@@ -250,12 +508,15 @@ __all__ = [
     "EvidenceRef",
     "EvidenceSourceType",
     "FinalDecisionState",
+    "GraphNodeContract",
+    "GraphNodeName",
     "RebuttalState",
     "RuntimeErrorState",
     "ScoutFindingState",
     "ScoutOutputState",
     "SpecialistMotionState",
     "SpecialistRole",
+    "StateOwnershipError",
     "ValidationIssueState",
     "Verdict",
 ]

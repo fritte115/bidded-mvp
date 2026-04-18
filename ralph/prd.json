@@ -91,8 +91,8 @@
         "pytest and ruff check pass for state ownership tests."
       ],
       "priority": 6,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added graph node contracts, append-only/write-once state updates, role-keyed reducers, and ownership tests. Complete."
     },
     {
       "id": "US-007",

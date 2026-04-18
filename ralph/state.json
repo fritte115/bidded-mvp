@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-006",
-  "storyTitle": "Enforce state ownership rules",
+  "currentStory": "US-007",
+  "storyTitle": "Define agent tool policies",
   "nextAction": "implement",
-  "progressTokens": 765,
+  "progressTokens": 855,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"
