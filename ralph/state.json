@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-020",
-  "storyTitle": "Implement focused rebuttals",
+  "currentStory": "US-021",
+  "storyTitle": "Implement Judge decision",
   "nextAction": "implement",
-  "progressTokens": 1920,
+  "progressTokens": 2040,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"

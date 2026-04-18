@@ -89,6 +89,14 @@ class Round1MotionResult:
     agent_output: AgentOutputState | None = None
 
 
+@dataclass(frozen=True)
+class Round2RebuttalResult:
+    """Validated Round 2 rebuttal plus its immutable audit row."""
+
+    rebuttal: RebuttalState
+    agent_output: AgentOutputState | None = None
+
+
 ScoutHandler = Callable[[BidRunState], ScoutOutputState | InvalidGraphOutput]
 Round1Handler = Callable[
     [BidRunState, SpecialistRole],
@@ -96,7 +104,7 @@ Round1Handler = Callable[
 ]
 Round2Handler = Callable[
     [BidRunState, SpecialistRole],
-    RebuttalState | InvalidGraphOutput,
+    RebuttalState | Round2RebuttalResult | InvalidGraphOutput,
 ]
 JudgeHandler = Callable[[BidRunState], FinalDecisionState | InvalidGraphOutput]
 PersistHandler = Callable[[BidRunState], InvalidGraphOutput | None]
@@ -117,7 +125,7 @@ class _GraphExecutionState(TypedDict, total=False):
     bid_state: BidRunState
     trace: Annotated[list[GraphRouteNode], add]
     round_1_motion_updates: Annotated[list[Round1MotionResult], add]
-    round_2_rebuttal_updates: Annotated[list[RebuttalState], add]
+    round_2_rebuttal_updates: Annotated[list[Round2RebuttalResult], add]
     invalid_outputs: Annotated[list[InvalidGraphOutput], add]
 
 
@@ -521,7 +529,10 @@ def _round_2_rebuttal_node(
         output = handlers.round_2_rebuttal(state, role)
         if isinstance(output, InvalidGraphOutput):
             return {"invalid_outputs": [output], "trace": [route_node]}
-        return {"round_2_rebuttal_updates": [output], "trace": [route_node]}
+        return {
+            "round_2_rebuttal_updates": [_coerce_round_2_rebuttal_result(output)],
+            "trace": [route_node],
+        }
 
     return node
 
@@ -537,7 +548,8 @@ def _round_2_join_node(execution_state: _GraphExecutionState) -> _GraphExecution
             GraphRouteNode.ROUND_2_JOIN,
         )
     else:
-        rebuttals = execution_state.get("round_2_rebuttal_updates", [])
+        rebuttal_results = execution_state.get("round_2_rebuttal_updates", [])
+        rebuttals = [result.rebuttal for result in rebuttal_results]
         invalid = _validate_role_outputs(
             outputs=rebuttals,
             field_name="rebuttals",
@@ -556,6 +568,11 @@ def _round_2_join_node(execution_state: _GraphExecutionState) -> _GraphExecution
                     "rebuttals": {
                         rebuttal.agent_role: rebuttal for rebuttal in rebuttals
                     },
+                    "agent_outputs": [
+                        result.agent_output
+                        for result in rebuttal_results
+                        if result.agent_output is not None
+                    ],
                     "current_step": GraphRouteNode.ROUND_2_JOIN,
                     "last_error": None,
                 },
@@ -909,6 +926,27 @@ def _agent_output_from_motion_state(motion: SpecialistMotionState) -> AgentOutpu
     )
 
 
+def _coerce_round_2_rebuttal_result(
+    output: RebuttalState | Round2RebuttalResult,
+) -> Round2RebuttalResult:
+    if isinstance(output, Round2RebuttalResult):
+        return output
+    return Round2RebuttalResult(
+        rebuttal=output,
+        agent_output=_agent_output_from_rebuttal_state(output),
+    )
+
+
+def _agent_output_from_rebuttal_state(rebuttal: RebuttalState) -> AgentOutputState:
+    return AgentOutputState(
+        agent_role=rebuttal.agent_role.value,
+        round_name="round_2_rebuttal",
+        output_type="rebuttal",
+        payload=rebuttal.model_dump(mode="json"),
+        evidence_refs=_dedupe_evidence_refs(rebuttal.evidence_refs),
+    )
+
+
 def _matching_state_evidence_item(
     evidence_ref: EvidenceRef,
     evidence_board: Sequence[EvidenceItemState],
@@ -1048,6 +1086,7 @@ __all__ = [
     "GraphRunResult",
     "InvalidGraphOutput",
     "Round1MotionResult",
+    "Round2RebuttalResult",
     "build_bidded_graph_shell",
     "default_graph_node_handlers",
     "graph_routing_edge_table",

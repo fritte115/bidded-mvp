@@ -126,3 +126,8 @@ No Ralph story sessions have completed yet.
 - **Files**: src/bidded/orchestration/specialist_motions.py, src/bidded/orchestration/graph.py, src/bidded/orchestration/__init__.py, tests/test_specialist_motion_node.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
 - **Key learnings**: Keep Round 1 specialist requests limited to shared evidence and scout output; append motion rows only after all four independent specialists validate.
 ---
+## 2026-04-18 20:33 CEST - US-020
+- **Implemented**: Added focused Round 2 rebuttal orchestration with cross-motion requests, Red Team focus points, strict evidence validation, and `round_2_rebuttal` audit rows.
+- **Files**: src/bidded/orchestration/specialist_rebuttals.py, src/bidded/orchestration/graph.py, src/bidded/orchestration/__init__.py, tests/test_specialist_rebuttal_node.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
+- **Key learnings**: Persist Round 2 rebuttals at the join only after all four focused outputs validate, mirroring Round 1 audit-row behavior.
+---
