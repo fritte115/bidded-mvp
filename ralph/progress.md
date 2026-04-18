@@ -19,7 +19,7 @@ Started: 2026-04-18
 - **Bidded Graph State Contract**: `BidRunState.apply_node_update` enforces `GraphNodeName` ownership, append-only audit artifacts, write-once decisions, and role-keyed specialist reducers.
 - **Bidded Agent Tool Policy Contract**: `src/bidded/agents/tool_policy.py` is the source of truth for LLM-agent denied tools, bounded retrieval, artifact access, and orchestrator-owned side effects.
 - **Bidded Agent Output Schema Contract**: `src/bidded/agents/schemas.py` is the strict Pydantic surface for motions, rebuttals, Judge decisions, evidence refs, material claim evidence-ID validation, typed evidence gaps, validation errors, and specialist role bounds.
-- **Bidded Company Evidence Builder Contract**: `src/bidded/evidence/company_profile.py` converts seeded company JSON into Supabase-ready `company_profile` rows and uses stable `tenant_key,evidence_key` upserts for idempotence.
+- **Bidded Evidence Builder Contract**: `src/bidded/evidence` converts company profile facts and retrieved tender chunks into validated Supabase-ready evidence rows with stable `tenant_key,evidence_key` upserts.
 
 ## Session Log
 
@@ -105,4 +105,9 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added deterministic document chunk retrieval with keyword fallback and optional mock embedding scoring.
 - **Files**: src/bidded/retrieval/__init__.py, tests/test_document_chunk_retrieval.py, tests/test_project_scaffold.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
 - **Key learnings**: Keep retrieval usable without embedding settings while returning method and score metadata whenever chunks are ranked.
+---
+## 2026-04-18 19:42 CEST - US-016
+- **Implemented**: Added tender evidence candidate extraction, strict validation, stable evidence-key row building, idempotent upsert persistence, and citation lookup.
+- **Files**: src/bidded/evidence/tender_document.py, src/bidded/evidence/__init__.py, tests/test_tender_evidence_board.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
+- **Key learnings**: Keep tender evidence-board persistence behind orchestrator-callable services; candidate extraction should stay side-effect-free for Evidence Scout.
 ---

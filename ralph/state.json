@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-016",
-  "storyTitle": "Build tender evidence board",
+  "currentStory": "US-017",
+  "storyTitle": "Add graph routing shell",
   "nextAction": "implement",
-  "progressTokens": 1620,
+  "progressTokens": 1695,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"

@@ -245,8 +245,8 @@
         "pytest and ruff check pass for tender evidence-board logic."
       ],
       "priority": 16,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added tender candidate extraction, strict provenance validation, stable citation keys, idempotent upsert persistence, and evidence-key lookup. Complete."
     },
     {
       "id": "US-017",
