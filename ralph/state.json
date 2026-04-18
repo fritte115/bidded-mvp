@@ -1,7 +1,7 @@
 {
   "branch": "ralph/bidded-swarm-core",
   "currentStory": "US-025",
-  "storyTitle": "Prepare Lovable handoff",
+  "storyTitle": "Add Requirement Type Contract",
   "nextAction": "implement",
   "progressTokens": 2295,
   "compactionNeeded": false,

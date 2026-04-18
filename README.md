@@ -12,7 +12,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 
 | Del | Status |
 | --- | --- |
-| `ralph/prd.json` | Komplett PRD med 25 user stories för Bidded Swarm Core. Ralph-state styr vilken story som är nästa. |
+| `ralph/prd.json` | Komplett PRD med 50 user stories för Bidded Swarm Core. Ralph-state styr vilken story som är nästa. |
 | `ralph/state.json` | Pekar på aktuell Ralph-story och nästa action. |
 | `plans/ralph-storie-plan.md` | Äldre plan/sammanfattning. Den behöver läsas som stödmaterial, inte som strikt source of truth. |
 | `Makefile` | Kör Ralph-loop med Codex CLI via `make ralph`. |
@@ -33,7 +33,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Judge decision node | `bidded.orchestration.judge` bygger evidence-locked Judge requests, validerar strict `JudgeDecision` output, gate:ar formella compliance blockers till `no_bid`, append:ar `final_decision` agent_output och skriver Supabase-kompatibla `bid_decisions` payloads. |
 | Pending agent runs | `bidded create-pending-run` validerar vald demo tender, demo company och tender document innan en `pending` `agent_runs`-rad med evidence-locked run config skapas. |
 | Worker lifecycle CLI | `bidded worker` kör en specificerad pending run eller äldsta pending demo-run, uppdaterar `agent_runs`, kör graphen och persisterar normaliserade `agent_outputs` och `bid_decisions`. |
-| Frontend | Ingen frontend i repot. Lovable är planerad som tunn demo-UI ovanpå Supabase i `US-025`. |
+| Frontend | Ingen frontend i repot. Lovable är fortsatt tänkt som tunn demo-UI ovanpå Supabase, men `US-025` och framåt prioriterar kravklassificering, regulatory glossary, hybrid retrieval och kvalitetshöjande audits innan en ny handoff-story. |
 
 README:n beskriver därför både nuläget och den stack som PRD:n definierar att vi bygger mot. När stories implementeras ska planerade delar flyttas till faktiskt levererade delar.
 
@@ -376,7 +376,32 @@ Roadmapen drivs av `ralph/prd.json`; Ralph-state pekar alltid på nästa ej klar
 | US-022 | Add worker lifecycle CLI |
 | US-023 | Add retry stop policy |
 | US-024 | Test mocked end-to-end run |
-| US-025 | Prepare Lovable handoff |
+| US-025 | Add Requirement Type Contract |
+| US-026 | Classify tender evidence requirement types |
+| US-027 | Add curated regulatory glossary |
+| US-028 | Use requirement types in compliance and Judge reasoning |
+| US-029 | Add embedding model contract |
+| US-030 | Generate and store chunk embeddings |
+| US-031 | Add Supabase pgvector search |
+| US-032 | Add hybrid retrieval |
+| US-033 | Add evidence recall audit |
+| US-034 | Add demo environment doctor |
+| US-035 | Seed replayable demo states |
+| US-036 | Harden worker claiming |
+| US-037 | Add operator run controls |
+| US-038 | Add live demo smoke command |
+| US-039 | Add demo step trace |
+| US-040 | Export decision bundle |
+| US-041 | Write demo runbook |
+| US-042 | Define golden demo cases |
+| US-043 | Add eval runner CLI |
+| US-044 | Score evidence coverage |
+| US-045 | Add verdict regression checks |
+| US-046 | Track prompt schema versions |
+| US-047 | Diff normalized decisions |
+| US-048 | Add adversarial fixtures |
+| US-049 | Export eval report |
+| US-050 | Compare live and mock evals |
 
 ## Out Of Scope För Nuvarande PRD
 
