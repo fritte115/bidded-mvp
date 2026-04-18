@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { useState, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -21,6 +21,7 @@ import {
   fetchDashboardStats,
   fetchActiveRuns,
   fetchDecisions,
+  deleteAgentRun,
   stageDisplayName,
 } from "@/lib/api";
 import {
@@ -31,39 +32,17 @@ import {
   FileSignature,
   ChevronDown,
   ChevronUp,
-  X,
+  Trash2,
   Target,
 } from "lucide-react";
-
-const DISMISSED_KEY = "dashboard:dismissed-runs";
-
-function useDismissedRuns() {
-  const [dismissed, setDismissed] = useState<Set<string>>(() => {
-    try {
-      const raw = localStorage.getItem(DISMISSED_KEY);
-      return new Set(raw ? JSON.parse(raw) : []);
-    } catch {
-      return new Set();
-    }
-  });
-
-  function dismiss(id: string) {
-    setDismissed((prev) => {
-      const next = new Set(prev);
-      next.add(id);
-      localStorage.setItem(DISMISSED_KEY, JSON.stringify([...next]));
-      return next;
-    });
-  }
-
-  return { dismissed, dismiss };
-}
 
 function shortRunId(id: string): string {
   return `RUN-${id.replace(/-/g, "").slice(0, 4).toUpperCase()}`;
 }
 
 export default function Dashboard() {
+  const queryClient = useQueryClient();
+
   const { data: stats } = useQuery({
     queryKey: ["dashboard-stats"],
     queryFn: fetchDashboardStats,
@@ -82,20 +61,8 @@ export default function Dashboard() {
     refetchInterval: 10_000,
   });
 
-  const [analysesCollapsed, setAnalysesCollapsed] = useState(false);
-  const { dismissed, dismiss } = useDismissedRuns();
-
-  // Clear dismissed IDs that are no longer in the list (stale cleanup)
-  useEffect(() => {
-    const activeIds = new Set(activeRuns.map((r) => r.id));
-    const stale = [...dismissed].filter((id) => !activeIds.has(id));
-    if (stale.length > 0) {
-      const pruned = [...dismissed].filter((id) => activeIds.has(id));
-      localStorage.setItem(DISMISSED_KEY, JSON.stringify(pruned));
-    }
-  }, [activeRuns, dismissed]);
-
-  const visibleRuns = activeRuns.filter((r) => !dismissed.has(r.id));
+  const [collapsed, setCollapsed] = useState(false);
+  const [deleting, setDeleting] = useState<Set<string>>(new Set());
 
   const avgConfidence =
     decisions.length > 0
@@ -103,6 +70,21 @@ export default function Dashboard() {
       : null;
 
   const recentDecisions = decisions.slice(0, 3);
+
+  async function handleDelete(id: string) {
+    setDeleting((prev) => new Set(prev).add(id));
+    try {
+      await deleteAgentRun(id);
+      await queryClient.invalidateQueries({ queryKey: ["active-runs"] });
+      await queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+    } finally {
+      setDeleting((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  }
 
   return (
     <>
@@ -130,7 +112,11 @@ export default function Dashboard() {
         <StatCard
           label="Avg. Judge Confidence"
           value={avgConfidence !== null ? `${avgConfidence}%` : "—"}
-          hint={decisions.length > 0 ? `Across ${decisions.length} decision${decisions.length === 1 ? "" : "s"}` : "No decisions yet"}
+          hint={
+            decisions.length > 0
+              ? `Across ${decisions.length} decision${decisions.length === 1 ? "" : "s"}`
+              : "No decisions yet"
+          }
           icon={Target}
         />
       </div>
@@ -148,105 +134,107 @@ export default function Dashboard() {
               variant="ghost"
               size="sm"
               className="h-7 w-7 p-0"
-              onClick={() => setAnalysesCollapsed((c) => !c)}
-              title={analysesCollapsed ? "Expand" : "Collapse"}
+              onClick={() => setCollapsed((c) => !c)}
+              title={collapsed ? "Expand" : "Collapse"}
             >
-              {analysesCollapsed ? (
-                <ChevronDown className="h-4 w-4" />
+              {collapsed ? (
+                <ChevronDown className="h-4 w-4 transition-transform duration-200" />
               ) : (
-                <ChevronUp className="h-4 w-4" />
+                <ChevronUp className="h-4 w-4 transition-transform duration-200" />
               )}
             </Button>
           </div>
         </CardHeader>
 
-        {!analysesCollapsed && (
-          <CardContent className="p-0">
-            {visibleRuns.length === 0 ? (
-              <p className="px-6 py-8 text-center text-sm text-muted-foreground">
-                No queued or in-flight runs.{" "}
-                {dismissed.size > 0 && (
-                  <button
-                    className="text-primary hover:underline"
-                    onClick={() => {
-                      localStorage.removeItem(DISMISSED_KEY);
-                      window.location.reload();
-                    }}
-                  >
-                    Show {dismissed.size} dismissed
-                  </button>
-                )}
-              </p>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Run</TableHead>
-                    <TableHead>Procurement</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Stage</TableHead>
-                    <TableHead>Started</TableHead>
-                    <TableHead>Duration</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {visibleRuns.map((r) => {
-                    const isTerminal =
-                      r.status === "succeeded" ||
-                      r.status === "failed" ||
-                      r.status === "needs_human_review";
-                    return (
-                      <TableRow key={r.id}>
-                        <TableCell className="text-sm font-medium">
-                          {shortRunId(r.id)}
-                        </TableCell>
-                        <TableCell>
-                          <Link
-                            to="/procurements"
-                            className="font-medium hover:text-primary hover:underline"
-                          >
-                            {r.tenderName}
-                          </Link>
-                        </TableCell>
-                        <TableCell>
-                          <StatusBadge status={r.status} />
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {stageDisplayName(r.stage)}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {formatDate(r.startedAt)}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">
-                          {r.durationSec ? formatDuration(r.durationSec) : "—"}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <Button asChild variant="ghost" size="sm" className="h-8">
-                              <Link to={`/runs/${r.id}`}>View</Link>
-                            </Button>
-                            {isTerminal && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
-                                onClick={() => dismiss(r.id)}
-                                title="Dismiss"
-                              >
-                                <X className="h-3.5 w-3.5" />
+        {/* Smooth grid-rows animation: 0fr → 1fr */}
+        <div
+          className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${
+            collapsed ? "grid-rows-[0fr]" : "grid-rows-[1fr]"
+          }`}
+        >
+          <div className="overflow-hidden">
+            <CardContent className="p-0">
+              {activeRuns.length === 0 ? (
+                <p className="px-6 py-8 text-center text-sm text-muted-foreground">
+                  No queued or in-flight runs. Register a procurement and start an agent
+                  run when ready.
+                </p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Run</TableHead>
+                      <TableHead>Procurement</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Stage</TableHead>
+                      <TableHead>Started</TableHead>
+                      <TableHead>Duration</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {activeRuns.map((r) => {
+                      const isTerminal =
+                        r.status === "succeeded" ||
+                        r.status === "failed" ||
+                        r.status === "needs_human_review";
+                      const isDeleting = deleting.has(r.id);
+                      return (
+                        <TableRow
+                          key={r.id}
+                          className={isDeleting ? "opacity-40 transition-opacity duration-300" : ""}
+                        >
+                          <TableCell className="text-sm font-medium">
+                            {shortRunId(r.id)}
+                          </TableCell>
+                          <TableCell>
+                            <Link
+                              to="/procurements"
+                              className="font-medium hover:text-primary hover:underline"
+                            >
+                              {r.tenderName}
+                            </Link>
+                          </TableCell>
+                          <TableCell>
+                            <StatusBadge status={r.status} />
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {stageDisplayName(r.stage)}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {formatDate(r.startedAt)}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs text-muted-foreground">
+                            {r.durationSec ? formatDuration(r.durationSec) : "—"}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <Button asChild variant="ghost" size="sm" className="h-8">
+                                <Link to={`/runs/${r.id}`}>View</Link>
                               </Button>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        )}
+                              {isTerminal && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                                  onClick={() => handleDelete(r.id)}
+                                  disabled={isDeleting}
+                                  title="Delete run"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </div>
+        </div>
       </Card>
 
       <div className="mt-6">

@@ -1146,6 +1146,15 @@ export async function deleteBid(id: string): Promise<void> {
 const AGENT_API_URL =
   (import.meta.env.VITE_AGENT_API_URL as string | undefined) ?? "http://localhost:8000";
 
+export async function deleteAgentRun(runId: string): Promise<void> {
+  const { error } = await supabase
+    .from("agent_runs")
+    .delete()
+    .eq("id", runId)
+    .eq("tenant_key", "demo");
+  if (error) throw new Error(`deleteAgentRun: ${error.message}`);
+}
+
 export async function startAgentRun(tenderId: string): Promise<string> {
   const res = await fetch(`${AGENT_API_URL}/api/runs/start`, {
     method: "POST",
