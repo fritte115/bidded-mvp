@@ -26,6 +26,8 @@ Bidded is a hackathon-scoped agent core for bid/no-bid decisions in Swedish publ
 - TDD is mandatory for production behavior changes, especially inside the Ralph loop. Write or update the failing test first, implement the smallest passing change, then refactor.
 - Do not mark a Ralph story as passing until its acceptance criteria are covered by deterministic tests or an explicitly documented exception.
 - Test what you touch with the narrowest useful command, then run the relevant gate before finishing: `.venv/bin/pytest -q`, `.venv/bin/ruff check .`, or `cargo test` inside `brain-in-the-fish/` when applicable.
+- Commit after each completed unit of work and after each standalone change once the relevant tests or checks have passed. Keep commits small, scoped, and free of unrelated files or secrets.
+- Every Ralph story that is marked complete must be committed in the same session; never leave a completed `passes: true` story only in the working tree.
 - For completed Ralph stories, append reusable learnings to `ralph/progress.md`, update `ralph/prd.json`, update `ralph/state.json`, then commit the story changes.
 
 ## TDD Policy

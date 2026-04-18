@@ -150,7 +150,8 @@ if ! jq -e '.project and .branchName and .userStories and (.userStories | length
   exit 1
 fi
 
-# Archive previous run if branch changed
+# Archive previous run if branch marker changed. This marker is local and can be stale
+# after copying Ralph files between projects, so never reset tracked progress/state here.
 if [ -f "$LAST_BRANCH_FILE" ]; then
   CURRENT_BRANCH=$(jq -r '.branchName // empty' "$PRD_FILE" 2>/dev/null || echo "")
   LAST_BRANCH=$(cat "$LAST_BRANCH_FILE" 2>/dev/null || echo "")
@@ -160,22 +161,14 @@ if [ -f "$LAST_BRANCH_FILE" ]; then
     FOLDER_NAME=$(echo "$LAST_BRANCH" | sed 's|^ralph/||')
     ARCHIVE_FOLDER="$ARCHIVE_DIR/$DATE-$FOLDER_NAME"
 
-    echo "Archiving previous run: $LAST_BRANCH"
+    echo "Ralph branch marker changed: $LAST_BRANCH -> $CURRENT_BRANCH"
+    echo "Archiving a snapshot but preserving existing progress/state files."
     mkdir -p "$ARCHIVE_FOLDER"
     [ -f "$PRD_FILE" ] && cp "$PRD_FILE" "$ARCHIVE_FOLDER/"
     [ -f "$PROGRESS_FILE" ] && cp "$PROGRESS_FILE" "$ARCHIVE_FOLDER/"
     [ -f "$STATE_FILE" ] && cp "$STATE_FILE" "$ARCHIVE_FOLDER/"
     echo "   Archived to: $ARCHIVE_FOLDER"
-
-    # Reset progress file for new run
-    echo "# Ralph Progress Log" > "$PROGRESS_FILE"
-    echo "Started: $(date)" >> "$PROGRESS_FILE"
-    echo "---" >> "$PROGRESS_FILE"
-    echo "" >> "$PROGRESS_FILE"
-    echo "## Codebase Patterns" >> "$PROGRESS_FILE"
-    echo "> Reusable patterns discovered during implementation. Read this FIRST every session." >> "$PROGRESS_FILE"
-    # Reset state.json for new run (will be re-bootstrapped)
-    rm -f "$STATE_FILE"
+    echo "   Existing $PROGRESS_FILE and $STATE_FILE were left unchanged."
   fi
 fi
 

@@ -15,8 +15,8 @@
         "pytest and ruff check pass for the scaffold."
       ],
       "priority": 1,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added pyproject, src/bidded subpackages, Pydantic settings, CLI help, env/dependency docs, and deterministic pytest/Ruff coverage. Complete."
     },
     {
       "id": "US-002",
@@ -30,8 +30,8 @@
         "Migration SQL is deterministic and can be applied to a hosted Supabase demo project."
       ],
       "priority": 2,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added Supabase core domain migration for companies, tenders, and documents with demo tenant checks and deterministic contract tests. Complete."
     },
     {
       "id": "US-003",
@@ -45,8 +45,8 @@
         "pytest and ruff check pass for any migration validation helpers or schema contract tests."
       ],
       "priority": 3,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added agent audit migration for agent_runs, immutable agent_outputs keyed by role/round/output type, and bid_decisions with evidence_ids. Complete."
     },
     {
       "id": "US-004",
@@ -60,8 +60,8 @@
         "company_profile evidence requires company_id, field_path, excerpt, and source label metadata."
       ],
       "priority": 4,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added document_chunks and evidence_items migrations with nullable vector embeddings and tender/company provenance constraints. Complete."
     },
     {
       "id": "US-005",
@@ -75,8 +75,8 @@
         "pytest and ruff check pass for graph state schema tests."
       ],
       "priority": 5,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added Pydantic BidRunState with runtime/audit field groups and round-trip tests for empty, motion, and final decision states. Complete."
     },
     {
       "id": "US-006",
@@ -91,8 +91,8 @@
         "pytest and ruff check pass for state ownership tests."
       ],
       "priority": 6,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added graph node contracts, append-only/write-once state updates, role-keyed reducers, and ownership tests. Complete."
     },
     {
       "id": "US-007",
@@ -106,8 +106,8 @@
         "No LLM agent has arbitrary web search, filesystem access, code execution, direct database mutation, or permission to introduce new external sources during a run in v1."
       ],
       "priority": 7,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added immutable agent tool policies for LLM denied tools, bounded retrieval, artifact access, and orchestrator side effects. Complete."
     },
     {
       "id": "US-008",
@@ -121,8 +121,8 @@
         "pytest and ruff check pass for schema construction and serialization tests."
       ],
       "priority": 8,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added strict Pydantic schemas for agent roles, votes, motions, rebuttals, Judge decisions, validation errors, and serialization tests. Complete."
     },
     {
       "id": "US-009",
@@ -136,8 +136,8 @@
         "Tests cover valid cited claims, missing evidence IDs, assumptions, missing_info, and tender/company comparison claims."
       ],
       "priority": 9,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added schema validation for resolved evidence IDs, typed evidence gaps, validation error codes, and tender/company comparison tests. Complete."
     },
     {
       "id": "US-010",
@@ -151,8 +151,8 @@
         "pytest and ruff check pass for the seed logic."
       ],
       "priority": 10,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added idempotent seed-demo-company CLI and deterministic larger consultancy payload with JSONB capability, reference, CV, and financial data. Complete."
     },
     {
       "id": "US-011",
@@ -166,8 +166,8 @@
         "pytest and ruff check pass for company evidence conversion."
       ],
       "priority": 11,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added deterministic company_profile evidence conversion and idempotent evidence_items upsert service for seeded company facts. Complete."
     },
     {
       "id": "US-012",
@@ -182,8 +182,8 @@
         "pytest and ruff check pass for registration logic using a fixture or generated PDF and mocked Supabase Storage."
       ],
       "priority": 12,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added register-demo-tender CLI plus injected Supabase Storage/tender/document registration tests and docs. Complete."
     },
     {
       "id": "US-013",

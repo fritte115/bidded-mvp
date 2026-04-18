@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-001",
-  "storyTitle": "Scaffold Python agent core",
+  "currentStory": "US-013",
+  "storyTitle": "Create pending run context",
   "nextAction": "implement",
-  "progressTokens": 285,
+  "progressTokens": 1410,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"

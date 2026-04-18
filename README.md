@@ -6,17 +6,21 @@ Projektet är byggt kring en enkel princip: inga materiella påståenden utan ev
 
 ## Nuvarande Status
 
-Det här repot är just nu i PRD- och storyfasen. Den faktiska Python-applikationen är ännu inte scaffoldad i root-repot.
+Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i root-repot, medan domänlogik, migrations och agentflöde byggs story för story.
 
 | Del | Status |
 | --- | --- |
-| `ralph/prd.json` | Komplett PRD med 25 user stories för Bidded Swarm Core. Alla stories har `passes: false`. |
-| `ralph/state.json` | Pekar på `US-001`, "Scaffold Python agent core", som nästa implementation. |
+| `ralph/prd.json` | Komplett PRD med 25 user stories för Bidded Swarm Core. Ralph-state styr vilken story som är nästa. |
+| `ralph/state.json` | Pekar på aktuell Ralph-story och nästa action. |
 | `plans/ralph-storie-plan.md` | Äldre plan/sammanfattning. Den behöver läsas som stödmaterial, inte som strikt source of truth. |
-| `Makefile` | Kör Ralph-loop med Claude CLI via `make ralph`. |
-| `.env.example` | Innehåller idag endast `ANTHROPIC_API_KEY` för lokal Ralph/Claude-körning. PRD:n kräver fler appvariabler i `US-001`. |
-| Applikationskod | Inte skapad än. PRD:n anger att paketet ska ligga under `src/bidded`. |
-| Supabase-migrations | Inte skapade än. Schemaarbetet ligger i `US-002`, `US-003` och `US-004`. |
+| `Makefile` | Kör Ralph-loop med Codex CLI via `make ralph`. |
+| `.env.example` | Dokumenterar Claude, Supabase Storage och optional embedding-provider utan secrets. |
+| Applikationskod | Grundpaket finns under `src/bidded` med subpackages för config, db, documents, evidence, agents, orchestration och cli. |
+| Supabase-migrations | Core domain-, agent audit- och chunk/evidence-migrations finns. |
+| Graph state | Typed `BidRunState` finns under `src/bidded/orchestration` med runtime control fields, audit artifacts, node ownership contracts och reducer-policy separerade. |
+| Agent tool policies | Immutable policy contracts finns under `src/bidded/agents/tool_policy.py` för LLM-agenternas läs/skrivgränser och orchestratorns side effects. |
+| Agent output schemas | Strict Pydantic schemas finns under `src/bidded/agents/schemas.py` för Round 1 motions, Round 2 rebuttals, Judge decisions och evidence-claim validation. |
+| Seedat demo-bolag och demo-tender | `bidded seed-demo-company` upsertar en större syntetisk IT-konsultprofil, `bidded register-demo-tender` registrerar en lokal text-PDF, och `bidded.evidence` kan konvertera profilfakta till idempotenta `company_profile` evidence rows. |
 | Frontend | Ingen frontend i repot. Lovable är planerad som tunn demo-UI ovanpå Supabase i `US-025`. |
 
 README:n beskriver därför både nuläget och den stack som PRD:n definierar att vi bygger mot. När stories implementeras ska planerade delar flyttas till faktiskt levererade delar.
@@ -64,10 +68,10 @@ Agentartefakter och UI-output ska vara engelska enligt PRD:n, men beslutskontext
 | Område | Teknik | Status |
 | --- | --- | --- |
 | PRD/story-runner | Ralph | Aktivt. `ralph/prd.json`, `ralph/state.json`, `ralph/progress.md` och `ralph/ralph.sh` styr arbetet. |
-| Lokal automation | Make | `make ralph` kör Ralph med Claude CLI. |
-| LLM för implementation | Claude CLI | Makefile sätter `RALPH_CLAUDE_CMD="claude --bare --model ... --print"`. |
-| Miljö | `.env` via Makefile include | `.env.example` dokumenterar bara `ANTHROPIC_API_KEY` idag. |
-| App-runtime | Python/LangGraph/Supabase | Planerad men inte implementerad än. |
+| Lokal automation | Make | `make ralph` kör Ralph med Codex CLI. |
+| LLM för implementation | Codex CLI | Makefile sätter `RALPH_CODEX_CMD="codex exec --model ..."` för Ralph-sessioner. |
+| Miljö | `.env` via Makefile include | `.env.example` dokumenterar runtimevariabler utan secrets. |
+| App-runtime | Python/LangGraph/Supabase | Python-scaffold, dependency-kontrakt och idempotent demo-company seed finns; övriga live integrations byggs i senare stories. |
 
 ## Arkitektur
 
@@ -106,15 +110,15 @@ PRD:n definierar följande Supabase-tabeller:
 | `documents` | Registrerade dokument med storage path, checksum, content type, roll, parse-status och koppling till tender/company. |
 | `document_chunks` | Sidrefererade textchunks från PDF:er, med chunk index, metadata och nullable embedding/vector-placeholder. |
 | `evidence_items` | Excerpt-nivå evidens från tenderdokument och company profile, med stabila human-readable evidence keys. |
-| `agent_runs` | Livscykel för körningar: `pending`, `running`, `succeeded`, `failed`, `needs_human_review`, plus config och felmetadata. |
-| `agent_outputs` | En immutable rad per agent, runda och outputtyp. Innehåller validerad JSON, modellmetadata, timing/cost-estimat och validation errors. |
-| `bid_decisions` | Slutligt Judge-beslut kopplat till run och relevanta agent outputs. |
+| `agent_runs` | Livscykel för körningar: `pending`, `running`, `succeeded`, `failed`, `needs_human_review`, target tender/company, config och felmetadata. |
+| `agent_outputs` | En immutable rad per agentroll, runda och outputtyp. Innehåller validerad JSON, modellmetadata, timing/cost-estimat och validation errors. |
+| `bid_decisions` | Slutligt Judge-beslut kopplat till run med verdict, confidence, final JSON och `evidence_ids`. |
 
 Migrations ska vara deterministiska och inte kräva Supabase Auth eller RLS för demo-tenant.
 
 ## Graph State Och Ägarskap
 
-PRD:n kräver en typed `BidRunState` innan nodlogiken fylls i. Den ska innehålla run-identitet, company/tender/document IDs, run context, chunks, evidence board, scout output, specialistmotions, rebuttals, validation errors, retry counts, final decision och status.
+Bidded har en typed `BidRunState` innan nodlogiken fylls i. Den innehåller run-identitet, company/tender/document IDs, run context, chunks, evidence board, scout output, specialistmotions, rebuttals, validation errors, agent outputs, retry counts, final decision och status. `GraphNodeContract` dokumenterar varje nods read fields och owned write fields, och `apply_node_update` validerar mutationer mot append-only, write-once, runtime overwrite och role-keyed reducer-regler.
 
 State-reglerna är explicita:
 
@@ -219,12 +223,15 @@ Detta är kärndifferentiatorn: systemet ska kunna visa varför ett beslut togs.
 
 ## CLI Och Worker
 
-PRD:n beskriver en lokal CLI/worker som senare ska kunna:
+PRD:n beskriver en lokal CLI/worker. Den kan nu:
 
 - seeda demo-bolaget idempotent
-- konvertera seedade bolagsfakta till `company_profile` evidence items
 - registrera en lokal text-PDF som tenderdokument
-- ladda upp PDF:en till Supabase Storage
+- ladda upp PDF:en till Supabase Storage och spara dokumentrad med checksumma
+
+Planerade kommande kommandon ska kunna:
+
+- konvertera seedade bolagsfakta till `company_profile` evidence items
 - extrahera och chunka text-PDF:er
 - skapa en `pending` agent run utan att köra LLM eller dokumentprocessing
 - köra en specificerad `agent_run` via ID eller plocka äldsta pending run för demo-bolaget
@@ -232,7 +239,24 @@ PRD:n beskriver en lokal CLI/worker som senare ska kunna:
 - skriva normaliserade `agent_outputs` och `bid_decisions`
 - logga tillräckligt lokalt för demooperation medan Supabase förblir source of truth
 
-Denna CLI finns inte än i root-repot. `US-001` är storyn som ska skapa grunden för den.
+Seed-kommandot kräver `SUPABASE_URL` och `SUPABASE_SERVICE_ROLE_KEY`:
+
+```bash
+.venv/bin/bidded seed-demo-company
+```
+
+Tenderregistrering kräver `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` och
+`SUPABASE_STORAGE_BUCKET`. Den föredragna lokala demo-filen, när den finns, är
+gitignored: `data/demo/incoming/Bilaga Skakrav.pdf`.
+
+```bash
+.venv/bin/bidded register-demo-tender \
+  data/demo/incoming/Bilaga\ Skakrav.pdf \
+  --title "Skakrav for IT consultancy" \
+  --issuing-authority "Example Municipality" \
+  --procurement-reference "REF-2026-001" \
+  --metadata procedure=open
+```
 
 ## Miljövariabler
 
@@ -264,11 +288,20 @@ make ralph
 
 Makefile använder:
 
-- `RALPH_MODEL ?= claude-opus-4-7`
+- `RALPH_CODEX_MODEL ?= gpt-5.4`
 - `RALPH_SESSIONS ?= 10`
-- `ralph/ralph.sh --tool claude`
+- `ralph/ralph.sh --tool codex`
 
-Eftersom appkoden inte är scaffoldad finns det ännu inga fungerande `pytest`, `ruff`, migrations- eller worker-kommandon i root-projektet.
+För app-scaffolden finns de första deterministiska kvalitetsgrindarna:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e ".[dev]"
+.venv/bin/pytest -q
+.venv/bin/ruff check .
+```
+
+Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandot, tenderregistreringen och company-evidence buildern finns; övriga worker-kommandon byggs i senare stories.
 
 ## Teststrategi
 
@@ -289,7 +322,7 @@ Live Claude, live embeddings och live Supabase kan användas för demo-smoke, me
 
 ## Roadmap Från PRD
 
-Alla stories är just nu markerade som ej klara i `ralph/prd.json`.
+Roadmapen drivs av `ralph/prd.json`; Ralph-state pekar alltid på nästa ej klara story.
 
 | ID | Story |
 | --- | --- |

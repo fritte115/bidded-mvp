@@ -4,20 +4,89 @@ Started: 2026-04-18
 
 ## Codebase Patterns
 > Reusable patterns discovered during implementation. Read this FIRST every session.
-- **Current PRD Context**: This repo is for Bidded branch `ralph/bidded-swarm-core`; implement stories from `ralph/prd.json` in priority order.
-- **Bidded Scope**: Build a hackathon-scoped Python + LangGraph agent core backed by hosted Supabase; do not build full Next.js/React UI, auth/RLS, OCR, DOCX, live embedding dependency, or tender search in this PRD.
-- **Bidded Data Contract**: Use Supabase SQL migrations and Storage with hybrid tables `companies`, `tenders`, `documents`, `document_chunks`, `evidence_items`, `agent_runs`, `agent_outputs`, and `bid_decisions`.
-- **Bidded Evidence Policy**: All material agent claims must cite excerpt-level `evidence_items`; unsupported material claims belong in `assumptions`, `missing_info`, validation errors, or potential blockers.
-- **Bidded Evidence Sources**: v1 evidence source types are exactly `tender_document` and `company_profile`; tender evidence must cite document/chunk/page/excerpt/source label, while company evidence must cite company/field_path/excerpt/source label.
-- **Bidded Evidence Board Ownership**: Evidence Scout may propose evidence candidates, but validation and persistence are owned by the orchestrator; specialist agents must not mutate the evidence board.
-- **Bidded State Model**: Use typed shared `BidRunState` as the runtime source of truth. Handoffs are validated artifacts in state, not free-form private context passed between agents.
-- **Bidded Node Ownership**: Each graph node may write only its owned fields; validated evidence, motions, rebuttals, validation errors, agent outputs, and final decisions are append-only artifacts unless a typed reducer explicitly merges parallel outputs.
-- **Bidded Overwrite Policy**: Only runtime control fields such as `status`, `current_step`, `retry_counts`, `last_error`, and working retrieval results may be overwritten during a run.
-- **Bidded Swarm Flow**: Evidence Scout runs first, then Compliance, Win, Delivery/CFO, and Red Team Round 1 motions run independently, then focused rebuttals, then Judge decision.
-- **Bidded Round Visibility**: Round 1 specialists read the same shared evidence board and do not see each other's motions; Round 2 is the first point where specialists can read other agents' validated motions.
-- **Bidded Tool Policy**: LLM agents do not get arbitrary web search, filesystem access, code execution, direct database mutation, or permission to introduce new external sources in v1; retrieval tools must be bounded to the current `agent_run`, `tender_id`, and `company_id`, while the orchestrator owns Supabase writes, status transitions, validation, and persistence.
-- **Bidded Routing Preconditions**: Document registration, PDF ingestion/chunking, and evidence-board preparation happen before the LangGraph swarm starts; graph preflight verifies parsed documents and non-empty evidence but does not run ingestion.
-- **Bidded Routing & Stops**: LangGraph routing is fixed and orchestrator-controlled with an explicit edge table. END only after a validated Judge decision is persisted; fail on missing inputs, unparsed/parser_failed documents, empty evidence board, invalid required artifacts after retries, or persistence failure.
-- **Bidded Join & Retry Policy**: Max 2 retries per LLM node, scoped per agent role for parallel Round 1 and Round 2. Judge runs only after all four required motions and all four required rebuttals are valid.
-- **Bidded Conditional vs Review**: Use `conditional_bid` when Judge can make a defensible bid recommendation with explicit next actions; use `needs_human_review` only when a technically valid run has critical missing or conflicting evidence that prevents a defensible final verdict.
-- **Bidded Quality Gates**: Prefer deterministic mocked LLM/embedding tests with `pytest` plus `ruff check`; live Claude smoke is optional and must not be required for story completion.
+
+- **Ralph Directory**: Ralph files live in `ralph/`, not `scripts/ralph/`.
+- **Current PRD Context**: Work from `ralph/state.json`; implement one `ralph/prd.json` story at a time in priority order.
+- **Bidded Runtime Target**: Python package code belongs under `src/bidded`; tests and baseline gates must not require live Claude, live embeddings, or live Supabase.
+- **Bidded Evidence Contract**: Material claims require excerpt-level `evidence_items` with source-specific provenance and `source_metadata.source_label`; unsupported points become assumptions, missing_info, validation errors, or potential blockers.
+- **Bidded Orchestration Contract**: The orchestrator owns Supabase writes, validation, status transitions, and persistence; LLM agents produce validated artifacts only.
+- **Bidded Quality Gates**: Use deterministic pytest tests and Ruff for story completion; live smoke checks are optional unless a story explicitly requires them.
+- **Bidded Supabase Migrations**: Keep hosted Supabase SQL under `supabase/migrations/` with deterministic pytest contract tests, demo `tenant_key = 'demo'` checks, and no Auth/RLS unless a story adds it.
+- **Bidded CLI Boundary**: Keep CLI help/package imports free of live client construction; create external clients only inside real command execution paths and keep seed helpers injectable for tests.
+- **Bidded Tender Registration Contract**: Register demo tender PDFs through injected Supabase clients, deterministic checksum storage paths, demo-company metadata, and mocked Storage in tests.
+- **Bidded Agent Audit Contract**: `agent_outputs` are immutable rows keyed by `agent_role`, `round_name`, and `output_type`; `bid_decisions` surface Judge `evidence_ids`.
+- **Bidded Graph State Contract**: `BidRunState.apply_node_update` enforces `GraphNodeName` ownership, append-only audit artifacts, write-once decisions, and role-keyed specialist reducers.
+- **Bidded Agent Tool Policy Contract**: `src/bidded/agents/tool_policy.py` is the source of truth for LLM-agent denied tools, bounded retrieval, artifact access, and orchestrator-owned side effects.
+- **Bidded Agent Output Schema Contract**: `src/bidded/agents/schemas.py` is the strict Pydantic surface for motions, rebuttals, Judge decisions, evidence refs, material claim evidence-ID validation, typed evidence gaps, validation errors, and specialist role bounds.
+- **Bidded Company Evidence Builder Contract**: `src/bidded/evidence/company_profile.py` converts seeded company JSON into Supabase-ready `company_profile` rows and uses stable `tenant_key,evidence_key` upserts for idempotence.
+
+## Session Log
+
+No Ralph story sessions have completed yet.
+
+## 2026-04-18 17:33 CEST - US-001
+- **Implemented**: Scaffolded the Python package, dependency metadata, Pydantic settings, import-light CLI help, deterministic tests, and README status updates.
+- **Files**: pyproject.toml, src/bidded/, tests/, .gitignore, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
+- **Key learnings**: Keep CLI help/import paths free of live Supabase or Claude client construction so scaffold tests stay deterministic.
+---
+
+## 2026-04-18 17:44 CEST - US-002
+- **Implemented**: Added the core Supabase domain migration for companies, tenders, and documents with deterministic migration contract tests and README status updates.
+- **Files**: supabase/migrations/20260418180000_create_core_domain.sql, tests/test_supabase_migrations.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
+- **Key learnings**: Contract-test migration files directly so core Supabase storage assumptions stay deterministic without a live database.
+---
+
+## 2026-04-18 17:51 CEST - US-003
+- **Implemented**: Added the agent audit Supabase migration for runs, immutable role/round outputs, and final decisions with contract tests.
+- **Files**: supabase/migrations/20260418181000_create_agent_audit.sql, tests/test_supabase_migrations.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
+- **Key learnings**: Persist agent outputs by `agent_role`, `round_name`, and `output_type` so future graph nodes can write stable audit rows.
+---
+
+## 2026-04-18 17:57 CEST - US-004
+- **Implemented**: Added document chunk and evidence item Supabase schema with pgvector-ready embeddings and source-specific provenance constraints.
+- **Files**: supabase/migrations/20260418182000_create_chunk_evidence.sql, tests/test_supabase_migrations.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
+- **Key learnings**: Keep evidence provenance explicit in columns while preserving flexible source labels and extra context in JSONB metadata.
+---
+
+## 2026-04-18 18:05 CEST - US-005
+- **Implemented**: Added the typed graph state schema, serialization round-trip tests, and README status update.
+- **Files**: src/bidded/orchestration/state.py, src/bidded/orchestration/__init__.py, tests/test_orchestration_state.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
+- **Key learnings**: Keep graph runtime control fields explicit and separate from persisted audit artifacts before ownership enforcement.
+---
+
+## 2026-04-18 18:13 CEST - US-006
+- **Implemented**: Added graph node ownership contracts, append-only/write-once state update enforcement, role-keyed specialist reducers, and deterministic tests.
+- **Files**: src/bidded/orchestration/state.py, src/bidded/orchestration/__init__.py, tests/test_orchestration_state.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
+- **Key learnings**: Route graph mutations through `BidRunState.apply_node_update` so node ownership and reducer policy stay centralized.
+---
+
+## 2026-04-18 18:21 CEST - US-007
+- **Implemented**: Added immutable agent tool policy contracts for Evidence Scout, specialists, Judge, and orchestrator side effects with deterministic tests.
+- **Files**: src/bidded/agents/tool_policy.py, src/bidded/agents/__init__.py, tests/test_agent_tool_policies.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
+- **Key learnings**: Keep LLM-agent permissions separate from graph-node state reducers so tool access and orchestrator persistence remain independently testable.
+---
+## 2026-04-18 18:29 CEST - US-008
+- **Implemented**: Added strict Pydantic schemas for Round 1 motions, Round 2 rebuttals, and Judge decisions with deterministic serialization tests.
+- **Files**: src/bidded/agents/schemas.py, src/bidded/agents/__init__.py, tests/test_agent_output_schemas.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
+- **Key learnings**: Keep agent artifact schemas in `src/bidded/agents/schemas.py`; future node logic should consume validated artifacts instead of inventing per-node payload shapes.
+---
+## 2026-04-18 18:37 CEST - US-009
+- **Implemented**: Added resolved evidence-ID validation for material agent claims, typed evidence gaps, and structured validation error fields.
+- **Files**: src/bidded/agents/schemas.py, tests/test_agent_output_schemas.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
+- **Key learnings**: Material claim validation belongs in the agent schema containers so graph nodes can retry invalid LLM artifacts before persistence.
+---
+## 2026-04-18 18:54 CEST - US-010
+- **Implemented**: Added an idempotent Supabase seed command for the synthetic larger IT consultancy demo profile.
+- **Files**: src/bidded/db/seed_demo_company.py, src/bidded/cli/__init__.py, tests/test_demo_company_seed.py, tests/test_cli.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
+- **Key learnings**: Keep seeded data builders deterministic and inject the persistence client so Supabase behavior is testable without a live backend.
+---
+## 2026-04-18 19:02 CEST - US-011
+- **Implemented**: Added deterministic company-profile evidence conversion and idempotent `evidence_items` upsert coverage for seeded facts.
+- **Files**: src/bidded/evidence/company_profile.py, src/bidded/evidence/__init__.py, tests/test_company_profile_evidence.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
+- **Key learnings**: Use stable company evidence keys and `field_path` provenance so later graph code can cite seeded facts without live Supabase in tests.
+---
+## 2026-04-18 19:09 CEST - US-012
+- **Implemented**: Added demo tender PDF registration with CLI parsing, deterministic storage uploads, tender/document upserts, and validation errors.
+- **Files**: src/bidded/documents/tender_registration.py, src/bidded/documents/__init__.py, src/bidded/cli/__init__.py, tests/test_tender_pdf_registration.py, tests/test_cli.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
+- **Key learnings**: Keep tender registration idempotent by deriving storage paths from file checksum plus normalized filename and persisting demo-company linkage in metadata.
+---

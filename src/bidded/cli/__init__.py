@@ -1,0 +1,140 @@
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+from typing import Any
+
+from bidded import __version__
+from bidded.config import load_settings
+from bidded.db.seed_demo_company import seed_demo_company
+from bidded.documents import TenderPdfRegistrationError, register_demo_tender_pdf
+
+DEMO_TENDER_PDF_HINT = "data/demo/incoming/Bilaga Skakrav.pdf"
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="bidded",
+        description="Bidded local worker and agent-core utilities.",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
+    subparsers = parser.add_subparsers(dest="command")
+    seed_parser = subparsers.add_parser(
+        "seed-demo-company",
+        help="Seed the demo IT consultancy company.",
+        description="Seed the demo IT consultancy company in Supabase.",
+    )
+    seed_parser.set_defaults(handler=_run_seed_demo_company_command)
+
+    register_parser = subparsers.add_parser(
+        "register-demo-tender",
+        help="Register a local text-PDF as the demo tender.",
+        description=(
+            "Register a local text-PDF as the demo tender in Supabase. "
+            f"Preferred local demo input when present: {DEMO_TENDER_PDF_HINT}."
+        ),
+    )
+    register_parser.add_argument(
+        "pdf_path",
+        type=Path,
+        help=(
+            "Local text-PDF path. Preferred gitignored demo input: "
+            f"{DEMO_TENDER_PDF_HINT}."
+        ),
+    )
+    register_parser.add_argument("--title", required=True, help="Tender title.")
+    register_parser.add_argument(
+        "--issuing-authority",
+        required=True,
+        help="Issuing authority for the procurement.",
+    )
+    register_parser.add_argument(
+        "--procurement-reference",
+        help="Optional procurement reference or notice number.",
+    )
+    register_parser.add_argument(
+        "--metadata",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        type=_metadata_pair,
+        help="Optional procurement metadata; repeat for multiple key/value pairs.",
+    )
+    register_parser.set_defaults(handler=_run_register_demo_tender_command)
+    return parser
+
+
+def _create_supabase_client(settings: Any | None = None) -> Any:
+    settings = settings or load_settings()
+    if not settings.supabase_url or not settings.supabase_service_role_key:
+        raise RuntimeError(
+            "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for "
+            "Supabase commands."
+        )
+
+    from supabase import create_client
+
+    return create_client(settings.supabase_url, settings.supabase_service_role_key)
+
+
+def _run_seed_demo_company_command(_args: argparse.Namespace) -> int:
+    try:
+        client = _create_supabase_client()
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    result = seed_demo_company(client)
+    print(
+        "Upserted demo company "
+        f"{result.company_name} for tenant {result.tenant_key}; "
+        f"rows returned: {result.rows_returned}."
+    )
+    return 0
+
+
+def _run_register_demo_tender_command(args: argparse.Namespace) -> int:
+    settings = load_settings()
+    try:
+        client = _create_supabase_client(settings)
+        result = register_demo_tender_pdf(
+            client,
+            pdf_path=args.pdf_path,
+            bucket_name=settings.supabase_storage_bucket,
+            tender_title=args.title,
+            issuing_authority=args.issuing_authority,
+            procurement_reference=args.procurement_reference,
+            procurement_metadata=dict(args.metadata),
+        )
+    except (RuntimeError, TenderPdfRegistrationError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    print(
+        "Registered demo tender "
+        f"{args.title} as document {result.document_id}; "
+        f"storage path: {result.storage_path}."
+    )
+    return 0
+
+
+def _metadata_pair(value: str) -> tuple[str, str]:
+    key, separator, metadata_value = value.partition("=")
+    key = key.strip()
+    if not separator or not key:
+        raise argparse.ArgumentTypeError("metadata must be provided as KEY=VALUE")
+    return key, metadata_value.strip()
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    handler = getattr(args, "handler", None)
+    if handler is None:
+        return 0
+    return handler(args)

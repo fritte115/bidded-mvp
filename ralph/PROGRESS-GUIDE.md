@@ -1,11 +1,11 @@
 # Progress Guide
 
 > Reference for writing progress reports and managing the experiential memory layer.
-> Read this file when you need the full format details for `scripts/ralph/progress.md` or `scripts/ralph/prd.json` notes.
+> Read this file when you need the full format details for `ralph/progress.md` or `ralph/prd.json` notes.
 
 ## Progress Report Format
 
-APPEND to `scripts/ralph/progress.md` (NEVER replace, ALWAYS append):
+APPEND to `ralph/progress.md` (NEVER replace, ALWAYS append):
 ```markdown
 ## [Date/Time] - [Story ID]
 - **Implemented**: [1 sentence]
@@ -18,7 +18,7 @@ Keep entries lean. Do not restate fully green quality checks or PRD/story-status
 
 ## Codebase Patterns Section
 
-Maintain a `## Codebase Patterns` section at the **TOP** of `scripts/ralph/progress.md` (right after the header). Create it if missing:
+Maintain a `## Codebase Patterns` section at the **TOP** of `ralph/progress.md` (right after the header). Create it if missing:
 ```markdown
 ## Codebase Patterns
 > Reusable patterns discovered during implementation. Read this FIRST every session.
@@ -32,8 +32,8 @@ Budget: **15 lines max**. Merge related patterns aggressively, prefer one bullet
 
 After implementing a story, persist reusable discoveries to two places:
 
-- **Codebase Patterns** (top of `scripts/ralph/progress.md`): General, reusable patterns
-- **Institutional Memory** (bottom of `scripts/ralph/CLAUDE.md`): Conventions, gotchas, cross-file dependencies
+- **Codebase Patterns** (top of `ralph/progress.md`): General, reusable patterns
+- **Institutional Memory** (bottom of `ralph/CLAUDE.md`): Conventions, gotchas, cross-file dependencies
 - Optionally update project-level `CLAUDE.md` files in relevant directories for directory-scoped knowledge
 - NEVER add: story-specific details, temporary debugging notes, or info already elsewhere
 - Only add patterns that are **genuinely reusable** across stories

@@ -1,6 +1,11 @@
 .env
 .env.*
 !.env.example
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
 brain-in-the-fish/
 ralph/.last-branch
 ralph/archive/
