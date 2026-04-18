@@ -134,7 +134,6 @@ export default function Bids() {
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
         title="Bids"
-        description="Action layer — turn agent recommendations into draft bids and track them through submission."
         actions={
           <Button asChild>
             <Link to="/bids/new">
