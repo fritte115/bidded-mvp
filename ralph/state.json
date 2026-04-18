@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-014",
-  "storyTitle": "Ingest PDF chunks",
+  "currentStory": "US-015",
+  "storyTitle": "Add retrieval fallback",
   "nextAction": "implement",
-  "progressTokens": 1470,
+  "progressTokens": 1545,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"

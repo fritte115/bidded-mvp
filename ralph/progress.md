@@ -13,7 +13,7 @@ Started: 2026-04-18
 - **Bidded Quality Gates**: Use deterministic pytest tests and Ruff for story completion; live smoke checks are optional unless a story explicitly requires them.
 - **Bidded Supabase Migrations**: Keep hosted Supabase SQL under `supabase/migrations/` with deterministic pytest contract tests, demo `tenant_key = 'demo'` checks, and no Auth/RLS unless a story adds it.
 - **Bidded CLI Boundary**: Keep CLI help/package imports free of live client construction; create external clients only inside real command execution paths and keep seed helpers injectable for tests.
-- **Bidded Tender Registration Contract**: Register demo tender PDFs through injected Supabase clients, deterministic checksum storage paths, demo-company metadata, and mocked Storage in tests.
+- **Bidded Document Pipeline Contract**: Keep tender registration and PDF ingestion in `src/bidded/documents`; registered text-PDFs use mocked Storage, PyMuPDF extraction, deterministic page chunks, and parser status metadata.
 - **Bidded Pending Run Contract**: Create `agent_runs` through an orchestration service that validates demo company, tender, and tender document rows, inserts `pending`, and leaves processing for later graph steps.
 - **Bidded Agent Audit Contract**: `agent_outputs` are immutable rows keyed by `agent_role`, `round_name`, and `output_type`; `bid_decisions` surface Judge `evidence_ids`.
 - **Bidded Graph State Contract**: `BidRunState.apply_node_update` enforces `GraphNodeName` ownership, append-only audit artifacts, write-once decisions, and role-keyed specialist reducers.
@@ -95,4 +95,9 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added pending agent run creation with deterministic evidence-locked run config, Supabase row validation, and CLI wiring.
 - **Files**: src/bidded/orchestration/pending_run.py, src/bidded/orchestration/__init__.py, src/bidded/cli/__init__.py, tests/test_pending_run_context.py, tests/test_cli.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
 - **Key learnings**: Keep pending run creation side-effect-light by validating existing Supabase rows before inserting `agent_runs` and deferring all processing to later graph steps.
+---
+## 2026-04-18 19:27 CEST - US-014
+- **Implemented**: Added registered tender PDF ingestion with PyMuPDF extraction, deterministic page chunks, parser status persistence, and mocked Supabase/Storage tests.
+- **Files**: src/bidded/documents/pdf_ingestion.py, src/bidded/documents/__init__.py, tests/test_pdf_ingestion.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
+- **Key learnings**: Keep parser outcome metadata on the `documents` row while preserving page/source metadata on every `document_chunks` row for later evidence citation.
 ---

@@ -213,8 +213,8 @@
         "pytest and ruff check pass for PDF ingestion logic."
       ],
       "priority": 14,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added registered tender PDF ingestion with PyMuPDF extraction, deterministic page chunks, parser status persistence, and tests. Complete."
     },
     {
       "id": "US-015",
