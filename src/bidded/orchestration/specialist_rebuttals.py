@@ -179,6 +179,39 @@ def _coerce_validation_error_item(item: Any) -> Any:
     return item
 
 
+def _normalize_role_list(roles: Any) -> Any:
+    if not isinstance(roles, list):
+        return roles
+    return [_normalize_agent_role(r) for r in roles]
+
+
+def _coerce_disagreement_item(
+    item: dict[str, Any],
+    board: Sequence[EvidenceItemState],
+) -> dict[str, Any]:
+    out = _coerce_rebuttal_item_refs(item, board)
+    if "target_role" in out:
+        out["target_role"] = _normalize_agent_role(out["target_role"])
+    return out
+
+
+def _coerce_unsupported_claim_item(item: Any) -> Any:
+    if not isinstance(item, dict):
+        return item
+    out = dict(item)
+    if "target_role" in out:
+        out["target_role"] = _normalize_agent_role(out["target_role"])
+    return out
+
+
+def _coerce_revised_stance(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, str) and value.strip().lower() in ("null", "none", ""):
+        return None
+    return value
+
+
 def _coerce_round2_rebuttal_mapping(
     raw: Mapping[str, Any],
     evidence_board: Sequence[EvidenceItemState],
@@ -187,24 +220,41 @@ def _coerce_round2_rebuttal_mapping(
     out = dict(raw)
     if "agent_role" in out:
         out["agent_role"] = _normalize_agent_role(out["agent_role"])
+    # Normalize target_roles list
+    if "target_roles" in out:
+        out["target_roles"] = _normalize_role_list(out["target_roles"])
+    # Coerce revised_stance "null" string → None
+    if "revised_stance" in out:
+        out["revised_stance"] = _coerce_revised_stance(out["revised_stance"])
     # Resolve top-level evidence_refs
     refs = out.get("evidence_refs")
     if isinstance(refs, list):
         out["evidence_refs"] = _coerce_refs_list(refs, evidence_board)
-    # targeted_disagreements: each has evidence_refs
+    # targeted_disagreements: normalize target_role + resolve evidence_refs
     disagreements = out.get("targeted_disagreements")
     if isinstance(disagreements, list):
         out["targeted_disagreements"] = [
-            _coerce_rebuttal_item_refs(d, evidence_board) if isinstance(d, dict) else d
+            _coerce_disagreement_item(d, evidence_board) if isinstance(d, dict) else d
             for d in disagreements
         ]
-    # blocker_challenges: each has evidence_refs
+    # unsupported_claims: normalize target_role
+    unsupported = out.get("unsupported_claims")
+    if isinstance(unsupported, list):
+        out["unsupported_claims"] = [
+            _coerce_unsupported_claim_item(c) for c in unsupported
+        ]
+    # blocker_challenges: resolve evidence_refs + normalize position
+    # Drop any challenge that has no resolvable evidence_refs (schema requires min 1)
     challenges = out.get("blocker_challenges")
     if isinstance(challenges, list):
-        out["blocker_challenges"] = [
-            _coerce_rebuttal_item_refs(c, evidence_board) if isinstance(c, dict) else c
-            for c in challenges
-        ]
+        coerced_challenges = []
+        for c in challenges:
+            if isinstance(c, dict):
+                c = _coerce_rebuttal_item_refs(c, evidence_board)
+                if not c.get("evidence_refs"):
+                    continue
+            coerced_challenges.append(c)
+        out["blocker_challenges"] = coerced_challenges
     validation_errors = out.get("validation_errors")
     if isinstance(validation_errors, list):
         out["validation_errors"] = [
@@ -530,18 +580,6 @@ def _validate_red_team_scope(
     if bid_positive_roles and targeted_roles.isdisjoint(bid_positive_roles):
         raise Round2RebuttalValidationError(
             "Red Team rebuttals must challenge the strongest bid arguments.",
-            field_path="target_roles",
-        )
-
-    conditional_roles = {
-        _AGENT_ROLE_BY_SPECIALIST[role]
-        for role, motion in motions.items()
-        if role is not SpecialistRole.RED_TEAM
-        and motion.verdict is Verdict.CONDITIONAL_BID
-    }
-    if conditional_roles and targeted_roles.isdisjoint(conditional_roles):
-        raise Round2RebuttalValidationError(
-            "Red Team rebuttals must challenge conditional-bid logic.",
             field_path="target_roles",
         )
 

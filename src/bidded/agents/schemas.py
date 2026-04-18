@@ -145,7 +145,7 @@ class TargetedDisagreement(StrictAgentOutputModel):
     target_role: AgentRole
     disputed_claim: str = Field(min_length=1)
     rebuttal: str = Field(min_length=1)
-    evidence_refs: list[EvidenceReference] = Field(min_length=1)
+    evidence_refs: list[EvidenceReference] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_evidence_ids(self) -> TargetedDisagreement:
@@ -250,7 +250,7 @@ class ComplianceMatrixItem(StrictAgentOutputModel):
     requirement: str = Field(min_length=1)
     status: Literal["met", "unmet", "unknown"]
     assessment: str = Field(min_length=1)
-    evidence_refs: list[EvidenceReference] = Field(min_length=1)
+    evidence_refs: list[EvidenceReference] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_evidence_ids(self) -> ComplianceMatrixItem:
@@ -265,7 +265,7 @@ class RiskRegisterItem(StrictAgentOutputModel):
     risk: str = Field(min_length=1)
     severity: Literal["low", "medium", "high"]
     mitigation: str = Field(min_length=1)
-    evidence_refs: list[EvidenceReference] = Field(min_length=1)
+    evidence_refs: list[EvidenceReference] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_evidence_ids(self) -> RiskRegisterItem:

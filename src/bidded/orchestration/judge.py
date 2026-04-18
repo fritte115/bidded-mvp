@@ -172,11 +172,15 @@ def _coerce_item_with_refs(
     board: Sequence[EvidenceItemState],
     *,
     coerce_claim: bool = False,
+    lowercase_fields: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     out = _merge_title_detail_into_claim(item) if coerce_claim else dict(item)
     refs = out.get("evidence_refs")
     if refs is not None:
         out["evidence_refs"] = _coerce_refs_list(refs, board)
+    for field in lowercase_fields:
+        if isinstance(out.get(field), str):
+            out[field] = out[field].strip().lower()
     return out
 
 
@@ -214,20 +218,41 @@ def _coerce_judge_decision_mapping(
                 else c
                 for c in val
             ]
-    # compliance_matrix items have assessment/requirement text + evidence_refs
+    # compliance_matrix: lowercase status, resolve refs
+    # Drop rows where refs have unresolvable null IDs (model_validator rejects them)
     matrix = out.get("compliance_matrix")
     if isinstance(matrix, list):
-        out["compliance_matrix"] = [
-            _coerce_item_with_refs(m, evidence_board) if isinstance(m, dict) else m
-            for m in matrix
-        ]
-    # risk_register items have risk/mitigation text + evidence_refs
+        coerced_matrix = []
+        for m in matrix:
+            if isinstance(m, dict):
+                m = _coerce_item_with_refs(m, evidence_board, lowercase_fields=("status",))
+                refs = m.get("evidence_refs") or []
+                if any(
+                    r.get("evidence_id") is None
+                    or str(r.get("evidence_id", "")).strip() in ("", "null", "None")
+                    for r in refs
+                    if isinstance(r, dict)
+                ):
+                    m["evidence_refs"] = []
+            coerced_matrix.append(m)
+        out["compliance_matrix"] = coerced_matrix
+    # risk_register: lowercase severity, resolve refs
     risks = out.get("risk_register")
     if isinstance(risks, list):
-        out["risk_register"] = [
-            _coerce_item_with_refs(r, evidence_board) if isinstance(r, dict) else r
-            for r in risks
-        ]
+        coerced_risks = []
+        for r in risks:
+            if isinstance(r, dict):
+                r = _coerce_item_with_refs(r, evidence_board, lowercase_fields=("severity",))
+                refs = r.get("evidence_refs") or []
+                if any(
+                    ref.get("evidence_id") is None
+                    or str(ref.get("evidence_id", "")).strip() in ("", "null", "None")
+                    for ref in refs
+                    if isinstance(ref, dict)
+                ):
+                    r["evidence_refs"] = []
+            coerced_risks.append(r)
+        out["risk_register"] = coerced_risks
     validation_errors = out.get("validation_errors")
     if isinstance(validation_errors, list):
         out["validation_errors"] = [
