@@ -4,7 +4,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
@@ -313,6 +313,8 @@ def test_cli_create_pending_run_delegates_to_service(
             "22222222-2222-4222-8222-222222222222",
             "--document-id",
             "44444444-4444-4444-8444-444444444444",
+            "--document-id",
+            "55555555-5555-4555-8555-555555555555",
         ]
     )
 
@@ -325,7 +327,10 @@ def test_cli_create_pending_run_delegates_to_service(
         "client": client,
         "tender_id": "33333333-3333-4333-8333-333333333333",
         "company_id": "22222222-2222-4222-8222-222222222222",
-        "document_ids": ["44444444-4444-4444-8444-444444444444"],
+        "document_ids": [
+            "44444444-4444-4444-8444-444444444444",
+            "55555555-5555-4555-8555-555555555555",
+        ],
     }
 
 
@@ -383,3 +388,26 @@ def test_cli_worker_delegates_to_lifecycle_service(
     assert captured_worker["client"] is client
     assert captured_worker["run_id"] == "11111111-1111-4111-8111-111111111111"
     assert captured_worker["company_id"] is None
+
+
+def test_cli_serve_delegates_to_uvicorn(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = object()
+    fake_api_server = ModuleType("bidded.api_server")
+    fake_api_server.app = app
+
+    captured: dict[str, Any] = {}
+    fake_uvicorn = ModuleType("uvicorn")
+
+    def record_run(target_app: object, *, host: str, port: int) -> None:
+        captured["app"] = target_app
+        captured["host"] = host
+        captured["port"] = port
+
+    fake_uvicorn.run = record_run
+    monkeypatch.setitem(sys.modules, "bidded.api_server", fake_api_server)
+    monkeypatch.setitem(sys.modules, "uvicorn", fake_uvicorn)
+
+    result = cli.main(["serve", "--host", "127.0.0.1", "--port", "8009"])
+
+    assert result == 0
+    assert captured == {"app": app, "host": "127.0.0.1", "port": 8009}

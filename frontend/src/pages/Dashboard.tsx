@@ -15,8 +15,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { runs, formatDate, formatDuration } from "@/data/mock";
-import { fetchDashboardStats, fetchActiveRuns } from "@/lib/api";
+import { formatDate, formatDuration } from "@/data/mock";
+import { fetchDashboardStats, fetchActiveRuns, fetchDecisions } from "@/lib/api";
 import { FileText, Files, PlayCircle, Gavel, ArrowRight, FileSignature } from "lucide-react";
 
 /** Shorten a UUID to a display run ID: "RUN-a1b2" */
@@ -37,8 +37,13 @@ export default function Dashboard() {
     refetchInterval: 10_000,
   });
 
-  // Latest Verdicts: keep mock until US-021 (Judge node) lands and bid_decisions have rows
-  const recentDecisions = runs.filter((r) => r.judge).slice(0, 3);
+  const { data: decisions = [] } = useQuery({
+    queryKey: ["decisions"],
+    queryFn: fetchDecisions,
+    refetchInterval: 10_000,
+  });
+
+  const recentDecisions = decisions.slice(0, 3);
 
   return (
     <>
@@ -48,7 +53,7 @@ export default function Dashboard() {
         <StatCard label="Total Procurements" value={stats?.totalProcurements ?? "—"} hint="Registered tenders" icon={FileText} />
         <StatCard label="Registered PDFs" value={stats?.totalPdfDocuments ?? "—"} hint="Stored tender documents" icon={Files} />
         <StatCard label="Active Runs" value={stats?.activeRuns ?? "—"} hint="Running or queued" icon={PlayCircle} />
-        <StatCard label="Judge decisions" value="—" hint="After PRD judge + worker" icon={Gavel} />
+        <StatCard label="Judge decisions" value={decisions.length} hint="Persisted decisions" icon={Gavel} />
       </div>
 
       <Card className="mt-6">
@@ -61,8 +66,7 @@ export default function Dashboard() {
         <CardContent className="p-0">
           {activeRuns.length === 0 ? (
             <p className="px-6 py-8 text-center text-sm text-muted-foreground">
-              No queued or in-flight runs. Run creation from the UI is deferred to the PRD backlog;
-              you can still register procurements and documents.
+              No queued or in-flight runs. Register a procurement and start an agent run when ready.
             </p>
           ) : (
             <Table>
@@ -113,7 +117,13 @@ export default function Dashboard() {
           </Button>
         </div>
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-          {recentDecisions.map((r) => (
+          {recentDecisions.length === 0 ? (
+            <Card>
+              <CardContent className="p-4 text-sm text-muted-foreground">
+                No Judge decisions yet.
+              </CardContent>
+            </Card>
+          ) : recentDecisions.map((r) => (
             <Card key={r.id}>
               <CardContent className="p-4">
                 <div className="mb-3 flex items-start justify-between gap-2">
@@ -121,13 +131,13 @@ export default function Dashboard() {
                     <p className="text-xs uppercase tracking-wide text-muted-foreground">Procurement</p>
                     <p className="text-sm font-medium leading-tight">{r.tenderName}</p>
                   </div>
-                  {r.judge && <VerdictBadge verdict={r.judge.verdict} />}
+                  <VerdictBadge verdict={r.verdict} />
                 </div>
-                {r.judge && <ConfidenceBar value={r.judge.confidence} className="mb-3" />}
-                <p className="line-clamp-2 text-xs text-muted-foreground">{r.judge?.citedMemo}</p>
+                <ConfidenceBar value={r.confidence} className="mb-3" />
+                <p className="line-clamp-2 text-xs text-muted-foreground">{r.citedMemo}</p>
                 <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
                   <span>{formatDate(r.completedAt ?? r.startedAt)}</span>
-                  <span className="font-mono">{r.evidence.length} evidence</span>
+                  <span className="font-mono">{r.confidence}% confidence</span>
                 </div>
                 <div className="mt-3 flex items-center justify-between gap-2">
                   <Button asChild variant="ghost" size="sm" className="h-7 text-xs text-primary">

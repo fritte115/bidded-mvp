@@ -685,6 +685,7 @@ function mapEvidenceRow(
 
 export interface DecisionRow {
   id: string;
+  tenderId: string;
   tenderName: string;
   verdict: Verdict;
   confidence: number; // 0–100
@@ -699,7 +700,7 @@ export async function fetchDecisions(): Promise<DecisionRow[]> {
     .from("bid_decisions")
     .select(
       `agent_run_id, verdict, confidence, final_decision,
-       agent_runs!inner(id, status, started_at, completed_at, tenders!inner(title))`,
+       agent_runs!inner(id, tender_id, status, started_at, completed_at, tenders!inner(title))`,
     )
     .eq("tenant_key", "demo")
     .order("created_at", { ascending: false });
@@ -712,6 +713,7 @@ export async function fetchDecisions(): Promise<DecisionRow[]> {
     const fd = (row.final_decision as Record<string, unknown>) ?? {};
     return {
       id: row.agent_run_id as string,
+      tenderId: run.tender_id as string,
       tenderName: (tender?.title as string) ?? "Unknown",
       verdict: normalizeVerdictStr(row.verdict as string),
       confidence: Math.round(((row.confidence as number) ?? 0) * 100),

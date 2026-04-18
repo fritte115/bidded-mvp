@@ -125,11 +125,7 @@ export default function BidEditor() {
 
   // Build a Procurement-compatible object for estimateBid
   const decisionForProcurement = useMemo(
-    () => decisions.find((d) => {
-      // match by runId pointing to same tender — we use tenderName as heuristic
-      // since decisions don't carry tender_id directly in DecisionRow
-      return procRow && d.tenderName === procRow.name;
-    }),
+    () => decisions.find((d) => procRow && d.tenderId === procRow.id),
     [decisions, procRow],
   );
 
