@@ -438,8 +438,9 @@
       "title": "Add embedding model contract",
       "description": "As a developer, I need a fixed embedding model contract so that stored chunk vectors and query vectors are comparable in pgvector.",
       "acceptanceCriteria": [
-        "Settings define embedding provider, model name, dimensions, and enabled/disabled mode.",
-        "Default live model is OpenAI text-embedding-3-small with 1536 dimensions; mock mode remains deterministic for tests.",
+        "Settings expose EMBEDDING_PROVIDER, EMBEDDING_MODEL, EMBEDDING_DIMENSIONS, and EMBEDDING_MODE.",
+        "EMBEDDING_MODE supports mock, disabled, and live; mock mode remains deterministic for tests.",
+        "Default live model is OpenAI text-embedding-3-small with 1536 dimensions.",
         "Runtime validation rejects providers/models whose dimensions do not match document_chunks.embedding vector(1536).",
         "Chunk metadata records embedding provider, model, dimensions, and version when embeddings are generated.",
         "Tests cover matching dimensions, mismatched dimensions, mock mode, missing credentials, and metadata shape; pytest and ruff check pass."
@@ -453,6 +454,7 @@
       "title": "Generate and store chunk embeddings",
       "description": "As a developer, I need document chunk embeddings generated during ingestion so that semantic search can retrieve procurement text by meaning, not just exact words.",
       "acceptanceCriteria": [
+        "Python ingestion/worker code owns embedding generation for v1; Supabase Edge Functions are out of scope.",
         "Ingestion can populate document_chunks.embedding for parsed text chunks when live embeddings are enabled.",
         "Mock embeddings remain the default for deterministic tests and local non-live flows.",
         "Embedding generation is idempotent and skips chunks whose metadata shows the current embedding model/version is already present.",
@@ -469,8 +471,8 @@
       "description": "As a developer, I need a Supabase pgvector search path so that semantic retrieval can run inside Postgres instead of fetching all chunks into Python.",
       "acceptanceCriteria": [
         "Add a migration with an HNSW cosine index for non-null document_chunks.embedding.",
-        "Add a match_document_chunks RPC function scoped by tenant_key and optional document_id.",
-        "The function returns chunk fields plus similarity score and excludes rows without embeddings.",
+        "Add a match_document_chunks RPC function that accepts query_embedding vector(1536), match_count, match_threshold, tenant_key, and optional document_id.",
+        "The function uses cosine similarity, returns chunk fields plus normalized similarity score, and excludes rows without embeddings.",
         "Python retrieval can call the RPC when live embeddings are enabled and falls back cleanly when unavailable.",
         "Tests cover SQL contract, RPC request shape, no-embedding rows, document scoping, and fallback behavior; pytest and ruff check pass."
       ],
@@ -485,6 +487,7 @@
       "acceptanceCriteria": [
         "Retrieval combines keyword candidates, glossary-triggered candidates, and pgvector candidates.",
         "Results are deduplicated by chunk ID and ranked with deterministic scoring metadata.",
+        "Default final_score combines embedding_score, keyword_score, glossary_score, and requirement_type boost with documented weights: 0.45 embedding, 0.30 keyword, 0.20 glossary, and 0.05 requirement_type.",
         "Returned metadata includes keyword score, glossary matches, embedding score, final score, and retrieval method hybrid.",
         "Hybrid retrieval remains usable without live embeddings by combining keyword and glossary paths.",
         "Tests cover keyword-only, glossary-only, embedding-only, merged candidates, deterministic tie-breaks, and Evidence Scout request integration; pytest and ruff check pass."
@@ -760,6 +763,96 @@
         "Tests mock the live client and cover disabled-by-default behavior, missing credentials, successful comparison, validation failure comparison, and report output; pytest and ruff check pass."
       ],
       "priority": 50,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-051",
+      "title": "Add clause-aware tender segmentation",
+      "description": "As a bid manager, I need tender contract text grouped into numbered clauses and headings so that evidence items preserve the context around sections like penalties, liability, insurance, confidentiality, subcontractors, and GDPR.",
+      "acceptanceCriteria": [
+        "Detect Swedish/English numbered headings and section titles from parsed tender chunks, including wrapped PDF text.",
+        "Preserve section number, heading, page range, chunk IDs, and clause body text in deterministic clause segment objects.",
+        "Evidence extraction can attach clause_section metadata to tender evidence items without changing source provenance.",
+        "Existing sentence-level evidence extraction still works when no headings are detected.",
+        "Tests cover numbered headings, heading-only sections, wrapped multiline clauses, multi-sentence clause bodies, and no-heading fallback; pytest and ruff check pass."
+      ],
+      "priority": 51,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-052",
+      "title": "Add contract clause tag taxonomy",
+      "description": "As a bid manager, I need stable contract clause tags so that variable procurement terms can be recognized without expanding the broad RequirementType enum.",
+      "acceptanceCriteria": [
+        "Add a fixed ContractClauseTag taxonomy used in evidence metadata, not as new RequirementType values.",
+        "Initial tags cover penalties/liquidated damages, liability caps, GDPR/DPA, subprocessors, confidentiality, insurance, gross negligence/wilful misconduct, public access, reporting, termination, subcontractors, and unknown contract clauses.",
+        "Each tag has stable ID, display label, Swedish/English match patterns, risk lens, suggested proof/action, and blocker/review hint.",
+        "Matching is deterministic and diacritic-insensitive.",
+        "Tests cover known Swedish/English matches, no-match behavior, multiple matches, precedence, and metadata shape; pytest and ruff check pass."
+      ],
+      "priority": 52,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-053",
+      "title": "Extract structured contract terms",
+      "description": "As a bid manager, I need key numeric and timing terms extracted from contract clauses so that Delivery/CFO, Red Team, and Judge can reason over concrete risk parameters.",
+      "acceptanceCriteria": [
+        "Extract money amounts and units such as 5 000 SEK, 25 000 SEK, 10 Mkr, and 2 Mkr.",
+        "Extract recurrence/cap phrases such as per week, per month, per claim, and per year.",
+        "Extract day-based deadlines such as trettio (30) dagar and 30 days.",
+        "Attach extracted facts under metadata.extracted_terms on relevant evidence items.",
+        "Tests cover the provided penalty/liability/GDPR snippet, Swedish number formatting, Mkr/SEK normalization, recurring penalties, liability caps, and payment deadlines; pytest and ruff check pass."
+      ],
+      "priority": 53,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-054",
+      "title": "Annotate evidence board with clause metadata",
+      "description": "As a developer, I need tender evidence rows annotated with clause tags and extracted terms so that agents receive structured contract-risk context while citations remain excerpt-level.",
+      "acceptanceCriteria": [
+        "Tender evidence metadata can include contract_clause_ids, contract_clause_matches, clause_section, and extracted_terms.",
+        "Existing requirement_type behavior remains unchanged; most contract terms map to contract_obligation or legal_or_regulatory_reference.",
+        "Regulatory glossary metadata remains compatible with the new clause metadata.",
+        "Stable evidence keys and upsert behavior remain deterministic.",
+        "Tests cover evidence payload shape, backwards compatibility for existing evidence rows, stable keys, and metadata omission when no clause metadata exists; pytest and ruff check pass."
+      ],
+      "priority": 54,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-055",
+      "title": "Add bounded clause classifier adapter",
+      "description": "As a bid manager, I need ambiguous contract clauses classified against the fixed clause taxonomy so that document-specific wording can be handled without free-form legal reasoning.",
+      "acceptanceCriteria": [
+        "Add a model adapter request/response schema for clause classification that only permits known ContractClauseTag IDs.",
+        "The classifier must cite existing evidence keys or clause segment provenance and return confidence plus short rationale.",
+        "Unsupported, unclear, or low-confidence clauses become unknown_contract_clause, missing info, or review warnings.",
+        "Normal tests use deterministic mocked classifier outputs and never require live Claude.",
+        "Tests cover valid classification, invalid tag rejection, missing evidence rejection, low-confidence fallback, and mocked integration with evidence extraction; pytest and ruff check pass."
+      ],
+      "priority": 55,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-056",
+      "title": "Add contract clause coverage audit",
+      "description": "As a bid manager, I need a coverage audit after evidence extraction so that important headings or contract-risk signals are not silently missed.",
+      "acceptanceCriteria": [
+        "The audit flags headings or signals for insurance, confidentiality, GDPR/DPA, subcontractors, penalties, liability, gross negligence, public access, termination, and reporting when no corresponding evidence/tag was produced.",
+        "The audit flags known clause tags with missing expected extracted terms, such as penalty amount, liability cap, payment deadline, or recurrence.",
+        "Audit findings become structured warnings/readable missing-info context, not automatic no_bid blockers.",
+        "Evidence Scout, Compliance, Delivery/CFO, Red Team, and Judge request payloads can include the audit warnings.",
+        "Tests cover headings with missing body text, known signals with no evidence, missing extracted terms, provided Swedish contract snippet, and no false hard blocker behavior; pytest and ruff check pass."
+      ],
+      "priority": 56,
       "passes": false,
       "notes": ""
     }
