@@ -16,7 +16,6 @@ Set ``BIDDED_SWARM_BACKEND=anthropic`` and ``ANTHROPIC_API_KEY`` to use this pat
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Sequence
 from dataclasses import replace
 from typing import Any
@@ -318,11 +317,7 @@ def anthropic_graph_handlers(
     from bidded.orchestration.specialist_motions import build_round_1_specialist_handler
     from bidded.orchestration.specialist_rebuttals import build_round_2_rebuttal_handler
 
-    resolved_model = (
-        model
-        or os.environ.get("BIDDED_ANTHROPIC_MODEL", "").strip()
-        or "claude-sonnet-4-20250514"
-    )
+    resolved_model = (model or "claude-sonnet-4-20250514").strip()
     defaults = default_graph_node_handlers()
     return replace(
         defaults,

@@ -344,6 +344,9 @@ def test_cli_worker_delegates_to_lifecycle_service(
             {
                 "supabase_url": "https://example.supabase.co",
                 "supabase_service_role_key": "service-role",
+                "anthropic_api_key": None,
+                "bidded_swarm_backend": "evidence_locked",
+                "anthropic_model": "claude-sonnet-4-20250514",
             },
         )(),
     )
