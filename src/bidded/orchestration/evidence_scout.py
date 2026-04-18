@@ -162,6 +162,58 @@ def build_evidence_scout_request(
     )
 
 
+def _merge_title_detail_into_claim(item: dict[str, Any]) -> dict[str, Any]:
+    """LLMs often emit title/detail instead of the schema's single ``claim`` field."""
+    out = dict(item)
+    claim = (out.get("claim") or "").strip()
+    if not claim:
+        title = (out.get("title") or "").strip()
+        detail = (out.get("detail") or "").strip()
+        summary = (out.get("summary") or "").strip()
+        if title and detail:
+            claim = f"{title} — {detail}"
+        elif title:
+            claim = title
+        elif detail:
+            claim = detail
+        elif summary:
+            claim = summary
+    if claim:
+        out["claim"] = claim
+    for key in (
+        "title",
+        "detail",
+        "summary",
+        "description",
+        "name",
+        "heading",
+    ):
+        out.pop(key, None)
+    return out
+
+
+def _coerce_evidence_scout_mapping(raw: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize common LLM field aliases before strict Pydantic validation."""
+    out = dict(raw)
+    findings = out.get("findings")
+    if isinstance(findings, list):
+        out["findings"] = [
+            _merge_title_detail_into_claim(f)
+            if isinstance(f, dict)
+            else f
+            for f in findings
+        ]
+    blockers = out.get("potential_blockers")
+    if isinstance(blockers, list):
+        out["potential_blockers"] = [
+            _merge_title_detail_into_claim(b)
+            if isinstance(b, dict)
+            else b
+            for b in blockers
+        ]
+    return out
+
+
 def validate_evidence_scout_output(
     raw_output: EvidenceScoutOutput | Mapping[str, Any],
     *,
@@ -170,7 +222,12 @@ def validate_evidence_scout_output(
     """Validate strict scout schema and evidence refs against the board."""
 
     try:
-        output = EvidenceScoutOutput.model_validate(raw_output)
+        if isinstance(raw_output, EvidenceScoutOutput):
+            output = raw_output
+        else:
+            output = EvidenceScoutOutput.model_validate(
+                _coerce_evidence_scout_mapping(raw_output)
+            )
     except ValidationError as exc:
         raise EvidenceScoutValidationError(
             str(exc),

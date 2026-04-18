@@ -83,6 +83,9 @@ class AnthropicEvidenceScoutModel:
             "Findings must use ScoutCategory values: deadline, shall_requirement, "
             "qualification_criterion, evaluation_criterion, contract_risk, "
             "required_submission_document. "
+            "Each finding must be a JSON object with keys: category, claim, evidence_refs. "
+            "Put the full factual statement in claim (one string). Do not use title, "
+            "detail, or summary instead of claim. "
             "Include at least one finding if the catalog is non-empty."
         )
         user = json.dumps(
