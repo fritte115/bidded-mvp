@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-018",
-  "storyTitle": "Implement Evidence Scout node",
+  "currentStory": "US-019",
+  "storyTitle": "Implement specialist motions",
   "nextAction": "implement",
-  "progressTokens": 1770,
+  "progressTokens": 1845,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"

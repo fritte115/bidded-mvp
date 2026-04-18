@@ -16,9 +16,9 @@ Started: 2026-04-18
 - **Bidded Document Pipeline Contract**: Keep tender registration and PDF ingestion in `src/bidded/documents`; registered text-PDFs use mocked Storage, PyMuPDF extraction, deterministic page chunks, and parser status metadata.
 - **Bidded Pending Run Contract**: Create `agent_runs` through an orchestration service that validates demo company, tender, and tender document rows, inserts `pending`, and leaves processing for later graph steps.
 - **Bidded Agent Audit Contract**: `agent_outputs` are immutable rows keyed by `agent_role`, `round_name`, and `output_type`; `bid_decisions` surface Judge `evidence_ids`.
-- **Bidded Graph State/Routing Contract**: `BidRunState.apply_node_update` enforces node ownership and reducers; `src/bidded/orchestration/graph.py` owns the fixed LangGraph shell, preflight prerequisite checks, explicit edge table, mocked handlers, and terminal routing.
+- **Bidded Graph State/Routing Contract**: `BidRunState.apply_node_update` enforces node ownership and reducers; `src/bidded/orchestration/graph.py` owns the fixed LangGraph shell, preflight checks, Evidence Scout audit append, explicit edge table, mocked handlers, and terminal routing.
 - **Bidded Agent Tool Policy Contract**: `src/bidded/agents/tool_policy.py` is the source of truth for LLM-agent denied tools, bounded retrieval, artifact access, and orchestrator-owned side effects.
-- **Bidded Agent Output Schema Contract**: `src/bidded/agents/schemas.py` is the strict Pydantic surface for motions, rebuttals, Judge decisions, evidence refs, material claim evidence-ID validation, typed evidence gaps, validation errors, and specialist role bounds.
+- **Bidded Agent Output Schema Contract**: `src/bidded/agents/schemas.py` is the strict Pydantic surface for Evidence Scout output, motions, rebuttals, Judge decisions, evidence refs, material claim evidence-ID validation, typed evidence gaps, validation errors, and specialist role bounds.
 - **Bidded Evidence Builder Contract**: `src/bidded/evidence` converts company profile facts and retrieved tender chunks into validated Supabase-ready evidence rows with stable `tenant_key,evidence_key` upserts.
 
 ## Session Log
@@ -115,4 +115,9 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added the fixed LangGraph routing shell with preflight prerequisite validation, mocked node handlers, explicit edge-table documentation, retry routing, failed, needs_human_review, and END paths.
 - **Files**: src/bidded/orchestration/graph.py, src/bidded/orchestration/__init__.py, tests/test_graph_routing_shell.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
 - **Key learnings**: Keep graph routing separate from real agent behavior so future node stories can replace handlers without changing topology.
+---
+## 2026-04-18 20:03 CEST - US-018
+- **Implemented**: Added Evidence Scout six-pack retrieval requests, strict mocked Claude output validation, graph-level evidence-board citation checks, and `evidence_scout`/`evidence` agent output persistence.
+- **Files**: src/bidded/agents/schemas.py, src/bidded/agents/__init__.py, src/bidded/orchestration/evidence_scout.py, src/bidded/orchestration/graph.py, tests/test_evidence_scout_node.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
+- **Key learnings**: Keep Evidence Scout model output validation separate from graph persistence; the graph appends audit rows only after evidence refs resolve against the board.
 ---

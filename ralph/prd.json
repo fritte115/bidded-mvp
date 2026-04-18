@@ -277,8 +277,8 @@
         "pytest and ruff check pass for Evidence Scout logic."
       ],
       "priority": 18,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented Evidence Scout schemas, six-pack retrieval request, evidence-board validation, and evidence_scout/evidence agent output append. Complete."
     },
     {
       "id": "US-019",

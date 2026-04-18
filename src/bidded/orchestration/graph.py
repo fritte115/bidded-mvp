@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from operator import add
@@ -11,6 +11,7 @@ from langgraph.graph import END as LANGGRAPH_END
 from langgraph.graph import START, StateGraph
 
 from bidded.orchestration.state import (
+    AgentOutputState,
     AgentRunStatus,
     BidRunState,
     EvidenceItemState,
@@ -418,14 +419,23 @@ def _evidence_scout_node(
                 output,
             )
         else:
-            updated = state.apply_node_update(
-                GraphNodeName.EVIDENCE_SCOUT,
-                {
-                    "scout_output": output,
-                    "current_step": GraphRouteNode.EVIDENCE_SCOUT,
-                    "last_error": None,
-                },
-            )
+            invalid_output = _validate_scout_output_state(output, state)
+            if invalid_output is not None:
+                updated = _apply_invalid_output(
+                    state,
+                    GraphNodeName.EVIDENCE_SCOUT,
+                    invalid_output,
+                )
+            else:
+                updated = state.apply_node_update(
+                    GraphNodeName.EVIDENCE_SCOUT,
+                    {
+                        "scout_output": output,
+                        "agent_outputs": [_agent_output_from_scout_output(output)],
+                        "current_step": GraphRouteNode.EVIDENCE_SCOUT,
+                        "last_error": None,
+                    },
+                )
         return {"bid_state": updated, "trace": [GraphRouteNode.EVIDENCE_SCOUT]}
 
     return node
@@ -803,6 +813,93 @@ def _evidence_ref_from_item(evidence: EvidenceItemState) -> EvidenceRef:
         source_type=evidence.source_type,
         evidence_id=evidence.evidence_id,
     )
+
+
+def _validate_scout_output_state(
+    output: ScoutOutputState,
+    state: BidRunState,
+) -> InvalidGraphOutput | None:
+    for finding_index, finding in enumerate(output.findings):
+        field_path = f"findings[{finding_index}].evidence_refs"
+        if not finding.evidence_refs:
+            return InvalidGraphOutput(
+                source=GraphRouteNode.EVIDENCE_SCOUT,
+                message="Every scout finding must cite at least one evidence ref.",
+                field_path=field_path,
+            )
+
+        for evidence_ref in finding.evidence_refs:
+            if evidence_ref.evidence_id is None:
+                return InvalidGraphOutput(
+                    source=GraphRouteNode.EVIDENCE_SCOUT,
+                    message=(
+                        f"{evidence_ref.evidence_key} must include a resolved "
+                        "evidence_id."
+                    ),
+                    field_path=field_path,
+                )
+
+            if (
+                _matching_state_evidence_item(evidence_ref, state.evidence_board)
+                is None
+            ):
+                return InvalidGraphOutput(
+                    source=GraphRouteNode.EVIDENCE_SCOUT,
+                    message=(
+                        f"{evidence_ref.evidence_key} with evidence_id "
+                        f"{evidence_ref.evidence_id} is not present in "
+                        "evidence_board."
+                    ),
+                    field_path=field_path,
+                )
+
+    return None
+
+
+def _agent_output_from_scout_output(output: ScoutOutputState) -> AgentOutputState:
+    return AgentOutputState(
+        agent_role=GraphNodeName.EVIDENCE_SCOUT.value,
+        round_name="evidence",
+        output_type="scout_output",
+        payload=output.model_dump(mode="json"),
+        evidence_refs=_dedupe_evidence_refs(
+            evidence_ref
+            for finding in output.findings
+            for evidence_ref in finding.evidence_refs
+        ),
+    )
+
+
+def _matching_state_evidence_item(
+    evidence_ref: EvidenceRef,
+    evidence_board: Sequence[EvidenceItemState],
+) -> EvidenceItemState | None:
+    return next(
+        (
+            evidence
+            for evidence in evidence_board
+            if evidence.evidence_key == evidence_ref.evidence_key
+            and evidence.source_type is evidence_ref.source_type
+            and evidence.evidence_id == evidence_ref.evidence_id
+        ),
+        None,
+    )
+
+
+def _dedupe_evidence_refs(evidence_refs: Iterable[EvidenceRef]) -> list[EvidenceRef]:
+    deduped: list[EvidenceRef] = []
+    seen: set[tuple[str, str, UUID | None]] = set()
+    for evidence_ref in evidence_refs:
+        key = (
+            evidence_ref.evidence_key,
+            evidence_ref.source_type.value,
+            evidence_ref.evidence_id,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(evidence_ref)
+    return deduped
 
 
 def _validate_role_outputs(

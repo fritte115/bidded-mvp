@@ -58,6 +58,17 @@ class SourceType(StrEnum):
     COMPANY_PROFILE = "company_profile"
 
 
+class ScoutCategory(StrEnum):
+    """Six-pack tender fact categories extracted by Evidence Scout."""
+
+    DEADLINE = "deadline"
+    SHALL_REQUIREMENT = "shall_requirement"
+    QUALIFICATION_CRITERION = "qualification_criterion"
+    EVALUATION_CRITERION = "evaluation_criterion"
+    CONTRACT_RISK = "contract_risk"
+    REQUIRED_SUBMISSION_DOCUMENT = "required_submission_document"
+
+
 class EvidenceReference(StrictAgentOutputModel):
     evidence_key: str = Field(min_length=1)
     source_type: SourceType
@@ -87,6 +98,20 @@ class AgentValidationError(StrictAgentOutputModel):
     field_path: str | None = None
     retryable: bool = True
     evidence_refs: list[EvidenceReference] = Field(default_factory=list)
+
+
+class EvidenceScoutFinding(StrictAgentOutputModel):
+    category: ScoutCategory
+    claim: str = Field(min_length=1)
+    evidence_refs: list[EvidenceReference] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_evidence_ids(self) -> EvidenceScoutFinding:
+        _require_resolved_evidence_ids(
+            self.evidence_refs,
+            field_name="evidence scout finding",
+        )
+        return self
 
 
 class SupportedClaim(StrictAgentOutputModel):
@@ -121,6 +146,14 @@ class UnsupportedClaim(StrictAgentOutputModel):
     target_role: AgentRole
     claim: str = Field(min_length=1)
     reason: str = Field(min_length=1)
+
+
+class EvidenceScoutOutput(StrictAgentOutputModel):
+    agent_role: Literal[AgentRole.EVIDENCE_SCOUT] = AgentRole.EVIDENCE_SCOUT
+    findings: list[EvidenceScoutFinding] = Field(default_factory=list)
+    missing_info: list[str] = Field(default_factory=list)
+    potential_blockers: list[SupportedClaim] = Field(default_factory=list)
+    validation_errors: list[AgentValidationError] = Field(default_factory=list)
 
 
 class BlockerChallenge(StrictAgentOutputModel):
@@ -253,12 +286,15 @@ __all__ = [
     "BidVerdict",
     "BlockerChallenge",
     "ComplianceMatrixItem",
+    "EvidenceScoutFinding",
+    "EvidenceScoutOutput",
     "EvidenceReference",
     "FinalVerdict",
     "JudgeDecision",
     "Round1Motion",
     "Round2Rebuttal",
     "RiskRegisterItem",
+    "ScoutCategory",
     "SourceType",
     "StrictAgentOutputModel",
     "SupportedClaim",
