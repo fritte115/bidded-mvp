@@ -286,7 +286,7 @@ def _prepare_pending_evidence_locked_run(
         client,
         tender_id=registration.tender_id,
         company_id=registration.company_id,
-        document_id=registration.document_id,
+        document_ids=[registration.document_id],
         created_via="mocked_e2e_test",
     )
 
@@ -510,6 +510,7 @@ class MockedRound2Model:
             ],
             "blocker_challenges": [],
             "revised_stance": "conditional_bid",
+            "confidence": 0.66,
             "evidence_refs": [named_lead, company_capacity],
             "missing_info": [
                 "Named security-cleared lead CV remains missing."

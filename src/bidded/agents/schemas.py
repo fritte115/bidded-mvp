@@ -208,6 +208,7 @@ class Round2Rebuttal(StrictAgentOutputModel):
     unsupported_claims: list[UnsupportedClaim] = Field(default_factory=list)
     blocker_challenges: list[BlockerChallenge] = Field(default_factory=list)
     revised_stance: BidVerdict | None = None
+    confidence: float = Field(ge=0, le=1)
     evidence_refs: list[EvidenceReference] = Field(default_factory=list)
     missing_info: list[str] = Field(default_factory=list)
     potential_evidence_gaps: list[str] = Field(default_factory=list)

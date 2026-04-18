@@ -141,6 +141,7 @@ class ScenarioRound2Model:
             "unsupported_claims": [],
             "blocker_challenges": [],
             "revised_stance": "conditional_bid",
+            "confidence": 0.64,
             "evidence_refs": [_tender_ref()],
             "missing_info": ["Staffing confidence remains incomplete."],
             "recommended_actions": ["Resolve the staffing gap before bid approval."],

@@ -79,6 +79,7 @@ class RecordingRound2Model:
             ],
             "blocker_challenges": [],
             "revised_stance": revised_stance,
+            "confidence": 0.68,
             "evidence_refs": [tender_ref],
             "missing_info": ["Named consultant availability remains unproven."],
             "recommended_actions": ["Resolve the staffing evidence gap."],

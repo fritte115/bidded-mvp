@@ -24,17 +24,41 @@ const agentMeta: Record<
   "Red Team": { icon: Flame, tint: "text-danger" },
 };
 
+/** Collapse odd whitespace from PDF extraction / concatenated templates. */
+function formatMotionLine(text: string) {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+const EVIDENCE_KEY_TOKEN =
+  /^(EVD-\d+|TENDER-[A-Za-z0-9._-]+|COMPANY-[A-Za-z0-9._-]+)$/;
+
 function highlightEvidence(text: string) {
-  const parts = text.split(/(EVD-\d+)/g);
-  return parts.map((p, i) =>
-    /^EVD-\d+$/.test(p) ? <EvidenceBadge key={i} id={p} className="mx-0.5" /> : <span key={i}>{p}</span>,
+  const cleaned = formatMotionLine(text);
+  const parts = cleaned.split(
+    /(EVD-\d+|TENDER-[A-Za-z0-9._-]+|COMPANY-[A-Za-z0-9._-]+)/,
   );
+  return parts.map((p, i) => {
+    if (p === "") return null;
+    return EVIDENCE_KEY_TOKEN.test(p) ? (
+      <EvidenceBadge
+        key={i}
+        id={p}
+        className="mx-0.5 max-w-full align-baseline break-all"
+      />
+    ) : (
+      <span key={i} className="break-words">
+        {p}
+      </span>
+    );
+  });
 }
 
 function FindingRow({ finding }: { finding: AgentMotionFinding }) {
   return (
     <div className="space-y-1.5 rounded-md border border-border bg-secondary/30 px-3 py-2.5">
-      <p className="text-sm leading-snug text-foreground">{highlightEvidence(finding.claim)}</p>
+      <p className="text-sm leading-snug break-words text-foreground">
+        {highlightEvidence(finding.claim)}
+      </p>
       {finding.evidenceKeys.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {finding.evidenceKeys.map((k) => (
