@@ -156,7 +156,6 @@ export default function Compare() {
     <>
       <PageHeader
         title="Compare Procurements"
-        description="Side-by-side analysis of selected procurement runs to decide where to bid."
         actions={
           <Popover>
             <PopoverTrigger asChild>
