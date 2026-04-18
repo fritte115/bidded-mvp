@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-007",
-  "storyTitle": "Define agent tool policies",
+  "currentStory": "US-008",
+  "storyTitle": "Define agent output schemas",
   "nextAction": "implement",
-  "progressTokens": 855,
+  "progressTokens": 960,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-18"

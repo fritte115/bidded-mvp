@@ -69,3 +69,4 @@ At the end of every non-compaction story session:
 - **Bidded Agent Audit Contract**: Persist agent outputs as immutable audit rows keyed by `agent_role`, `round_name`, and `output_type`; final decisions expose Judge `evidence_ids`.
 - **Bidded Evidence Schema Contract**: `evidence_items` use `tender_document`/`company_profile` source types with explicit nullable provenance columns plus `source_metadata.source_label`; `document_chunks` keep nullable pgvector embeddings.
 - **Bidded Graph State Contract**: `BidRunState.apply_node_update` enforces `GraphNodeName` ownership, append-only audit artifacts, write-once decisions, and role-keyed specialist reducers.
+- **Bidded Agent Tool Policy Contract**: `src/bidded/agents/tool_policy.py` defines LLM-agent denied tools, bounded retrieval scope, artifact read/write policy, and orchestrator-owned side effects.

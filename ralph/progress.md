@@ -15,6 +15,7 @@ Started: 2026-04-18
 - **Bidded CLI Boundary**: Keep CLI help and package imports free of live Supabase/Claude client construction; create external clients only inside real command execution paths.
 - **Bidded Agent Audit Contract**: `agent_outputs` are immutable rows keyed by `agent_role`, `round_name`, and `output_type`; `bid_decisions` surface Judge `evidence_ids`.
 - **Bidded Graph State Contract**: `BidRunState.apply_node_update` enforces `GraphNodeName` ownership, append-only audit artifacts, write-once decisions, and role-keyed specialist reducers.
+- **Bidded Agent Tool Policy Contract**: `src/bidded/agents/tool_policy.py` is the source of truth for LLM-agent denied tools, bounded retrieval, artifact access, and orchestrator-owned side effects.
 
 ## Session Log
 
@@ -54,4 +55,10 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added graph node ownership contracts, append-only/write-once state update enforcement, role-keyed specialist reducers, and deterministic tests.
 - **Files**: src/bidded/orchestration/state.py, src/bidded/orchestration/__init__.py, tests/test_orchestration_state.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
 - **Key learnings**: Route graph mutations through `BidRunState.apply_node_update` so node ownership and reducer policy stay centralized.
+---
+
+## 2026-04-18 18:21 CEST - US-007
+- **Implemented**: Added immutable agent tool policy contracts for Evidence Scout, specialists, Judge, and orchestrator side effects with deterministic tests.
+- **Files**: src/bidded/agents/tool_policy.py, src/bidded/agents/__init__.py, tests/test_agent_tool_policies.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
+- **Key learnings**: Keep LLM-agent permissions separate from graph-node state reducers so tool access and orchestrator persistence remain independently testable.
 ---
