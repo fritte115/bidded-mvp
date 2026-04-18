@@ -35,13 +35,21 @@ export interface Evidence {
   companyFieldPath?: string;
 }
 
+export interface AgentMotionFinding {
+  claim: string;
+  evidenceKeys: string[];
+}
+
 export interface AgentMotion {
   agent: AgentName;
   verdict: Verdict;
   confidence: number; // 0-100
   findings: string[];
+  findingsWithEvidence?: AgentMotionFinding[];
   rebuttalFocus?: string[];
   challenges?: string[]; // disagreements (round 2)
+  challengesWithEvidence?: AgentMotionFinding[]; // round 2 rebuttals with evidence keys
+  revisedStanceRationale?: string; // round 2 only
 }
 
 export interface ComplianceMatrixRow {

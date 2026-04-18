@@ -11,7 +11,11 @@
  */
 
 import { supabase } from "@/lib/supabase";
-import type { Company, RunStatus, Verdict } from "@/data/mock";
+import type {
+  Company, RunStatus, Verdict,
+  Evidence, AgentMotion, JudgeOutput, ComplianceMatrixRow, RiskRow,
+  EvidenceCategory, AgentName, Bid, BidStatus, Procurement,
+} from "@/data/mock";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -535,4 +539,700 @@ export async function registerProcurement(input: RegisterProcurementInput): Prom
   }
 
   return tenderId;
+}
+
+// ---------------------------------------------------------------------------
+// Agent output mapping helpers
+// ---------------------------------------------------------------------------
+
+const AGENT_ROLE_LABELS: Record<string, AgentName> = {
+  compliance_officer: "Compliance Officer",
+  win_strategist: "Win Strategist",
+  delivery_cfo: "Delivery/CFO",
+  red_team: "Red Team",
+};
+
+const EVIDENCE_CAT_MAP: Record<string, EvidenceCategory> = {
+  deadline: "Deadlines",
+  shall_requirement: "Mandatory Requirements",
+  qualification_criterion: "Qualification Criteria",
+  evaluation_criterion: "Evaluation Criteria",
+  contract_risk: "Contract Risks",
+  required_submission_document: "Required Submission Documents",
+};
+
+function normalizeVerdictStr(v: string): Verdict {
+  return v.toUpperCase() as Verdict;
+}
+
+function normalizeComplianceStatus(s: string): ComplianceMatrixRow["status"] {
+  if (s === "met") return "Met";
+  if (s === "unmet") return "Not Met";
+  return "Unknown";
+}
+
+function normalizeSeverity(s: string): RiskRow["severity"] {
+  const c = s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+  return c as RiskRow["severity"];
+}
+
+function stageDisplayName(step: string | null | undefined): string {
+  if (!step) return "Pending";
+  const m: Record<string, string> = {
+    preflight: "Evidence Scout",
+    evidence_scout: "Evidence Scout",
+    round_1_specialist: "Round 1: Specialist Motions",
+    round_2_rebuttal: "Round 2: Rebuttals",
+    judge: "Judge",
+    persist_decision: "Judge",
+  };
+  return m[step] ?? step;
+}
+
+function extractEvidenceKeys(obj: unknown): string[] {
+  if (!obj || typeof obj !== "object") return [];
+  if (Array.isArray(obj)) return obj.flatMap(extractEvidenceKeys);
+  const o = obj as Record<string, unknown>;
+  if (typeof o.evidence_key === "string") return [o.evidence_key];
+  return Object.values(o).flatMap(extractEvidenceKeys);
+}
+
+function buildReferencedByMap(
+  outputs: Array<{ agent_role: string; validated_payload: unknown }>,
+): Map<string, AgentName[]> {
+  const map = new Map<string, AgentName[]>();
+  for (const out of outputs) {
+    const label = AGENT_ROLE_LABELS[out.agent_role];
+    if (!label) continue;
+    for (const key of extractEvidenceKeys(out.validated_payload)) {
+      const arr = map.get(key) ?? [];
+      if (!arr.includes(label)) arr.push(label);
+      map.set(key, arr);
+    }
+  }
+  return map;
+}
+
+function mapFinalDecision(
+  fd: Record<string, unknown>,
+  evidenceIdToKey: Map<string, string>,
+): JudgeOutput {
+  const vs = (fd.vote_summary as Record<string, number>) ?? {};
+  return {
+    verdict: normalizeVerdictStr(fd.verdict as string),
+    confidence: Math.round(((fd.confidence as number) ?? 0) * 100),
+    voteSummary: {
+      BID: vs.bid ?? 0,
+      NO_BID: vs.no_bid ?? 0,
+      CONDITIONAL_BID: vs.conditional_bid ?? 0,
+    },
+    disagreement: (fd.disagreement_summary as string) ?? "",
+    citedMemo: (fd.cited_memo as string) ?? "",
+    complianceMatrix: ((fd.compliance_matrix as unknown[]) ?? []).map((r) => {
+      const row = r as Record<string, unknown>;
+      return {
+        requirement: row.requirement as string,
+        status: normalizeComplianceStatus(row.status as string),
+        evidence: ((row.evidence_refs as unknown[]) ?? []).map(
+          (e) => (e as Record<string, unknown>).evidence_key as string,
+        ),
+      };
+    }),
+    complianceBlockers: ((fd.compliance_blockers as unknown[]) ?? []).map(
+      (b) => (b as Record<string, unknown>).claim as string,
+    ),
+    potentialBlockers: ((fd.potential_blockers as unknown[]) ?? []).map(
+      (b) => (b as Record<string, unknown>).claim as string,
+    ),
+    riskRegister: ((fd.risk_register as unknown[]) ?? []).map((r) => {
+      const row = r as Record<string, unknown>;
+      return {
+        risk: row.risk as string,
+        severity: normalizeSeverity(row.severity as string),
+        mitigation: row.mitigation as string,
+      };
+    }),
+    missingInfo: (fd.missing_info as string[]) ?? [],
+    recommendedActions: (fd.recommended_actions as string[]) ?? [],
+    evidenceIds: ((fd.evidence_ids as string[]) ?? []).map(
+      (id) => evidenceIdToKey.get(id) ?? id,
+    ),
+  };
+}
+
+function mapEvidenceRow(
+  row: Record<string, unknown>,
+  referencedBy: AgentName[],
+): Evidence {
+  const sm = (row.source_metadata as Record<string, string>) ?? {};
+  return {
+    id: row.evidence_key as string,
+    key: row.evidence_key as string,
+    category:
+      (EVIDENCE_CAT_MAP[row.category as string] as EvidenceCategory) ??
+      (row.category as EvidenceCategory),
+    excerpt: row.excerpt as string,
+    source: sm.source_label ?? "Unknown",
+    page: (row.page_start as number) ?? 0,
+    referencedBy,
+    kind: (row.source_type as "tender_document" | "company_profile") ??
+      "tender_document",
+    companyFieldPath: (row.field_path as string) ?? undefined,
+  };
+}
+
+function mapRound1Output(payload: Record<string, unknown>): AgentMotion | null {
+  const role = payload.agent_role as string;
+  const label = AGENT_ROLE_LABELS[role];
+  if (!label) return null;
+  const rawFindings = (payload.top_findings as unknown[]) ?? [];
+  const findings = rawFindings.map((f) => (f as Record<string, unknown>).claim as string);
+  const findingsWithEvidence = rawFindings.map((f) => {
+    const fr = f as Record<string, unknown>;
+    return {
+      claim: fr.claim as string,
+      evidenceKeys: (fr.evidence_keys as string[]) ?? [],
+    };
+  });
+  return {
+    agent: label,
+    verdict: normalizeVerdictStr((payload.vote as string) ?? "bid"),
+    confidence: Math.round(((payload.confidence as number) ?? 0) * 100),
+    findings,
+    findingsWithEvidence,
+  };
+}
+
+function mapRound2Output(
+  payload: Record<string, unknown>,
+  round1MotionMap: Map<string, AgentMotion>,
+): AgentMotion | null {
+  const role = payload.agent_role as string;
+  const label = AGENT_ROLE_LABELS[role];
+  if (!label) return null;
+  const prior = round1MotionMap.get(role);
+  const revisedRaw = payload.revised_stance as Record<string, unknown> | string | null;
+  const revisedVote =
+    typeof revisedRaw === "object" && revisedRaw !== null
+      ? (revisedRaw.vote as string | undefined)
+      : (revisedRaw as string | null);
+  const revisedRationale =
+    typeof revisedRaw === "object" && revisedRaw !== null
+      ? (revisedRaw.rationale as string | undefined)
+      : undefined;
+  const disagreements = (payload.targeted_disagreements as unknown[]) ?? [];
+  const findings = disagreements.map((d) => (d as Record<string, unknown>).rebuttal as string);
+  const challengesWithEvidence = disagreements.map((d) => {
+    const dr = d as Record<string, unknown>;
+    return {
+      claim: dr.disputed_claim as string,
+      evidenceKeys: (dr.evidence_keys as string[]) ?? [],
+    };
+  });
+  return {
+    agent: label,
+    verdict: revisedVote ? normalizeVerdictStr(revisedVote) : (prior?.verdict ?? "BID"),
+    confidence: prior?.confidence ?? 50,
+    findings,
+    findingsWithEvidence: disagreements.map((d) => {
+      const dr = d as Record<string, unknown>;
+      return {
+        claim: dr.rebuttal as string,
+        evidenceKeys: (dr.evidence_keys as string[]) ?? [],
+      };
+    }),
+    rebuttalFocus: ((payload.target_roles as string[]) ?? []).map(
+      (r) => AGENT_ROLE_LABELS[r] ?? r,
+    ) as AgentName[],
+    challenges: disagreements.map((d) => (d as Record<string, unknown>).disputed_claim as string),
+    challengesWithEvidence,
+    revisedStanceRationale: revisedRationale,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Decisions
+// ---------------------------------------------------------------------------
+
+export interface DecisionRow {
+  id: string;
+  tenderName: string;
+  verdict: Verdict;
+  confidence: number; // 0–100
+  citedMemo: string;
+  startedAt: string;
+  completedAt: string | null;
+  status: RunStatus;
+}
+
+export async function fetchDecisions(): Promise<DecisionRow[]> {
+  const { data, error } = await supabase
+    .from("bid_decisions")
+    .select(
+      `agent_run_id, verdict, confidence, final_decision,
+       agent_runs!inner(id, status, started_at, completed_at, tenders!inner(title))`,
+    )
+    .eq("tenant_key", "demo")
+    .order("created_at", { ascending: false });
+
+  if (error) throw new Error(`fetchDecisions: ${error.message}`);
+
+  return (data ?? []).map((row: Record<string, unknown>) => {
+    const run = row.agent_runs as Record<string, unknown>;
+    const tender = run.tenders as Record<string, unknown>;
+    const fd = (row.final_decision as Record<string, unknown>) ?? {};
+    return {
+      id: row.agent_run_id as string,
+      tenderName: (tender?.title as string) ?? "Unknown",
+      verdict: normalizeVerdictStr(row.verdict as string),
+      confidence: Math.round(((row.confidence as number) ?? 0) * 100),
+      citedMemo: (fd.cited_memo as string) ?? "",
+      startedAt: (run.started_at as string) ?? "",
+      completedAt: (run.completed_at as string) ?? null,
+      status: (run.status as RunStatus) ?? "succeeded",
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Run detail (used by RunDetail and DecisionDetail pages)
+// ---------------------------------------------------------------------------
+
+export interface RunDetail {
+  id: string;
+  tenderName: string;
+  tenderId: string;
+  company: string;
+  status: RunStatus;
+  stage: string;
+  startedAt: string;
+  completedAt: string | null;
+  durationSec: number | null;
+  decision: Verdict | null;
+  confidence: number | null; // 0–100
+  evidence: Evidence[];
+  round1: AgentMotion[];
+  round2: AgentMotion[];
+  judge: JudgeOutput | null;
+}
+
+export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
+  const { data: runRow, error: runErr } = await supabase
+    .from("agent_runs")
+    .select(
+      `id, status, started_at, completed_at, metadata, tender_id, company_id,
+       tenders!inner(title),
+       bid_decisions(verdict, confidence, final_decision)`,
+    )
+    .eq("id", runId)
+    .single();
+
+  if (runErr) {
+    if (runErr.code === "PGRST116") return null;
+    throw new Error(`fetchRunDetail (run): ${runErr.message}`);
+  }
+
+  const run = runRow as Record<string, unknown>;
+  const tender = run.tenders as Record<string, unknown>;
+  const decisionRows = run.bid_decisions as Record<string, unknown>[] | null;
+  const bd = Array.isArray(decisionRows) ? decisionRows[0] : decisionRows;
+
+  const tenderId = run.tender_id as string;
+  const companyId = run.company_id as string;
+  const startedAt = run.started_at as string | null;
+  const completedAt = run.completed_at as string | null;
+
+  const [outputsRes, docsRes] = await Promise.all([
+    supabase
+      .from("agent_outputs")
+      .select("agent_role, round_name, output_type, validated_payload")
+      .eq("agent_run_id", runId)
+      .order("created_at"),
+    supabase
+      .from("documents")
+      .select("id")
+      .eq("tender_id", tenderId)
+      .eq("tenant_key", "demo"),
+  ]);
+
+  if (outputsRes.error)
+    throw new Error(`fetchRunDetail (outputs): ${outputsRes.error.message}`);
+
+  const outputs = (outputsRes.data ?? []) as Array<{
+    agent_role: string;
+    round_name: string;
+    output_type: string;
+    validated_payload: Record<string, unknown>;
+  }>;
+
+  const docIds = ((docsRes.data ?? []) as Array<{ id: string }>).map(
+    (d) => d.id,
+  );
+
+  let evidenceRows: Record<string, unknown>[] = [];
+  if (docIds.length > 0 || companyId) {
+    const evQuery = supabase
+      .from("evidence_items")
+      .select("*")
+      .eq("tenant_key", "demo");
+
+    const { data: evData, error: evErr } =
+      docIds.length > 0
+        ? await evQuery.or(
+            `document_id.in.(${docIds.join(",")}),company_id.eq.${companyId}`,
+          )
+        : await evQuery.eq("company_id", companyId);
+
+    if (evErr) throw new Error(`fetchRunDetail (evidence): ${evErr.message}`);
+    evidenceRows = (evData ?? []) as Record<string, unknown>[];
+  }
+
+  // Build UUID → evidence_key map for judge output evidence_ids
+  const evidenceIdToKey = new Map<string, string>(
+    evidenceRows.map((r) => [r.id as string, r.evidence_key as string]),
+  );
+
+  const referencedByMap = buildReferencedByMap(outputs);
+
+  const evidence: Evidence[] = evidenceRows.map((r) =>
+    mapEvidenceRow(r, referencedByMap.get(r.evidence_key as string) ?? []),
+  );
+
+  // Group agent outputs by round
+  const round1Raw = outputs.filter((o) =>
+    o.round_name.includes("round_1") || o.round_name.includes("specialist"),
+  );
+  const round2Raw = outputs.filter((o) =>
+    o.round_name.includes("round_2") || o.round_name.includes("rebuttal"),
+  );
+
+  const round1MotionMap = new Map<string, AgentMotion>();
+  const round1: AgentMotion[] = [];
+  for (const o of round1Raw) {
+    const m = mapRound1Output(o.validated_payload);
+    if (m) { round1.push(m); round1MotionMap.set(o.agent_role, m); }
+  }
+
+  const round2: AgentMotion[] = round2Raw
+    .map((o) => mapRound2Output(o.validated_payload, round1MotionMap))
+    .filter((m): m is AgentMotion => m !== null);
+
+  const fd = bd
+    ? ((bd as Record<string, unknown>).final_decision as Record<
+        string,
+        unknown
+      >)
+    : null;
+  const judge = fd ? mapFinalDecision(fd, evidenceIdToKey) : null;
+
+  const meta = (run.metadata as Record<string, unknown>) ?? {};
+  const rawStep = meta.current_step as string | null;
+  const status = run.status as RunStatus;
+  const stage =
+    status === "succeeded" || status === "needs_human_review"
+      ? "Judge"
+      : stageDisplayName(rawStep);
+
+  return {
+    id: runId,
+    tenderName: (tender?.title as string) ?? "Unknown",
+    tenderId,
+    company: "Demo company",
+    status,
+    stage,
+    startedAt: startedAt ?? (run.created_at as string) ?? "",
+    completedAt,
+    durationSec:
+      startedAt && completedAt
+        ? Math.round(
+            (new Date(completedAt).getTime() -
+              new Date(startedAt).getTime()) /
+              1000,
+          )
+        : null,
+    decision:
+      bd && (bd as Record<string, unknown>).verdict
+        ? normalizeVerdictStr(
+            (bd as Record<string, unknown>).verdict as string,
+          )
+        : null,
+    confidence:
+      bd && (bd as Record<string, unknown>).confidence != null
+        ? Math.round(
+            ((bd as Record<string, unknown>).confidence as number) * 100,
+          )
+        : null,
+    evidence,
+    round1,
+    round2,
+    judge,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Evidence board (standalone page, lighter than full run detail)
+// ---------------------------------------------------------------------------
+
+export async function fetchEvidenceBoard(runId: string): Promise<Evidence[]> {
+  const { data: runRow, error: runErr } = await supabase
+    .from("agent_runs")
+    .select("tender_id, company_id")
+    .eq("id", runId)
+    .single();
+
+  if (runErr) return [];
+
+  const run = runRow as Record<string, unknown>;
+  const tenderId = run.tender_id as string;
+  const companyId = run.company_id as string;
+
+  const [outputsRes, docsRes] = await Promise.all([
+    supabase
+      .from("agent_outputs")
+      .select("agent_role, validated_payload")
+      .eq("agent_run_id", runId),
+    supabase
+      .from("documents")
+      .select("id")
+      .eq("tender_id", tenderId)
+      .eq("tenant_key", "demo"),
+  ]);
+
+  const outputs = (outputsRes.data ?? []) as Array<{
+    agent_role: string;
+    validated_payload: unknown;
+  }>;
+  const docIds = ((docsRes.data ?? []) as Array<{ id: string }>).map(
+    (d) => d.id,
+  );
+
+  let evidenceRows: Record<string, unknown>[] = [];
+  if (docIds.length > 0 || companyId) {
+    const evQuery = supabase
+      .from("evidence_items")
+      .select("*")
+      .eq("tenant_key", "demo");
+    const { data } =
+      docIds.length > 0
+        ? await evQuery.or(
+            `document_id.in.(${docIds.join(",")}),company_id.eq.${companyId}`,
+          )
+        : await evQuery.eq("company_id", companyId);
+    evidenceRows = (data ?? []) as Record<string, unknown>[];
+  }
+
+  const referencedByMap = buildReferencedByMap(outputs);
+  return evidenceRows.map((r) =>
+    mapEvidenceRow(r, referencedByMap.get(r.evidence_key as string) ?? []),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tenders with decisions (Compare page)
+// ---------------------------------------------------------------------------
+
+export interface TenderDecisionRow {
+  id: string;
+  name: string;
+  documentCount: number;
+  uploadedAt: string;
+  verdict: Verdict;
+  confidence: number; // 0–100
+  citedMemo: string;
+  runId: string;
+  // Proxies for BidRecommendation (derived from decision data)
+  winProbability: number; // 0–1
+  riskScore: "Low" | "Medium" | "High";
+  topReason: string;
+}
+
+export async function fetchTendersWithDecisions(): Promise<
+  TenderDecisionRow[]
+> {
+  const { data, error } = await supabase
+    .from("tenders")
+    .select(
+      `id, title, created_at,
+       documents(id),
+       agent_runs(id, bid_decisions(verdict, confidence, final_decision))`,
+    )
+    .eq("tenant_key", "demo")
+    .order("created_at", { ascending: false });
+
+  if (error) throw new Error(`fetchTendersWithDecisions: ${error.message}`);
+
+  const rows: TenderDecisionRow[] = [];
+
+  for (const t of (data ?? []) as Record<string, unknown>[]) {
+    const runs = (t.agent_runs as Record<string, unknown>[]) ?? [];
+    // Find the first run that has a bid_decision
+    let bd: Record<string, unknown> | null = null;
+    let runId = "";
+    for (const r of runs) {
+      const bds = r.bid_decisions as Record<string, unknown>[] | null;
+      const first = Array.isArray(bds) ? bds[0] : bds;
+      if (first && (first as Record<string, unknown>).verdict) {
+        bd = first as Record<string, unknown>;
+        runId = r.id as string;
+        break;
+      }
+    }
+    if (!bd) continue;
+
+    const fd = (bd.final_decision as Record<string, unknown>) ?? {};
+    const riskRegister = (fd.risk_register as unknown[]) ?? [];
+    const riskScore: "Low" | "Medium" | "High" =
+      riskRegister.length >= 3 ? "High"
+      : riskRegister.length >= 1 ? "Medium"
+      : "Low";
+    const citedMemo = (fd.cited_memo as string) ?? "";
+
+    rows.push({
+      id: t.id as string,
+      name: t.title as string,
+      documentCount: ((t.documents as unknown[]) ?? []).length,
+      uploadedAt: t.created_at as string,
+      verdict: normalizeVerdictStr(bd.verdict as string),
+      confidence: Math.round(((bd.confidence as number) ?? 0) * 100),
+      citedMemo,
+      runId,
+      winProbability: Math.round(((bd.confidence as number) ?? 0) * 100) / 100,
+      riskScore,
+      topReason: citedMemo.split(/\.\s/)[0] ?? citedMemo,
+    });
+  }
+
+  return rows;
+}
+
+// ---------------------------------------------------------------------------
+// Bids
+// ---------------------------------------------------------------------------
+
+export async function fetchBids(): Promise<Bid[]> {
+  const { data, error } = await supabase
+    .from("bids")
+    .select(
+      `id, rate_sek, margin_pct, status, notes, updated_at, agent_run_id,
+       tender_id, tenders!inner(title)`,
+    )
+    .eq("tenant_key", "demo")
+    .order("updated_at", { ascending: false });
+
+  if (error) throw new Error(`fetchBids: ${error.message}`);
+
+  return (data ?? []).map((row: Record<string, unknown>) => {
+    const tender = row.tenders as Record<string, unknown>;
+    return {
+      id: row.id as string,
+      procurementId: row.tender_id as string,
+      procurementName: (tender?.title as string) ?? "Unknown",
+      rateSEK: row.rate_sek as number,
+      marginPct: row.margin_pct as number,
+      status: row.status as BidStatus,
+      notes: (row.notes as string) ?? "",
+      updatedAt: row.updated_at as string,
+      runId: (row.agent_run_id as string) ?? undefined,
+    };
+  });
+}
+
+export interface CreateBidInput {
+  tenderId: string;
+  rateSEK: number;
+  marginPct: number;
+  hoursEstimated: number;
+  status: BidStatus;
+  notes: string;
+  runId?: string;
+}
+
+export async function createBid(input: CreateBidInput): Promise<string> {
+  const { data, error } = await supabase
+    .from("bids")
+    .insert({
+      tenant_key: "demo",
+      tender_id: input.tenderId,
+      agent_run_id: input.runId ?? null,
+      rate_sek: input.rateSEK,
+      margin_pct: input.marginPct,
+      hours_estimated: input.hoursEstimated,
+      status: input.status,
+      notes: input.notes,
+    })
+    .select("id")
+    .single();
+
+  if (error) throw new Error(`createBid: ${error.message}`);
+  return (data as { id: string }).id;
+}
+
+export async function updateBidStatus(
+  id: string,
+  status: BidStatus,
+): Promise<void> {
+  const { error } = await supabase
+    .from("bids")
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("tenant_key", "demo");
+
+  if (error) throw new Error(`updateBidStatus: ${error.message}`);
+}
+
+export async function deleteBid(id: string): Promise<void> {
+  const { error } = await supabase
+    .from("bids")
+    .delete()
+    .eq("id", id)
+    .eq("tenant_key", "demo");
+
+  if (error) throw new Error(`deleteBid: ${error.message}`);
+}
+
+// Helper to build a minimal Procurement-compatible object from real tender data
+// for components that still expect the mock Procurement shape.
+export function tenderToMockProcurement(
+  id: string,
+  name: string,
+  uploadedAt: string,
+  documentFilenames: string[],
+  decision?: { verdict: Verdict; confidence: number; citedMemo: string } | null,
+): Procurement {
+  return {
+    id,
+    name,
+    documents: documentFilenames,
+    uploadedAt,
+    chunks: 0,
+    status: decision ? "done" : "pending",
+    estimatedValueMSEK: 0,
+    winProbability: decision ? decision.confidence / 100 : 0.5,
+    strategicFit: "Medium",
+    riskScore: "Medium",
+    topReason: decision?.citedMemo.split(/\.\s/)[0] ?? "Awaiting analysis.",
+    verdict: decision?.verdict,
+    confidence: decision?.confidence,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Agent API — local FastAPI server (bidded serve)
+// ---------------------------------------------------------------------------
+
+const AGENT_API_URL =
+  (import.meta.env.VITE_AGENT_API_URL as string | undefined) ?? "http://localhost:8000";
+
+export async function startAgentRun(tenderId: string): Promise<string> {
+  const res = await fetch(`${AGENT_API_URL}/api/runs/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tender_id: tenderId }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
+  }
+  const data = (await res.json()) as { run_id: string };
+  return data.run_id;
 }

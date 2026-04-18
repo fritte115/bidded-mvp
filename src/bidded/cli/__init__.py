@@ -117,6 +117,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional demo company UUID filter when picking the oldest pending run.",
     )
     worker_parser.set_defaults(handler=_run_worker_command)
+
+    serve_parser = subparsers.add_parser(
+        "serve",
+        help="Start the Bidded HTTP API server.",
+        description="Start the Bidded HTTP API server (default: http://0.0.0.0:8000).",
+    )
+    serve_parser.add_argument("--host", default="0.0.0.0", help="Bind host.")
+    serve_parser.add_argument("--port", type=int, default=8000, help="Bind port.")
+    serve_parser.set_defaults(handler=_run_serve_command)
+
     return parser
 
 
@@ -182,13 +192,29 @@ def _run_create_pending_run_command(args: argparse.Namespace) -> int:
             client,
             tender_id=args.tender_id,
             company_id=args.company_id,
-            document_id=args.document_id,
+            document_ids=[args.document_id],
         )
     except (RuntimeError, PendingRunContextError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
 
     print(f"Created pending agent run {result.run_id}.")
+    return 0
+
+
+def _run_serve_command(args: argparse.Namespace) -> int:
+    try:
+        import uvicorn  # noqa: PLC0415
+
+        from bidded.api_server import app  # noqa: PLC0415
+    except ImportError:
+        print(
+            "fastapi and uvicorn are required. "
+            "Run: pip install fastapi 'uvicorn[standard]'",
+            file=sys.stderr,
+        )
+        return 2
+    uvicorn.run(app, host=args.host, port=args.port)
     return 0
 
 

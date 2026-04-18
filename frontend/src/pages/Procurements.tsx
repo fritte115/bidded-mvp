@@ -25,7 +25,7 @@ import {
 import { StatusBadge } from "@/components/StatusBadge";
 import { VerdictBadge } from "@/components/VerdictBadge";
 import { formatRelativeTime } from "@/data/mock";
-import { fetchProcurements, deleteProcurement } from "@/lib/api";
+import { fetchProcurements, deleteProcurement, startAgentRun } from "@/lib/api";
 import { ParseStatusBadge } from "@/components/ParseStatusBadge";
 import {
   Tooltip,
@@ -129,13 +129,24 @@ export default function Procurements() {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
-  const startRuns = (ids: string[], label: "start" | "rerun" = "start") => {
+  const startRuns = async (ids: string[], label: "start" | "rerun" = "start") => {
     if (ids.length === 0) return;
-    const verb = label === "rerun" ? "Re-started" : "Started";
-    toast.message(`${verb} ${ids.length} ${ids.length === 1 ? "run" : "runs"}`, {
-      description:
-        "Creating runs from the UI is not enabled in this build — it is deferred to the PRD backlog (pending agent runs).",
-    });
+    const verb = label === "rerun" ? "Re-run" : "Run";
+    const results = await Promise.allSettled(ids.map((id) => startAgentRun(id)));
+    const succeeded = results.filter((r) => r.status === "fulfilled").length;
+    const failed = results.filter((r) => r.status === "rejected");
+    if (succeeded > 0) {
+      toast.success(`${verb} started`, {
+        description: `${succeeded} agent ${succeeded === 1 ? "run" : "runs"} queued. Results will appear automatically.`,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["procurements"] });
+    }
+    if (failed.length > 0) {
+      const firstError = (failed[0] as PromiseRejectedResult).reason;
+      toast.error("Failed to start run", {
+        description: firstError instanceof Error ? firstError.message : String(firstError),
+      });
+    }
   };
 
   const goCompare = () => {

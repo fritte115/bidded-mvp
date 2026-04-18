@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
 import { Button } from "@/components/ui/button";
@@ -14,13 +15,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { fetchBids, updateBidStatus, fetchProcurements } from "@/lib/api";
 import {
-  bids as seedBids,
   bidStatusLabel,
   bidStatusOrder,
   type Bid,
   type BidStatus,
-  procurements,
 } from "@/data/mock";
 import {
   CheckCircle2,
@@ -49,16 +49,24 @@ const statusDot: Record<BidStatus, string> = {
 
 export default function Bids() {
   const navigate = useNavigate();
-  const [bids, setBids] = useState<Bid[]>(seedBids);
+  const queryClient = useQueryClient();
+
   const [filter, setFilter] = useState<string>("all");
   const [query, setQuery] = useState<string>("");
   const [sort, setSort] = useState<SortKey>("updated");
   const [expandedColumns, setExpandedColumns] = useState<Record<BidStatus, boolean>>({
-    draft: false,
-    review: false,
-    submitted: false,
-    won: false,
-    lost: false,
+    draft: false, review: false, submitted: false, won: false, lost: false,
+  });
+
+  const { data: bids = [], isLoading } = useQuery({
+    queryKey: ["bids"],
+    queryFn: fetchBids,
+    refetchInterval: 15_000,
+  });
+
+  const { data: procurementList = [] } = useQuery({
+    queryKey: ["procurements"],
+    queryFn: fetchProcurements,
   });
 
   const COLLAPSED_LIMIT = 4;
@@ -70,7 +78,7 @@ export default function Bids() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return bids
-      .filter((b) => (filter === "all" ? true : b.procurementId === filter))
+      .filter((b) => filter === "all" || b.procurementId === filter)
       .filter(
         (b) =>
           q === "" ||
@@ -86,11 +94,7 @@ export default function Bids() {
 
   const grouped = useMemo(() => {
     const g: Record<BidStatus, Bid[]> = {
-      draft: [],
-      review: [],
-      submitted: [],
-      won: [],
-      lost: [],
+      draft: [], review: [], submitted: [], won: [], lost: [],
     };
     filtered.forEach((b) => g[b.status].push(b));
     return g;
@@ -116,13 +120,14 @@ export default function Bids() {
     return `${(total / 1_000_000).toFixed(1)} MSEK`;
   };
 
-  const handleMove = (id: string, status: BidStatus) => {
-    setBids((prev) =>
-      prev.map((b) =>
-        b.id === id ? { ...b, status, updatedAt: new Date().toISOString() } : b,
-      ),
-    );
-    toast.success(`Moved to ${bidStatusLabel[status]}`);
+  const handleMove = async (id: string, status: BidStatus) => {
+    try {
+      await updateBidStatus(id, status);
+      queryClient.invalidateQueries({ queryKey: ["bids"] });
+      toast.success(`Moved to ${bidStatusLabel[status]}`);
+    } catch {
+      toast.error("Failed to update bid status");
+    }
   };
 
   const handleEdit = (id: string) => {
@@ -173,7 +178,7 @@ export default function Bids() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All procurements</SelectItem>
-            {procurements.map((p) => (
+            {procurementList.map((p) => (
               <SelectItem key={p.id} value={p.id}>
                 {p.name}
               </SelectItem>
@@ -192,7 +197,11 @@ export default function Bids() {
         </Select>
       </div>
 
-      {filtered.length === 0 ? (
+      {isLoading ? (
+        <div className="mt-6">
+          <p className="text-sm text-muted-foreground">Loading bids…</p>
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="mt-6">
           <EmptyState
             icon={Gavel}
@@ -218,11 +227,7 @@ export default function Bids() {
                 : items.slice(0, COLLAPSED_LIMIT);
             const hiddenCount = items.length - COLLAPSED_LIMIT;
             return (
-              <section
-                key={status}
-                className="flex min-h-[280px] flex-col rounded-lg bg-muted/30"
-              >
-                {/* Sticky column header */}
+              <section key={status} className="flex min-h-[280px] flex-col rounded-lg bg-muted/30">
                 <header className="sticky top-0 z-10 flex items-center justify-between gap-2 rounded-t-lg border-b border-border/60 bg-muted/30 px-3 py-2 backdrop-blur">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", statusDot[status])} />
@@ -238,7 +243,6 @@ export default function Bids() {
                   </span>
                 </header>
 
-                {/* Card stack */}
                 <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-2 max-h-[calc(100vh-22rem)]">
                   {items.length === 0 ? (
                     <p className="px-1 py-6 text-center text-[11px] text-muted-foreground/70">
@@ -247,12 +251,7 @@ export default function Bids() {
                   ) : (
                     <>
                       {visibleItems.map((b) => (
-                        <BidCard
-                          key={b.id}
-                          bid={b}
-                          onMove={handleMove}
-                          onEdit={handleEdit}
-                        />
+                        <BidCard key={b.id} bid={b} onMove={handleMove} onEdit={handleEdit} />
                       ))}
                       {items.length > COLLAPSED_LIMIT && (
                         <Button
@@ -262,15 +261,9 @@ export default function Bids() {
                           className="h-7 w-full gap-1 text-[11px] text-muted-foreground hover:text-foreground"
                         >
                           {isExpanded ? (
-                            <>
-                              <ChevronUp className="h-3 w-3" />
-                              Show less
-                            </>
+                            <><ChevronUp className="h-3 w-3" /> Show less</>
                           ) : (
-                            <>
-                              <ChevronDown className="h-3 w-3" />
-                              Show {hiddenCount} more
-                            </>
+                            <><ChevronDown className="h-3 w-3" /> Show {hiddenCount} more</>
                           )}
                         </Button>
                       )}

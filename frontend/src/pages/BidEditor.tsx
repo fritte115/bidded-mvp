@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -16,14 +17,8 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { EmptyState } from "@/components/EmptyState";
-import {
-  procurements,
-  bidStatusLabel,
-  bidStatusOrder,
-  runs,
-  type BidStatus,
-  type Procurement,
-} from "@/data/mock";
+import { fetchProcurements, fetchDecisions, createBid, tenderToMockProcurement } from "@/lib/api";
+import { bidStatusLabel, bidStatusOrder, type BidStatus } from "@/data/mock";
 import { estimateBid, formatSEK, type BidEstimate } from "@/lib/bidEstimator";
 import {
   ArrowLeft,
@@ -58,20 +53,7 @@ function deltaInfo(rate: number, estimate: BidEstimate) {
   return { deltaPct, tone };
 }
 
-/** Synthetic stable submission deadline: uploadedAt + 60 days. */
-function deadlineFor(p: Procurement): Date {
-  const d = new Date(p.uploadedAt);
-  d.setDate(d.getDate() + 60);
-  return d;
-}
-
-function RateBar({
-  rate,
-  estimate,
-}: {
-  rate: number;
-  estimate: BidEstimate;
-}) {
+function RateBar({ rate, estimate }: { rate: number; estimate: BidEstimate }) {
   const min = Math.min(estimate.competitorBand[0], estimate.recommendedRate, rate) * 0.95;
   const max = Math.max(estimate.ceiling, estimate.competitorBand[1], rate) * 1.02;
   const pct = (v: number) => ((v - min) / (max - min)) * 100;
@@ -79,7 +61,6 @@ function RateBar({
   return (
     <div className="space-y-1.5">
       <div className="relative h-6 rounded-sm bg-muted">
-        {/* competitor band */}
         <div
           className="absolute top-1 bottom-1 rounded-sm bg-primary/20"
           style={{
@@ -88,19 +69,16 @@ function RateBar({
           }}
           title="Competitor band"
         />
-        {/* recommended marker */}
         <div
           className="absolute top-0 bottom-0 w-0.5 bg-primary"
           style={{ left: `${pct(estimate.recommendedRate)}%` }}
           title="Recommended"
         />
-        {/* ceiling marker */}
         <div
           className="absolute top-0 bottom-0 w-0.5 bg-danger"
           style={{ left: `${pct(estimate.ceiling)}%` }}
           title="Ceiling"
         />
-        {/* user rate */}
         <div
           className="absolute -top-1 -bottom-1 w-1 rounded-sm bg-foreground"
           style={{ left: `calc(${pct(rate)}% - 2px)` }}
@@ -123,22 +101,58 @@ function RateBar({
 export default function BidEditor() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  const { data: procurementList = [] } = useQuery({
+    queryKey: ["procurements"],
+    queryFn: fetchProcurements,
+  });
+
+  const { data: decisions = [] } = useQuery({
+    queryKey: ["decisions"],
+    queryFn: fetchDecisions,
+  });
 
   const [procurementId, setProcurementId] = useState<string>(
-    params.get("procurement") ?? procurements[0]?.id ?? "",
+    params.get("procurement") ?? "",
   );
 
-  const procurement = useMemo(
-    () => procurements.find((p) => p.id === procurementId),
-    [procurementId],
+  // Resolve the selected procurement row
+  const procRow = useMemo(
+    () => procurementList.find((p) => p.id === procurementId) ?? procurementList[0],
+    [procurementList, procurementId],
   );
+
+  // Build a Procurement-compatible object for estimateBid
+  const decisionForProcurement = useMemo(
+    () => decisions.find((d) => {
+      // match by runId pointing to same tender — we use tenderName as heuristic
+      // since decisions don't carry tender_id directly in DecisionRow
+      return procRow && d.tenderName === procRow.name;
+    }),
+    [decisions, procRow],
+  );
+
+  const procurement = useMemo(() => {
+    if (!procRow) return null;
+    return tenderToMockProcurement(
+      procRow.id,
+      procRow.name,
+      procRow.uploadedAt,
+      procRow.documentFilenames,
+      decisionForProcurement
+        ? {
+            verdict: decisionForProcurement.verdict,
+            confidence: decisionForProcurement.confidence,
+            citedMemo: decisionForProcurement.citedMemo,
+          }
+        : null,
+    );
+  }, [procRow, decisionForProcurement]);
+
   const estimate = useMemo(
     () => (procurement ? estimateBid(procurement) : null),
     [procurement],
-  );
-  const runId = useMemo(
-    () => runs.find((r) => r.tenderId === procurementId)?.id,
-    [procurementId],
   );
 
   const [rate, setRate] = useState<number>(estimate?.recommendedRate ?? 1200);
@@ -146,12 +160,14 @@ export default function BidEditor() {
   const [hours, setHours] = useState<number>(1600);
   const [status, setStatus] = useState<BidStatus>("draft");
   const [notes, setNotes] = useState<string>("");
+  const [saving, setSaving] = useState(false);
 
   const onPickProcurement = (id: string) => {
     setProcurementId(id);
-    const p = procurements.find((x) => x.id === id);
-    if (p) {
-      const e = estimateBid(p);
+    const row = procurementList.find((x) => x.id === id);
+    if (row) {
+      const mock = tenderToMockProcurement(id, row.name, row.uploadedAt, row.documentFilenames);
+      const e = estimateBid(mock);
       setRate(e.recommendedRate);
       setMargin(e.inputs.targetMarginPct);
     }
@@ -170,17 +186,34 @@ export default function BidEditor() {
     setNotes((prev) => (prev.trim() === "" ? bullet : `${bullet}\n${prev}`));
   };
 
-  const handleSave = () => {
-    if (!procurement) return;
-    toast.success("Draft bid saved", {
-      description: `${formatSEK(rate)} SEK/h · ${bidStatusLabel[status]}`,
-    });
-    navigate("/bids");
+  const handleSave = async () => {
+    if (!procRow) return;
+    setSaving(true);
+    try {
+      await createBid({
+        tenderId: procRow.id,
+        rateSEK: rate,
+        marginPct: margin,
+        hoursEstimated: hours,
+        status,
+        notes,
+        runId: decisionForProcurement?.id,
+      });
+      queryClient.invalidateQueries({ queryKey: ["bids"] });
+      toast.success("Draft bid saved", {
+        description: `${formatSEK(rate)} SEK/h · ${bidStatusLabel[status]}`,
+      });
+      navigate("/bids");
+    } catch {
+      toast.error("Failed to save bid");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const totalContractValue = rate * hours;
   const delta = estimate ? deltaInfo(rate, estimate) : null;
-  const deadline = procurement ? deadlineFor(procurement) : null;
+  const deadline = procRow ? (() => { const d = new Date(procRow.uploadedAt); d.setDate(d.getDate() + 60); return d; })() : null;
   const daysToDeadline = deadline
     ? Math.round((deadline.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
     : null;
@@ -199,11 +232,11 @@ export default function BidEditor() {
         }
       />
 
-      {!procurement ? (
+      {procurementList.length === 0 ? (
         <EmptyState
           icon={FileQuestion}
-          title="Pick a procurement to start"
-          description="The bid editor needs a procurement to anchor pricing and recommendations."
+          title="No procurements available"
+          description="Register a procurement first before creating a bid."
         />
       ) : (
         <div className="grid gap-6 lg:grid-cols-3">
@@ -211,12 +244,13 @@ export default function BidEditor() {
             <CardContent className="space-y-5 p-5">
               <div className="space-y-2">
                 <Label htmlFor="procurement">Procurement</Label>
-                <Select value={procurementId} onValueChange={onPickProcurement}>
-                  <SelectTrigger id="procurement">
-                    <SelectValue />
-                  </SelectTrigger>
+                <Select
+                  value={procRow?.id ?? ""}
+                  onValueChange={onPickProcurement}
+                >
+                  <SelectTrigger id="procurement"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {procurements.map((p) => (
+                    {procurementList.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
                         {p.name}
                       </SelectItem>
@@ -226,56 +260,57 @@ export default function BidEditor() {
               </div>
 
               {/* Procurement context strip */}
-              <div className="grid gap-3 rounded-md border border-border bg-muted/30 p-3 sm:grid-cols-4">
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Value
-                  </p>
-                  <p className="font-mono text-sm font-semibold tabular-nums">
-                    {procurement.estimatedValueMSEK} MSEK
-                  </p>
+              {procurement && (
+                <div className="grid gap-3 rounded-md border border-border bg-muted/30 p-3 sm:grid-cols-4">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Documents
+                    </p>
+                    <p className="font-mono text-sm font-semibold tabular-nums">
+                      {procRow?.documentCount ?? 0}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Deadline
+                    </p>
+                    <p className="inline-flex items-center gap-1 font-mono text-sm tabular-nums">
+                      <Calendar className="h-3 w-3 text-muted-foreground" />
+                      {daysToDeadline !== null && daysToDeadline >= 0
+                        ? `${daysToDeadline}d`
+                        : `${Math.abs(daysToDeadline ?? 0)}d ago`}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Agent decision
+                    </p>
+                    <p className="text-sm font-medium">
+                      {decisionForProcurement?.verdict.replace(/_/g, " ") ?? "—"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Confidence
+                    </p>
+                    <p className="inline-flex items-center gap-1 font-mono text-sm tabular-nums">
+                      <TrendingUp className="h-3 w-3 text-muted-foreground" />
+                      {decisionForProcurement ? `${decisionForProcurement.confidence}%` : "—"}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Deadline
-                  </p>
-                  <p className="inline-flex items-center gap-1 font-mono text-sm tabular-nums">
-                    <Calendar className="h-3 w-3 text-muted-foreground" />
-                    {daysToDeadline !== null && daysToDeadline >= 0
-                      ? `${daysToDeadline}d`
-                      : `${Math.abs(daysToDeadline ?? 0)}d ago`}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Strategic fit
-                  </p>
-                  <p className="text-sm font-medium">{procurement.strategicFit}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Win prob.
-                  </p>
-                  <p className="inline-flex items-center gap-1 font-mono text-sm tabular-nums">
-                    <TrendingUp className="h-3 w-3 text-muted-foreground" />
-                    {Math.round(procurement.winProbability * 100)}%
-                  </p>
-                </div>
-              </div>
+              )}
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label htmlFor="rate">Hourly rate (SEK/h)</Label>
                     {delta && (
-                      <span
-                        className={cn(
-                          "inline-flex items-center rounded-sm px-1.5 py-0.5 font-mono text-[11px] tabular-nums",
-                          delta.tone,
-                        )}
-                      >
-                        {delta.deltaPct > 0 ? "+" : ""}
-                        {delta.deltaPct}% vs. rec
+                      <span className={cn(
+                        "inline-flex items-center rounded-sm px-1.5 py-0.5 font-mono text-[11px] tabular-nums",
+                        delta.tone,
+                      )}>
+                        {delta.deltaPct > 0 ? "+" : ""}{delta.deltaPct}% vs. rec
                       </span>
                     )}
                   </div>
@@ -291,12 +326,10 @@ export default function BidEditor() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label htmlFor="margin">Target margin (%)</Label>
-                    <span
-                      className={cn(
-                        "inline-flex items-center rounded-sm px-1.5 py-0.5 font-mono text-[11px] tabular-nums",
-                        marginTone(margin),
-                      )}
-                    >
+                    <span className={cn(
+                      "inline-flex items-center rounded-sm px-1.5 py-0.5 font-mono text-[11px] tabular-nums",
+                      marginTone(margin),
+                    )}>
                       {margin >= 12 ? "healthy" : margin >= 8 ? "thin" : "tight"}
                     </span>
                   </div>
@@ -338,14 +371,10 @@ export default function BidEditor() {
               <div className="space-y-2">
                 <Label htmlFor="status">Pipeline status</Label>
                 <Select value={status} onValueChange={(v) => setStatus(v as BidStatus)}>
-                  <SelectTrigger id="status">
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger id="status"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {bidStatusOrder.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {bidStatusLabel[s]}
-                      </SelectItem>
+                      <SelectItem key={s} value={s}>{bidStatusLabel[s]}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -380,7 +409,9 @@ export default function BidEditor() {
                 <Button variant="ghost" asChild>
                   <Link to="/bids">Cancel</Link>
                 </Button>
-                <Button onClick={handleSave}>Save draft</Button>
+                <Button onClick={handleSave} disabled={saving || !procRow}>
+                  {saving ? "Saving…" : "Save draft"}
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -396,9 +427,7 @@ export default function BidEditor() {
                   <div>
                     <p className="font-mono text-2xl font-semibold tabular-nums">
                       {formatSEK(estimate.recommendedRate)}{" "}
-                      <span className="text-sm font-normal text-muted-foreground">
-                        SEK/h
-                      </span>
+                      <span className="text-sm font-normal text-muted-foreground">SEK/h</span>
                     </p>
                     <p className="font-mono text-xs tabular-nums text-muted-foreground">
                       range {formatSEK(estimate.recommendedRange[0])} –{" "}
@@ -428,8 +457,8 @@ export default function BidEditor() {
                       {formatSEK(estimate.competitorBand[1])} SEK/h
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      Likely {estimate.numLikelyBidders[0]}–{estimate.numLikelyBidders[1]}{" "}
-                      bidders · ceiling {formatSEK(estimate.ceiling)} SEK/h
+                      Likely {estimate.numLikelyBidders[0]}–{estimate.numLikelyBidders[1]} bidders
+                      · ceiling {formatSEK(estimate.ceiling)} SEK/h
                     </p>
                   </div>
 
@@ -437,15 +466,14 @@ export default function BidEditor() {
 
                   <p className="text-xs leading-relaxed text-muted-foreground">
                     Margin {estimate.inputs.targetMarginPct}% · win{" "}
-                    {estimate.inputs.winProbabilityPct}% · fit{" "}
-                    {estimate.inputs.strategicFit} · weights price{" "}
-                    {estimate.inputs.evaluationWeights.price} / quality{" "}
+                    {estimate.inputs.winProbabilityPct}% · fit {estimate.inputs.strategicFit} ·
+                    weights price {estimate.inputs.evaluationWeights.price} / quality{" "}
                     {estimate.inputs.evaluationWeights.quality}
                   </p>
 
-                  {runId && (
+                  {decisionForProcurement && (
                     <Button asChild variant="outline" size="sm" className="w-full">
-                      <Link to={`/decisions/${runId}`}>
+                      <Link to={`/decisions/${decisionForProcurement.id}`}>
                         <BookOpen className="h-3.5 w-3.5" />
                         See full reasoning
                       </Link>

@@ -1,4 +1,5 @@
 import { Link, useParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,8 +28,18 @@ import { ConfidenceBar } from "@/components/ConfidenceBar";
 import { EvidenceBadge } from "@/components/EvidenceBadge";
 import { AgentMotionCard } from "@/components/AgentMotionCard";
 import { PipelineStep, type StepState } from "@/components/PipelineStep";
-import { findRun, formatDate, formatDuration, runDisplayId, type EvidenceCategory } from "@/data/mock";
-import { ArrowLeft, Download, RefreshCw, ChevronDown, FileSearch, AlertTriangle, XCircle, CheckCircle2 } from "lucide-react";
+import { fetchRunDetail } from "@/lib/api";
+import { formatDate, formatDuration, type EvidenceCategory } from "@/data/mock";
+import {
+  ArrowLeft,
+  Download,
+  RefreshCw,
+  ChevronDown,
+  FileSearch,
+  AlertTriangle,
+  XCircle,
+  CheckCircle2,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const categoryOrder: EvidenceCategory[] = [
@@ -53,9 +64,32 @@ const severityToneMap = {
   High: "bg-danger/10 text-danger border-danger/30",
 } as const;
 
+function runDisplayId(id: string): string {
+  let sum = 0;
+  for (let i = 0; i < id.length; i++) sum = (sum + id.charCodeAt(i) * (i + 1)) % 9000;
+  return `#${1000 + sum}`;
+}
+
 export default function RunDetail() {
   const { id = "" } = useParams();
-  const run = findRun(id);
+
+  const { data: run, isLoading } = useQuery({
+    queryKey: ["run-detail", id],
+    queryFn: () => fetchRunDetail(id),
+    enabled: !!id,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === "running" || status === "pending" ? 5_000 : false;
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="rounded-lg border border-dashed border-border p-10 text-center text-muted-foreground">
+        Loading run…
+      </div>
+    );
+  }
 
   if (!run) {
     return (
@@ -78,19 +112,24 @@ export default function RunDetail() {
       return { 1: "completed", 2: "completed", 3: "completed", 4: "completed" };
     }
     if (run.status === "running") {
-      const s: Record<1 | 2 | 3 | 4, StepState> = { 1: "pending", 2: "pending", 3: "pending", 4: "pending" };
-      for (let i = 1 as 1 | 2 | 3 | 4; i < currentStep; i = (i + 1) as 1 | 2 | 3 | 4) s[i] = "completed";
+      const s: Record<1 | 2 | 3 | 4, StepState> = {
+        1: "pending", 2: "pending", 3: "pending", 4: "pending",
+      };
+      for (let i = 1 as 1 | 2 | 3 | 4; i < currentStep; i = (i + 1) as 1 | 2 | 3 | 4)
+        s[i] = "completed";
       s[currentStep] = "running";
       return s;
     }
     if (run.status === "failed") {
-      const s: Record<1 | 2 | 3 | 4, StepState> = { 1: "pending", 2: "pending", 3: "pending", 4: "pending" };
-      for (let i = 1 as 1 | 2 | 3 | 4; i < currentStep; i = (i + 1) as 1 | 2 | 3 | 4) s[i] = "completed";
+      const s: Record<1 | 2 | 3 | 4, StepState> = {
+        1: "pending", 2: "pending", 3: "pending", 4: "pending",
+      };
+      for (let i = 1 as 1 | 2 | 3 | 4; i < currentStep; i = (i + 1) as 1 | 2 | 3 | 4)
+        s[i] = "completed";
       s[currentStep] = "failed";
       return s;
     }
     if (run.status === "needs_human_review") {
-      // Reached the final step but the Judge could not defensibly decide.
       return { 1: "completed", 2: "completed", 3: "completed", 4: "needs_human_review" };
     }
     return { 1: "pending", 2: "pending", 3: "pending", 4: "pending" };
@@ -104,11 +143,13 @@ export default function RunDetail() {
   return (
     <>
       <PageHeader
-        title={runDisplayId(run)}
+        title={runDisplayId(run.id)}
         description={run.tenderName}
         actions={
           <Button asChild variant="outline">
-            <Link to="/procurements"><ArrowLeft className="h-4 w-4" /> Back to procurements</Link>
+            <Link to="/procurements">
+              <ArrowLeft className="h-4 w-4" /> Back to procurements
+            </Link>
           </Button>
         }
       />
@@ -148,13 +189,12 @@ export default function RunDetail() {
               <Button variant="outline" size="sm">
                 <CheckCircle2 className="h-3 w-3" /> Mark resolved
               </Button>
-              <Button variant="outline" size="sm">
-                Request override
-              </Button>
+              <Button variant="outline" size="sm">Request override</Button>
             </div>
           </CardContent>
         </Card>
       )}
+
       <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
         {/* Metadata card */}
         <div className="space-y-4">
@@ -163,19 +203,35 @@ export default function RunDetail() {
               <CardTitle className="text-sm">Run metadata</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
-              <Field label="Run" value={<span className="font-medium">{runDisplayId(run)}</span>} />
-              <Field label="Run ID" value={<span className="font-mono text-xs text-muted-foreground">{run.id}</span>} />
+              <Field label="Run" value={<span className="font-medium">{runDisplayId(run.id)}</span>} />
+              <Field label="Run ID" value={<span className="font-mono text-xs text-muted-foreground">{run.id.slice(0, 8)}…</span>} />
               <Field
                 label="Procurement"
-                value={<Link className="text-primary hover:underline" to={`/procurements`}>{run.tenderName}</Link>}
+                value={
+                  <Link className="text-primary hover:underline" to="/procurements">
+                    {run.tenderName}
+                  </Link>
+                }
               />
               <Field label="Company" value={run.company} />
               <Field label="Status" value={<StatusBadge status={run.status} />} />
               <Field label="Started" value={formatDate(run.startedAt)} />
-              <Field label="Completed" value={run.completedAt ? formatDate(run.completedAt) : "—"} />
-              <Field label="Duration" value={<span className="font-mono text-xs">{formatDuration(run.durationSec)}</span>} />
+              <Field
+                label="Completed"
+                value={run.completedAt ? formatDate(run.completedAt) : "—"}
+              />
+              <Field
+                label="Duration"
+                value={
+                  <span className="font-mono text-xs">
+                    {formatDuration(run.durationSec ?? undefined)}
+                  </span>
+                }
+              />
               <Field label="Stage" value={run.stage} />
-              {run.decision && <Field label="Decision" value={<VerdictBadge verdict={run.decision} />} />}
+              {run.decision && (
+                <Field label="Decision" value={<VerdictBadge verdict={run.decision} />} />
+              )}
             </CardContent>
             <div className="flex gap-2 border-t border-border p-3">
               <Button variant="outline" size="sm" className="flex-1">
@@ -221,7 +277,10 @@ export default function RunDetail() {
                                 <div className="text-sm">
                                   <p className="leading-snug">{e.excerpt}</p>
                                   <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                                    {e.key} · {e.source} p.{e.page}
+                                    {e.key} · {e.source}
+                                    {e.kind === "tender_document" && e.page > 0
+                                      ? ` p.${e.page}`
+                                      : ""}
                                   </p>
                                 </div>
                               </li>
@@ -270,8 +329,12 @@ export default function RunDetail() {
                     <div className="flex items-center gap-3">
                       <VerdictBadge verdict={run.judge.verdict} size="lg" />
                       <div>
-                        <p className="text-xs uppercase tracking-wide text-muted-foreground">Confidence</p>
-                        <p className="font-mono text-lg tabular-nums">{run.judge.confidence}%</p>
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                          Confidence
+                        </p>
+                        <p className="font-mono text-lg tabular-nums">
+                          {run.judge.confidence}%
+                        </p>
                       </div>
                     </div>
                     <div className="flex gap-1.5">
@@ -289,7 +352,9 @@ export default function RunDetail() {
 
                   {run.judge.disagreement && (
                     <div className="rounded-md border border-warning/30 bg-warning/5 p-3 text-sm">
-                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-warning">Disagreement</p>
+                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-warning">
+                        Disagreement
+                      </p>
                       {run.judge.disagreement}
                     </div>
                   )}
@@ -308,7 +373,10 @@ export default function RunDetail() {
                           <TableRow key={i}>
                             <TableCell className="text-sm">{r.requirement}</TableCell>
                             <TableCell>
-                              <span className={cn("inline-flex items-center rounded-sm border px-2 py-0.5 text-xs font-medium", statusToneMap[r.status])}>
+                              <span className={cn(
+                                "inline-flex items-center rounded-sm border px-2 py-0.5 text-xs font-medium",
+                                statusToneMap[r.status] ?? statusToneMap.Unknown,
+                              )}>
                                 {r.status}
                               </span>
                             </TableCell>
@@ -323,10 +391,15 @@ export default function RunDetail() {
                     </Table>
                   </CollapsibleSection>
 
-                  <CollapsibleSection title={`Compliance Blockers (${run.judge.complianceBlockers.length})`}>
+                  <CollapsibleSection
+                    title={`Compliance Blockers (${run.judge.complianceBlockers.length})`}
+                  >
                     <ul className="space-y-1.5">
                       {run.judge.complianceBlockers.map((b, i) => (
-                        <li key={i} className="flex items-start gap-2 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-sm">
+                        <li
+                          key={i}
+                          className="flex items-start gap-2 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-sm"
+                        >
                           <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-danger" />
                           {b}
                         </li>
@@ -334,10 +407,15 @@ export default function RunDetail() {
                     </ul>
                   </CollapsibleSection>
 
-                  <CollapsibleSection title={`Potential Blockers (${run.judge.potentialBlockers.length})`}>
+                  <CollapsibleSection
+                    title={`Potential Blockers (${run.judge.potentialBlockers.length})`}
+                  >
                     <ul className="space-y-1.5">
                       {run.judge.potentialBlockers.map((b, i) => (
-                        <li key={i} className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-sm">
+                        <li
+                          key={i}
+                          className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-sm"
+                        >
                           <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-warning" />
                           {b}
                         </li>
@@ -359,11 +437,16 @@ export default function RunDetail() {
                           <TableRow key={i}>
                             <TableCell className="text-sm">{r.risk}</TableCell>
                             <TableCell>
-                              <span className={cn("inline-flex items-center rounded-sm border px-2 py-0.5 text-xs font-medium", severityToneMap[r.severity])}>
+                              <span className={cn(
+                                "inline-flex items-center rounded-sm border px-2 py-0.5 text-xs font-medium",
+                                severityToneMap[r.severity] ?? severityToneMap.Medium,
+                              )}>
                                 {r.severity}
                               </span>
                             </TableCell>
-                            <TableCell className="text-sm text-muted-foreground">{r.mitigation}</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {r.mitigation}
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -406,11 +489,21 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function VoteChip({ label, count, tone }: { label: string; count: number; tone: "success" | "danger" | "warning" }) {
+function VoteChip({
+  label,
+  count,
+  tone,
+}: {
+  label: string;
+  count: number;
+  tone: "success" | "danger" | "warning";
+}) {
   const t =
-    tone === "success" ? "border-success/30 bg-success/10 text-success"
-    : tone === "danger" ? "border-danger/30 bg-danger/10 text-danger"
-    : "border-warning/30 bg-warning/10 text-warning";
+    tone === "success"
+      ? "border-success/30 bg-success/10 text-success"
+      : tone === "danger"
+      ? "border-danger/30 bg-danger/10 text-danger"
+      : "border-warning/30 bg-warning/10 text-warning";
   return (
     <div className={cn("flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-semibold", t)}>
       <span className="font-mono tabular-nums">{count}</span>
@@ -434,7 +527,9 @@ function CollapsibleSection({
         {title}
         <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
       </CollapsibleTrigger>
-      <CollapsibleContent className="border-t border-border p-3">{children}</CollapsibleContent>
+      <CollapsibleContent className="border-t border-border p-3">
+        {children}
+      </CollapsibleContent>
     </Collapsible>
   );
 }

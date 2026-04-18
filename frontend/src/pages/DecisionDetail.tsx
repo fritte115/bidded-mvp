@@ -1,4 +1,5 @@
 import { Link, useParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -8,8 +9,7 @@ import { EvidenceBadge } from "@/components/EvidenceBadge";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { findRun, procurements } from "@/data/mock";
-import { BidRecommendation } from "@/components/BidRecommendation";
+import { fetchRunDetail } from "@/lib/api";
 import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -28,10 +28,21 @@ const sevTone = {
 
 export default function DecisionDetail() {
   const { id = "" } = useParams();
-  const run = findRun(id);
-  if (!run || !run.judge) return <p className="text-muted-foreground">Decision not found.</p>;
+
+  const { data: run, isLoading } = useQuery({
+    queryKey: ["run-detail", id],
+    queryFn: () => fetchRunDetail(id),
+    enabled: !!id,
+  });
+
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Loading decision…</p>;
+  }
+  if (!run || !run.judge) {
+    return <p className="text-muted-foreground">Decision not found.</p>;
+  }
+
   const j = run.judge;
-  const procurement = procurements.find((p) => p.id === run.tenderId);
 
   return (
     <>
@@ -52,7 +63,9 @@ export default function DecisionDetail() {
             <div className="space-y-2">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Final Verdict</p>
               <VerdictBadge verdict={j.verdict} size="lg" />
-              <p className="text-sm text-muted-foreground">Run <span className="font-mono">{run.id}</span></p>
+              <p className="text-sm text-muted-foreground">
+                Run <span className="font-mono">{run.id.slice(0, 8)}</span>
+              </p>
             </div>
             <div className="min-w-[220px]">
               <p className="mb-1.5 text-xs uppercase tracking-wide text-muted-foreground">Confidence</p>
@@ -86,9 +99,18 @@ export default function DecisionDetail() {
                     <TableRow key={i}>
                       <TableCell className="text-sm">{r.requirement}</TableCell>
                       <TableCell>
-                        <span className={cn("inline-flex items-center rounded-sm border px-2 py-0.5 text-xs font-medium", statusTone[r.status])}>{r.status}</span>
+                        <span className={cn(
+                          "inline-flex items-center rounded-sm border px-2 py-0.5 text-xs font-medium",
+                          statusTone[r.status] ?? statusTone.Unknown,
+                        )}>
+                          {r.status}
+                        </span>
                       </TableCell>
-                      <TableCell><div className="flex flex-wrap gap-1">{r.evidence.map((e) => <EvidenceBadge key={e} id={e} />)}</div></TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          {r.evidence.map((e) => <EvidenceBadge key={e} id={e} />)}
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -108,9 +130,16 @@ export default function DecisionDetail() {
                     <TableRow key={i}>
                       <TableCell className="text-sm">{r.risk}</TableCell>
                       <TableCell>
-                        <span className={cn("inline-flex items-center rounded-sm border px-2 py-0.5 text-xs font-medium", sevTone[r.severity])}>{r.severity}</span>
+                        <span className={cn(
+                          "inline-flex items-center rounded-sm border px-2 py-0.5 text-xs font-medium",
+                          sevTone[r.severity] ?? sevTone.Medium,
+                        )}>
+                          {r.severity}
+                        </span>
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{r.mitigation}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {r.mitigation}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -125,11 +154,11 @@ export default function DecisionDetail() {
         </Card>
 
         <div className="space-y-4">
-          {procurement && <BidRecommendation procurement={procurement} />}
-
           <Card>
             <CardContent className="space-y-3 p-5">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Vote Summary</h4>
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Vote Summary
+              </h4>
               <div className="space-y-2">
                 <VoteRow label="BID" count={j.voteSummary.BID} total={4} tone="success" />
                 <VoteRow label="NO BID" count={j.voteSummary.NO_BID} total={4} tone="danger" />
@@ -138,40 +167,58 @@ export default function DecisionDetail() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardContent className="space-y-2 p-5">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Compliance Blockers</h4>
-              <ul className="space-y-1.5">
-                {j.complianceBlockers.map((b, i) => (
-                  <li key={i} className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-sm">{b}</li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
+          {j.complianceBlockers.length > 0 && (
+            <Card>
+              <CardContent className="space-y-2 p-5">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Compliance Blockers
+                </h4>
+                <ul className="space-y-1.5">
+                  {j.complianceBlockers.map((b, i) => (
+                    <li key={i} className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-sm">
+                      {b}
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
+
+          {j.potentialBlockers.length > 0 && (
+            <Card>
+              <CardContent className="space-y-2 p-5">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Potential Blockers
+                </h4>
+                <ul className="space-y-1.5">
+                  {j.potentialBlockers.map((b, i) => (
+                    <li key={i} className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-sm">
+                      {b}
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
+
+          {j.missingInfo.length > 0 && (
+            <Card>
+              <CardContent className="space-y-2 p-5">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Missing Information
+                </h4>
+                <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                  {j.missingInfo.map((m, i) => <li key={i}>{m}</li>)}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardContent className="space-y-2 p-5">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Potential Blockers</h4>
-              <ul className="space-y-1.5">
-                {j.potentialBlockers.map((b, i) => (
-                  <li key={i} className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-sm">{b}</li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="space-y-2 p-5">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Missing Information</h4>
-              <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                {j.missingInfo.map((m, i) => <li key={i}>{m}</li>)}
-              </ul>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="space-y-2 p-5">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cited Evidence</h4>
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Cited Evidence
+              </h4>
               <div className="flex flex-wrap gap-1.5">
                 {j.evidenceIds.map((e) => <EvidenceBadge key={e} id={e} />)}
               </div>
@@ -192,7 +239,17 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function VoteRow({ label, count, total, tone }: { label: string; count: number; total: number; tone: "success" | "danger" | "warning" }) {
+function VoteRow({
+  label,
+  count,
+  total,
+  tone,
+}: {
+  label: string;
+  count: number;
+  total: number;
+  tone: "success" | "danger" | "warning";
+}) {
   const t = tone === "success" ? "bg-success" : tone === "danger" ? "bg-danger" : "bg-warning";
   return (
     <div>

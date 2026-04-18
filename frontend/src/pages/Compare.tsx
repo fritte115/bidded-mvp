@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,7 +22,8 @@ import { VerdictBadge } from "@/components/VerdictBadge";
 import { ConfidenceBar } from "@/components/ConfidenceBar";
 import { EmptyState } from "@/components/EmptyState";
 import { BidRecommendation } from "@/components/BidRecommendation";
-import { procurements, runs, verdictLabel, type Verdict } from "@/data/mock";
+import { fetchTendersWithDecisions, tenderToMockProcurement } from "@/lib/api";
+import { verdictLabel, type Verdict } from "@/data/mock";
 import {
   ArrowRight,
   BookOpen,
@@ -42,7 +44,6 @@ const toneClass: Record<"Low" | "Medium" | "High", { dot: string; text: string; 
   High: { dot: "bg-success", text: "text-success", bg: "bg-success/10" },
 };
 
-// Risk inverts: Low risk = good (success)
 const riskTone: Record<"Low" | "Medium" | "High", { dot: string; text: string; bg: string }> = {
   Low: { dot: "bg-success", text: "text-success", bg: "bg-success/10" },
   Medium: { dot: "bg-warning", text: "text-warning", bg: "bg-warning/10" },
@@ -98,10 +99,11 @@ export default function Compare() {
   const [params, setParams] = useSearchParams();
   const idsParam = params.get("ids");
 
-  const allWithVerdict = useMemo(
-    () => procurements.filter((p) => p.verdict),
-    [],
-  );
+  const { data: allWithVerdict = [], isLoading } = useQuery({
+    queryKey: ["tenders-with-decisions"],
+    queryFn: fetchTendersWithDecisions,
+    refetchInterval: 15_000,
+  });
 
   const selectedIds = useMemo(() => {
     if (idsParam) return idsParam.split(",").filter(Boolean);
@@ -114,43 +116,21 @@ export default function Compare() {
   );
 
   const grouped = useMemo(() => {
-    const g: Record<Verdict, typeof selected> = {
-      BID: [],
-      NO_BID: [],
-      CONDITIONAL_BID: [],
-    };
-    selected.forEach((p) => {
-      if (p.verdict) g[p.verdict].push(p);
-    });
+    const g: Record<Verdict, typeof selected> = { BID: [], NO_BID: [], CONDITIONAL_BID: [] };
+    selected.forEach((p) => { if (p.verdict) g[p.verdict].push(p); });
     return g;
   }, [selected]);
 
-  const maxValue = useMemo(
-    () => Math.max(1, ...selected.map((p) => p.estimatedValueMSEK)),
-    [selected],
-  );
-
-  // Top pick: highest-confidence BID
   const topPickId = useMemo(() => {
-    const bids = grouped.BID.slice().sort(
-      (a, b) => (b.confidence ?? 0) - (a.confidence ?? 0),
-    );
-    return bids[0]?.id;
+    return grouped.BID.slice().sort((a, b) => b.confidence - a.confidence)[0]?.id;
   }, [grouped]);
 
   const toggle = (id: string) => {
     const next = selectedIds.includes(id)
       ? selectedIds.filter((x) => x !== id)
       : [...selectedIds, id];
-    if (next.length === 0) {
-      setParams({});
-    } else {
-      setParams({ ids: next.join(",") });
-    }
+    setParams(next.length === 0 ? {} : { ids: next.join(",") });
   };
-
-  const runIdFor = (procurementId: string) =>
-    runs.find((r) => r.tenderId === procurementId)?.id;
 
   return (
     <>
@@ -187,11 +167,9 @@ export default function Compare() {
                       />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm">{p.name}</p>
-                        {p.verdict && (
-                          <p className={cn("text-xs", verdictTone[p.verdict])}>
-                            {verdictLabel[p.verdict]} · {p.confidence}%
-                          </p>
-                        )}
+                        <p className={cn("text-xs", verdictTone[p.verdict])}>
+                          {verdictLabel[p.verdict]} · {p.confidence}%
+                        </p>
                       </div>
                     </label>
                   );
@@ -202,7 +180,9 @@ export default function Compare() {
         }
       />
 
-      {selected.length === 0 ? (
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground">Loading procurements…</p>
+      ) : selected.length === 0 ? (
         <EmptyState
           icon={GitCompareArrows}
           title="No procurements selected"
@@ -215,11 +195,8 @@ export default function Compare() {
             {(["BID", "CONDITIONAL_BID", "NO_BID"] as Verdict[]).map((v) => {
               const Icon = verdictIcon[v];
               const items = grouped[v];
-              const totalValue = items.reduce((s, p) => s + p.estimatedValueMSEK, 0);
               const avgConfidence = items.length
-                ? Math.round(
-                    items.reduce((s, p) => s + (p.confidence ?? 0), 0) / items.length,
-                  )
+                ? Math.round(items.reduce((s, p) => s + p.confidence, 0) / items.length)
                 : 0;
               return (
                 <Card key={v} className={cn("border", verdictTileBg[v])}>
@@ -237,14 +214,13 @@ export default function Compare() {
                         {items.length}
                       </span>
                     </div>
-
                     <div className="mt-3 grid grid-cols-2 gap-3 border-t border-border/60 pt-3">
                       <div>
                         <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                          Total value
+                          Count
                         </p>
                         <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-foreground">
-                          {totalValue} <span className="text-xs font-normal text-muted-foreground">MSEK</span>
+                          {items.length}
                         </p>
                       </div>
                       <div>
@@ -260,7 +236,6 @@ export default function Compare() {
                         </div>
                       </div>
                     </div>
-
                     {items.length > 0 && (
                       <div className="mt-3 flex flex-wrap gap-1">
                         {items.slice(0, 4).map((p) => (
@@ -292,47 +267,23 @@ export default function Compare() {
                 <Table className="w-full table-fixed">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[23%] text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                        Procurement
-                      </TableHead>
-                      <TableHead className="w-[8%] text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                        Verdict
-                      </TableHead>
-                      <TableHead className="w-[10%] text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                        Confidence
-                      </TableHead>
-                      <TableHead className="w-[7%] text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                        Docs
-                      </TableHead>
-                      <TableHead className="w-[10%] text-right text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                        Est. value
-                      </TableHead>
-                      <TableHead className="w-[10%] text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                        Win prob.
-                      </TableHead>
-                      <TableHead className="w-[8%] text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                        Fit
-                      </TableHead>
-                      <TableHead className="w-[8%] text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                        Risk
-                      </TableHead>
-                      <TableHead className="w-[16%] text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                        Top reason
-                      </TableHead>
+                      <TableHead className="w-[28%] text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Procurement</TableHead>
+                      <TableHead className="w-[9%] text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Verdict</TableHead>
+                      <TableHead className="w-[12%] text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Confidence</TableHead>
+                      <TableHead className="w-[7%] text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Docs</TableHead>
+                      <TableHead className="w-[9%] text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Risk</TableHead>
+                      <TableHead className="w-[35%] text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Top reason</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {selected.map((p) => {
-                      const runId = runIdFor(p.id);
-                      const winPct = Math.round(p.winProbability * 100);
-                      const valuePct = (p.estimatedValueMSEK / maxValue) * 100;
                       const isTopPick = p.id === topPickId;
                       return (
                         <TableRow
                           key={p.id}
                           className={cn(
                             "border-l-2",
-                            p.verdict ? verdictBorder[p.verdict] : "border-l-transparent",
+                            verdictBorder[p.verdict],
                           )}
                         >
                           <TableCell className="align-top">
@@ -349,88 +300,44 @@ export default function Compare() {
                                 )}
                               </div>
                               <div className="flex items-center gap-3 text-xs">
-                                {runId ? (
-                                  <>
-                                    <Link
-                                      to={`/runs/${runId}`}
-                                      className="group inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
-                                    >
-                                      Open run
-                                      <ArrowRight className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
-                                    </Link>
-                                    <Link
-                                      to={`/decisions/${runId}`}
-                                      className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
-                                    >
-                                      <BookOpen className="h-3 w-3" />
-                                      Reasoning
-                                    </Link>
-                                  </>
-                                ) : (
-                                  <span className="italic text-muted-foreground/70">
-                                    No run yet
-                                  </span>
-                                )}
+                                <Link
+                                  to={`/runs/${p.runId}`}
+                                  className="group inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                                >
+                                  Open run
+                                  <ArrowRight className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
+                                </Link>
+                                <Link
+                                  to={`/decisions/${p.runId}`}
+                                  className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+                                >
+                                  <BookOpen className="h-3 w-3" />
+                                  Reasoning
+                                </Link>
                               </div>
                             </div>
                           </TableCell>
                           <TableCell className="align-top">
-                            {p.verdict && (
-                              <span
-                                className={cn(
-                                  "inline-flex max-w-full items-center rounded-sm border px-1.5 py-1 text-[10px] font-semibold uppercase leading-none tracking-wide whitespace-nowrap",
-                                  compactVerdictClass[p.verdict],
-                                )}
-                              >
-                                {compactVerdictLabel[p.verdict]}
-                              </span>
-                            )}
-                          </TableCell>
-                          <TableCell className="align-top">
-                            {typeof p.confidence === "number" ? (
-                              <div className="min-w-0 max-w-full space-y-1">
-                                <span className="block truncate font-mono text-[11px] font-medium tabular-nums leading-none text-foreground">
-                                  {p.confidence}%
-                                </span>
-                                <ConfidenceBar value={p.confidence} showLabel={false} />
-                              </div>
-                            ) : (
-                              "—"
-                            )}
-                          </TableCell>
-                          <TableCell className="align-top">
-                            <div className="flex items-center gap-1.5 text-sm">
-                              <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                              <span className="font-medium">{p.documents.length}</span>
-                              <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-                                /{p.chunks}
-                              </span>
-                            </div>
-                          </TableCell>
-                          <TableCell className="align-top text-right">
-                            <div className="flex flex-col items-end gap-1">
-                              <span className="whitespace-nowrap font-mono text-sm font-medium tabular-nums">
-                                {p.estimatedValueMSEK}
-                                <span className="ml-1 text-xs font-normal text-muted-foreground">MSEK</span>
-                              </span>
-                              <div className="h-1 w-16 overflow-hidden rounded-full bg-muted">
-                                <div
-                                  className="h-full rounded-full bg-primary/60"
-                                  style={{ width: `${valuePct}%` }}
-                                />
-                              </div>
-                            </div>
+                            <span className={cn(
+                              "inline-flex max-w-full items-center rounded-sm border px-1.5 py-1 text-[10px] font-semibold uppercase leading-none tracking-wide whitespace-nowrap",
+                              compactVerdictClass[p.verdict],
+                            )}>
+                              {compactVerdictLabel[p.verdict]}
+                            </span>
                           </TableCell>
                           <TableCell className="align-top">
                             <div className="min-w-0 max-w-full space-y-1">
                               <span className="block truncate font-mono text-[11px] font-medium tabular-nums leading-none text-foreground">
-                                {winPct}%
+                                {p.confidence}%
                               </span>
-                              <ConfidenceBar value={winPct} showLabel={false} />
+                              <ConfidenceBar value={p.confidence} showLabel={false} />
                             </div>
                           </TableCell>
                           <TableCell className="align-top">
-                            <TonePill label={p.strategicFit} tone={toneClass[p.strategicFit]} />
+                            <div className="flex items-center gap-1.5 text-sm">
+                              <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                              <span className="font-medium">{p.documentCount}</span>
+                            </div>
                           </TableCell>
                           <TableCell className="align-top">
                             <TonePill label={p.riskScore} tone={riskTone[p.riskScore]} />
@@ -462,7 +369,15 @@ export default function Compare() {
             </div>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {selected.map((p) => (
-                <BidRecommendation key={p.id} procurement={p} heading={p.name} />
+                <BidRecommendation
+                  key={p.id}
+                  procurement={tenderToMockProcurement(p.id, p.name, p.uploadedAt, [], {
+                    verdict: p.verdict,
+                    confidence: p.confidence,
+                    citedMemo: p.citedMemo,
+                  })}
+                  heading={p.name}
+                />
               ))}
             </div>
           </section>

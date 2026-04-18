@@ -48,14 +48,21 @@ def create_pending_run_context(
     *,
     tender_id: UUID | str,
     company_id: UUID | str,
-    document_id: UUID | str,
+    document_ids: list[UUID | str],
     created_via: str = DEFAULT_CREATED_VIA,
 ) -> PendingRunContextResult:
     """Validate target rows and create a pending Supabase agent run."""
 
     normalized_tender_id = _normalize_uuid(tender_id, "tender_id")
     normalized_company_id = _normalize_uuid(company_id, "company_id")
-    normalized_document_id = _normalize_uuid(document_id, "document_id")
+
+    if not document_ids:
+        raise PendingRunContextError("At least one document_id is required.")
+
+    normalized_document_ids = [
+        _normalize_uuid(did, f"document_ids[{i}]")
+        for i, did in enumerate(document_ids)
+    ]
 
     _require_row(
         client,
@@ -77,24 +84,24 @@ def create_pending_run_context(
         },
         missing_message=f"Demo tender does not exist: {normalized_tender_id}",
     )
-    _require_row(
-        client,
-        table_name="documents",
-        columns="id",
-        filters={
-            "id": str(normalized_document_id),
-            "tenant_key": DEMO_TENANT_KEY,
-            "tender_id": str(normalized_tender_id),
-            "document_role": EvidenceSourceType.TENDER_DOCUMENT.value,
-        },
-        missing_message=(
-            "Tender procurement document does not exist for tender "
-            f"{normalized_tender_id}: {normalized_document_id}"
-        ),
-    )
+    for norm_did in normalized_document_ids:
+        _require_row(
+            client,
+            table_name="documents",
+            columns="id",
+            filters={
+                "id": str(norm_did),
+                "tenant_key": DEMO_TENANT_KEY,
+                "tender_id": str(normalized_tender_id),
+                "document_role": EvidenceSourceType.TENDER_DOCUMENT.value,
+            },
+            missing_message=(
+                "Tender procurement document does not exist for tender "
+                f"{normalized_tender_id}: {norm_did}"
+            ),
+        )
 
-    document_ids = [normalized_document_id]
-    run_config = build_pending_run_config(document_ids=document_ids)
+    run_config = build_pending_run_config(document_ids=normalized_document_ids)
     payload: dict[str, Any] = {
         "tenant_key": DEMO_TENANT_KEY,
         "tender_id": str(normalized_tender_id),
@@ -103,7 +110,7 @@ def create_pending_run_context(
         "run_config": run_config,
         "metadata": {
             "created_via": created_via,
-            "document_ids": [str(document_id) for document_id in document_ids],
+            "document_ids": [str(did) for did in normalized_document_ids],
         },
     }
     response = client.table("agent_runs").insert(payload).execute()
@@ -113,7 +120,7 @@ def create_pending_run_context(
         run_id=run_id,
         tender_id=normalized_tender_id,
         company_id=normalized_company_id,
-        document_ids=document_ids,
+        document_ids=normalized_document_ids,
         run_config=run_config,
     )
 
