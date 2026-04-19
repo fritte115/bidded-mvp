@@ -2,7 +2,7 @@ import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Accordion,
   AccordionContent,
@@ -22,14 +22,13 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { StatusBadge } from "@/components/StatusBadge";
 import { VerdictBadge } from "@/components/VerdictBadge";
 import { ConfidenceBar } from "@/components/ConfidenceBar";
 import { EvidenceBadge } from "@/components/EvidenceBadge";
 import { AgentMotionCard } from "@/components/AgentMotionCard";
 import { PipelineStep, type StepState } from "@/components/PipelineStep";
 import { fetchRunDetail } from "@/lib/api";
-import { formatDate, formatDuration, type EvidenceCategory } from "@/data/mock";
+import type { EvidenceCategory } from "@/data/mock";
 import {
   ArrowLeft,
   Download,
@@ -146,11 +145,24 @@ export default function RunDetail() {
         title={runDisplayId(run.id)}
         description={run.tenderName}
         actions={
-          <Button asChild variant="outline">
-            <Link to="/procurements">
-              <ArrowLeft className="h-4 w-4" /> Back to procurements
-            </Link>
-          </Button>
+          <>
+            <Button asChild variant="outline">
+              <Link to={`/runs/${run.id}/evidence`}>
+                <FileSearch className="h-4 w-4" /> Evidence Board
+              </Link>
+            </Button>
+            <Button variant="outline">
+              <RefreshCw className="h-4 w-4" /> Re-run
+            </Button>
+            <Button variant="outline">
+              <Download className="h-4 w-4" /> Export
+            </Button>
+            <Button asChild variant="outline">
+              <Link to="/procurements">
+                <ArrowLeft className="h-4 w-4" /> Back to procurements
+              </Link>
+            </Button>
+          </>
         }
       />
 
@@ -195,64 +207,8 @@ export default function RunDetail() {
         </Card>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
-        {/* Metadata card */}
-        <div className="space-y-4">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm">Run metadata</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <Field label="Run" value={<span className="font-medium">{runDisplayId(run.id)}</span>} />
-              <Field label="Run ID" value={<span className="font-mono text-xs text-muted-foreground">{run.id.slice(0, 8)}…</span>} />
-              <Field
-                label="Procurement"
-                value={
-                  <Link className="text-primary hover:underline" to="/procurements">
-                    {run.tenderName}
-                  </Link>
-                }
-              />
-              <Field label="Company" value={run.company} />
-              <Field label="Status" value={<StatusBadge status={run.status} />} />
-              <Field label="Started" value={formatDate(run.startedAt)} />
-              <Field
-                label="Completed"
-                value={run.completedAt ? formatDate(run.completedAt) : "—"}
-              />
-              <Field
-                label="Duration"
-                value={
-                  <span className="font-mono text-xs">
-                    {formatDuration(run.durationSec ?? undefined)}
-                  </span>
-                }
-              />
-              <Field label="Stage" value={run.stage} />
-              {run.decision && (
-                <Field label="Decision" value={<VerdictBadge verdict={run.decision} />} />
-              )}
-            </CardContent>
-            <div className="flex gap-2 border-t border-border p-3">
-              <Button variant="outline" size="sm" className="flex-1">
-                <RefreshCw className="h-3 w-3" /> Re-run
-              </Button>
-              <Button variant="outline" size="sm" className="flex-1">
-                <Download className="h-3 w-3" /> Export
-              </Button>
-            </div>
-          </Card>
-
-          <Button asChild variant="outline" className="w-full">
-            <Link to={`/runs/${run.id}/evidence`}>
-              <FileSearch className="h-4 w-4" /> Evidence Board
-            </Link>
-          </Button>
-        </div>
-
-        {/* Pipeline */}
-        <div>
-          <PipelineStep index={1} title="Evidence Scout" state={stepStates[1]}>
+      <div className="min-w-0">
+        <PipelineStep index={1} title="Evidence Scout" state={stepStates[1]}>
             <Card>
               <CardContent className="p-2">
                 <Accordion type="multiple" defaultValue={["Mandatory Requirements", "Deadlines"]}>
@@ -474,18 +430,8 @@ export default function RunDetail() {
               </Card>
             )}
           </PipelineStep>
-        </div>
       </div>
     </>
-  );
-}
-
-function Field({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-b border-border/60 pb-2 last:border-0 last:pb-0">
-      <span className="text-xs uppercase tracking-wide text-muted-foreground">{label}</span>
-      <span className="text-right text-sm">{value}</span>
-    </div>
   );
 }
 
