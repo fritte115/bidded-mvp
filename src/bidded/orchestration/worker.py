@@ -9,6 +9,7 @@ from uuid import UUID
 from bidded.orchestration.graph import (
     GraphNodeHandlers,
     GraphRunResult,
+    OnStepCallback,
     run_bidded_graph_shell,
 )
 from bidded.orchestration.judge import persist_final_decision
@@ -85,8 +86,16 @@ def run_worker_once(
     now = now_factory or _utc_now
     if graph_handlers is not None:
 
-        def _runner(state: BidRunState) -> GraphRunResult:
-            return run_bidded_graph_shell(state, handlers=graph_handlers)
+        def _runner(
+            state: BidRunState,
+            *,
+            on_step: OnStepCallback | None = None,
+        ) -> GraphRunResult:
+            return run_bidded_graph_shell(
+                state,
+                handlers=graph_handlers,
+                on_step=on_step,
+            )
 
         graph_runner = _runner
     elif graph_runner is None:
@@ -136,7 +145,50 @@ def run_worker_once(
             run_row=selected_run,
             tenant_key=tenant_key,
         )
-        graph_result = graph_runner(state)
+
+        # Mutable holders so the on_step closure can track the latest
+        # persisted step and merged metadata across graph supersteps.
+        last_persisted_step: dict[str, str] = {"value": "preflight"}
+        persisted_metadata: dict[str, Any] = {"value": dict(metadata)}
+
+        def _on_step(current_state: BidRunState) -> None:
+            if current_state.status is not AgentRunStatus.RUNNING:
+                return
+            new_step = _current_step_value(current_state)
+            if not new_step or new_step == last_persisted_step["value"]:
+                return
+            try:
+                persisted_metadata["value"] = _update_run_status(
+                    client,
+                    run_id=normalized_run_id,
+                    tenant_key=tenant_key,
+                    status=AgentRunStatus.RUNNING,
+                    timestamp=_timestamp(now),
+                    metadata=persisted_metadata["value"],
+                    current_step=new_step,
+                    error_details=None,
+                )
+                last_persisted_step["value"] = new_step
+                _log(
+                    log,
+                    f"Agent run {normalized_run_id} reached {new_step}.",
+                )
+            except Exception as exc:  # noqa: BLE001 - best-effort telemetry
+                _log(
+                    log,
+                    f"Failed to persist stage {new_step} for "
+                    f"run {normalized_run_id}: {exc}",
+                )
+
+        try:
+            graph_result = graph_runner(state, on_step=_on_step)
+        except TypeError:
+            # Back-compat: test fixtures may inject a graph_runner that
+            # doesn't accept on_step. Fall back to the old call shape.
+            graph_result = graph_runner(state)
+        # Keep subsequent terminal writes layered on top of the latest
+        # intermediate metadata we merged.
+        metadata = persisted_metadata["value"]
         terminal_state = graph_result.state
         visited_nodes = tuple(node.value for node in graph_result.visited_nodes)
 

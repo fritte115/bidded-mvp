@@ -81,6 +81,9 @@ class GraphRunResult:
     visited_nodes: tuple[GraphRouteNode, ...]
 
 
+OnStepCallback = Callable[[BidRunState], None]
+
+
 _MAX_LLM_RETRIES = 2
 
 
@@ -405,21 +408,43 @@ def run_bidded_graph_shell(
     state: BidRunState,
     *,
     handlers: GraphNodeHandlers | None = None,
+    on_step: OnStepCallback | None = None,
 ) -> GraphRunResult:
-    """Run the deterministic routing shell and return the final typed state."""
+    """Run the deterministic routing shell and return the final typed state.
+
+    When ``on_step`` is provided, it is invoked once per graph superstep with
+    the latest ``BidRunState``. Exceptions from the callback are swallowed so
+    intermediate telemetry can never abort the run.
+    """
 
     compiled = build_bidded_graph_shell(handlers)
-    output = compiled.invoke(
-        {
-            "bid_state": state,
-            "trace": [],
-            "round_1_motion_updates": [],
-            "round_2_rebuttal_updates": [],
-            "round_1_retry_attempts": [],
-            "round_2_retry_attempts": [],
-            "invalid_outputs": [],
-        }
-    )
+    initial: _GraphExecutionState = {
+        "bid_state": state,
+        "trace": [],
+        "round_1_motion_updates": [],
+        "round_2_rebuttal_updates": [],
+        "round_1_retry_attempts": [],
+        "round_2_retry_attempts": [],
+        "invalid_outputs": [],
+    }
+    if on_step is None:
+        output = compiled.invoke(initial)
+    else:
+        output = None
+        for frame in compiled.stream(initial, stream_mode="values"):
+            output = frame
+            if not isinstance(frame, dict):
+                continue
+            bid_state_frame = frame.get("bid_state")
+            if bid_state_frame is None:
+                continue
+            try:
+                on_step(_coerce_bid_state(bid_state_frame))
+            except Exception:
+                # Intermediate telemetry must never abort the graph.
+                pass
+        if output is None:
+            output = compiled.invoke(initial)
     final_state = _coerce_bid_state(output["bid_state"])
     trace = tuple(GraphRouteNode(node) for node in output.get("trace", []))
     return GraphRunResult(state=final_state, visited_nodes=(*trace, GraphRouteNode.END))

@@ -182,7 +182,14 @@ class AnthropicRound1Model:
             "Each item in top_findings/role_specific_risks/formal_blockers"
             "/potential_blockers must be: {claim: string, evidence_refs: [...]}. "
             "claim must be a non-empty string (never title/detail/description). "
-            "evidence_refs: use evidence_key, source_type, evidence_id from catalog."
+            "evidence_refs: use evidence_key, source_type, evidence_id from catalog. "
+            "HARD RULE — every claim in top_findings, role_specific_risks, "
+            "formal_blockers, and potential_blockers MUST have at least one "
+            "evidence_ref drawn from evidence_catalog. If you cannot cite a "
+            "concrete evidence_ref for an item, do NOT put it in those arrays. "
+            "Instead, put the plain text into potential_evidence_gaps (a list "
+            "of strings) or missing_info. An empty evidence_refs array is "
+            "invalid and the run will fail."
         )
         data = anthropic_complete_json(
             api_key=self._api_key,
@@ -267,7 +274,13 @@ class AnthropicRound2Model:
             "potential_evidence_gaps (array), recommended_actions (array), "
             "validation_errors []. "
             "You MUST include at least one of: targeted_disagreements, "
-            "unsupported_claims, blocker_challenges, or missing_info."
+            "unsupported_claims, blocker_challenges, or missing_info. "
+            "HARD RULE — every blocker_challenge MUST have at least one "
+            "evidence_ref drawn from evidence_catalog. If you cannot cite a "
+            "concrete evidence_ref, drop the item from blocker_challenges "
+            "entirely (or move the concern into missing_info). An empty "
+            "evidence_refs array on any blocker_challenge is invalid and the "
+            "run will fail."
         )
         data = anthropic_complete_json(
             api_key=self._api_key,
@@ -345,7 +358,14 @@ class AnthropicJudgeModel:
             "cited_memo (non-empty string summarizing the decision rationale), "
             "evidence_ids (array of UUID strings from the evidence catalog), "
             "evidence_refs (array of evidence ref objects), "
-            "validation_errors []."
+            "validation_errors []. "
+            "HARD RULE — every item in compliance_blockers and "
+            "potential_blockers MUST have at least one evidence_ref drawn "
+            "from evidence_catalog. If you cannot cite a concrete "
+            "evidence_ref for a blocker, do NOT put it in compliance_blockers "
+            "or potential_blockers. Instead, put the plain text into "
+            "potential_evidence_gaps or missing_info. An empty evidence_refs "
+            "array on any blocker is invalid and the run will fail."
         )
         data = anthropic_complete_json(
             api_key=self._api_key,
