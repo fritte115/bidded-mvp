@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-041",
-  "storyTitle": "Write demo runbook",
+  "currentStory": "US-042",
+  "storyTitle": "Define golden demo cases",
   "nextAction": "implement",
-  "progressTokens": 3555,
+  "progressTokens": 3630,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

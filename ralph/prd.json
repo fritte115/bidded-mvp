@@ -628,8 +628,8 @@
         "pytest and ruff check pass after adding the documentation."
       ],
       "priority": 41,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added demo runbook and README link covering setup, env/secrets, migrations/bucket, live path, fallbacks, replay, and mocked test policy. Complete."
     },
     {
       "id": "US-042",

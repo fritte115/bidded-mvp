@@ -327,6 +327,10 @@ Pending run och worker-körning:
   --json-path decision-bundle.json
 ```
 
+En operatörsinriktad checklista för pre-demo setup, live smoke, worker-körning,
+status, export och fallback-replay finns i
+[`docs/demo-runbook.md`](docs/demo-runbook.md).
+
 ## Miljövariabler
 
 ### Finns Idag

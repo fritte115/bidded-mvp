@@ -235,3 +235,8 @@ No Ralph story sessions have completed yet.
 - **Files**: src/bidded/orchestration/decision_export.py, src/bidded/orchestration/__init__.py, src/bidded/cli/__init__.py, tests/test_decision_export.py, tests/test_cli.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
 - **Key learnings**: Keep decision exports read-only over `bid_decisions`, `agent_outputs`, and `evidence_items`, with local files as the only side effect.
 ---
+## 2026-04-19 03:53 CEST - US-041
+- **Implemented**: Added a demo operator runbook for setup, live smoke, worker/status/export flow, recovery, fallback replay, and mocked-vs-live test policy.
+- **Files**: docs/demo-runbook.md, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
+- **Key learnings**: Keep demo operations CLI-first and document live smoke as manual opt-in while deterministic gates stay mocked.
+---
