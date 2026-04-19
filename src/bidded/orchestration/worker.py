@@ -10,6 +10,7 @@ from bidded.db.schema_compat import (
     is_missing_requirement_type_column,
     select_without_requirement_type,
 )
+from bidded.evidence.company_profile import upsert_company_profile_evidence
 from bidded.orchestration.graph import (
     GraphNodeHandlers,
     GraphRunResult,
@@ -219,6 +220,16 @@ def run_worker_once(
                 )
 
         active_step = demo_trace.start("load_run_context")
+        run_company_id = _normalize_uuid(
+            selected_run.get("company_id"),
+            "agent_runs.company_id",
+        )
+        _refresh_company_profile_evidence_for_run(
+            client,
+            company_id=run_company_id,
+            tenant_key=tenant_key,
+            log=log,
+        )
         state = build_bid_run_state_from_supabase(
             client,
             run_row=selected_run,
@@ -360,6 +371,65 @@ def run_worker_once(
             agent_output_count=0,
             decision_verdict=None,
             message=message,
+        )
+
+
+def _fetch_company_row_for_evidence_sync(
+    client: SupabaseWorkerClient,
+    *,
+    company_id: UUID,
+    tenant_key: str,
+) -> dict[str, Any] | None:
+    response = (
+        client.table("companies")
+        .select("*")
+        .eq("tenant_key", tenant_key)
+        .eq("id", str(company_id))
+        .limit(1)
+        .execute()
+    )
+    data = getattr(response, "data", None)
+    if not isinstance(data, list) or not data:
+        return None
+    first = data[0]
+    return dict(first) if isinstance(first, Mapping) else None
+
+
+def _refresh_company_profile_evidence_for_run(
+    client: SupabaseWorkerClient,
+    *,
+    company_id: UUID,
+    tenant_key: str,
+    log: LogSink | None,
+) -> None:
+    """Re-materialize ``company_profile`` evidence from the current ``companies`` row.
+
+    ``evidence_items`` are derived from ``companies``; without a refresh, runs can
+    see stale excerpts after profile edits until ``/api/company/resync-evidence``
+    is called. Refreshing here keeps every agent run aligned with live data.
+    """
+    row = _fetch_company_row_for_evidence_sync(
+        client,
+        company_id=company_id,
+        tenant_key=tenant_key,
+    )
+    if row is None:
+        _log(
+            log,
+            f"No companies row for {company_id}; skipping company evidence refresh.",
+        )
+        return
+
+    result = upsert_company_profile_evidence(
+        client,
+        company_id=company_id,
+        company_profile=row,
+    )
+    if result.evidence_count > 0:
+        _log(
+            log,
+            f"Refreshed company profile evidence ({result.evidence_count} items) for "
+            f"company {company_id}.",
         )
 
 
