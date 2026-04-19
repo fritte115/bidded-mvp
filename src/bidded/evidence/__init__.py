@@ -11,6 +11,13 @@ from bidded.evidence.contract_clause_tags import (
     ContractClauseTagMatch,
     match_contract_clause_tags,
 )
+from bidded.evidence.contract_terms import (
+    DayDeadlineTerm,
+    ExtractedContractTerms,
+    MoneyAmountTerm,
+    RecurrenceOrCapTerm,
+    extract_contract_terms,
+)
 from bidded.evidence.regulatory_glossary import (
     REGULATORY_GLOSSARY,
     RegulatoryGlossaryEntry,
@@ -34,6 +41,10 @@ __all__ = [
     "REGULATORY_GLOSSARY",
     "ContractClauseTag",
     "ContractClauseTagMatch",
+    "DayDeadlineTerm",
+    "ExtractedContractTerms",
+    "MoneyAmountTerm",
+    "RecurrenceOrCapTerm",
     "RegulatoryGlossaryEntry",
     "RegulatoryGlossaryMatch",
     "TenderClauseSegment",
@@ -43,6 +54,7 @@ __all__ = [
     "build_tender_clause_segments",
     "build_tender_evidence_candidates",
     "build_tender_evidence_items",
+    "extract_contract_terms",
     "get_tender_evidence_item_by_key",
     "match_contract_clause_tags",
     "match_regulatory_glossary",

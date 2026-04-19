@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-053",
-  "storyTitle": "Extract structured contract terms",
+  "currentStory": "US-054",
+  "storyTitle": "Annotate evidence board with clause metadata",
   "nextAction": "implement",
-  "progressTokens": 4455,
+  "progressTokens": 4545,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

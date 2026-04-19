@@ -808,8 +808,8 @@
         "Tests cover the provided penalty/liability/GDPR snippet, Swedish number formatting, Mkr/SEK normalization, recurring penalties, liability caps, and payment deadlines; pytest and ruff check pass."
       ],
       "priority": 53,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added extracted_terms metadata for SEK/Mkr amounts, recurrence/cap phrases, and day deadlines on tender evidence rows. Complete."
     },
     {
       "id": "US-054",

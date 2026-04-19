@@ -490,6 +490,134 @@ def test_tender_evidence_items_include_contract_clause_tag_metadata() -> None:
     }
 
 
+def test_tender_evidence_items_extract_structured_contract_terms() -> None:
+    chunks = [
+        _retrieved_chunk(
+            "7. Vite\n"
+            "Leverantören ska betala vite om 5 000 SEK per week. "
+            "Vite är maximalt 25 000 SEK per month per claim.\n\n"
+            "8. Liability cap\n"
+            "Supplier liability cap is 10 Mkr per year, with GDPR damages "
+            "capped at 2 Mkr per claim.\n\n"
+            "9. Payment\n"
+            "Payment shall be made within trettio (30) dagar from invoice date. "
+            "Supplier must also accept payment within 30 days.",
+            page_start=8,
+        )
+    ]
+
+    items = build_tender_evidence_items(build_tender_evidence_candidates(chunks))
+    terms_by_excerpt = {
+        item["excerpt"]: item["metadata"]["extracted_terms"]
+        for item in items
+        if "extracted_terms" in item["metadata"]
+    }
+
+    penalty_terms = terms_by_excerpt[
+        "Leverantören ska betala vite om 5 000 SEK per week."
+    ]
+    assert penalty_terms["money_amounts"] == [
+        {
+            "raw_text": "5 000 SEK",
+            "amount": 5000,
+            "currency": "SEK",
+            "unit": "SEK",
+            "normalized_amount_sek": 5000,
+            "context": "penalty_amount",
+        }
+    ]
+    assert penalty_terms["recurrence_or_cap_phrases"] == [
+        {
+            "raw_text": "per week",
+            "normalized_unit": "week",
+            "scope_type": "period",
+        }
+    ]
+    assert penalty_terms["day_deadlines"] == []
+
+    recurring_cap_terms = terms_by_excerpt[
+        "Vite är maximalt 25 000 SEK per month per claim."
+    ]
+    assert recurring_cap_terms["money_amounts"] == [
+        {
+            "raw_text": "25 000 SEK",
+            "amount": 25000,
+            "currency": "SEK",
+            "unit": "SEK",
+            "normalized_amount_sek": 25000,
+            "context": "penalty_amount",
+        }
+    ]
+    assert recurring_cap_terms["recurrence_or_cap_phrases"] == [
+        {
+            "raw_text": "per month",
+            "normalized_unit": "month",
+            "scope_type": "period",
+        },
+        {
+            "raw_text": "per claim",
+            "normalized_unit": "claim",
+            "scope_type": "claim",
+        },
+    ]
+
+    cap_terms = terms_by_excerpt[
+        "Supplier liability cap is 10 Mkr per year, with GDPR damages "
+        "capped at 2 Mkr per claim."
+    ]
+    assert cap_terms["money_amounts"] == [
+        {
+            "raw_text": "10 Mkr",
+            "amount": 10,
+            "currency": "SEK",
+            "unit": "Mkr",
+            "normalized_amount_sek": 10_000_000,
+            "context": "liability_cap",
+        },
+        {
+            "raw_text": "2 Mkr",
+            "amount": 2,
+            "currency": "SEK",
+            "unit": "Mkr",
+            "normalized_amount_sek": 2_000_000,
+            "context": "liability_cap",
+        },
+    ]
+    assert cap_terms["recurrence_or_cap_phrases"] == [
+        {
+            "raw_text": "per year",
+            "normalized_unit": "year",
+            "scope_type": "period",
+        },
+        {
+            "raw_text": "per claim",
+            "normalized_unit": "claim",
+            "scope_type": "claim",
+        },
+    ]
+
+    assert terms_by_excerpt[
+        "Payment shall be made within trettio (30) dagar from invoice date."
+    ]["day_deadlines"] == [
+        {
+            "raw_text": "trettio (30) dagar",
+            "days": 30,
+            "unit": "days",
+            "context": "payment_deadline",
+        }
+    ]
+    assert terms_by_excerpt[
+        "Supplier must also accept payment within 30 days."
+    ]["day_deadlines"] == [
+        {
+            "raw_text": "30 days",
+            "days": 30,
+            "unit": "days",
+            "context": "payment_deadline",
+        }
+    ]
+
+
 def test_tender_evidence_items_omit_regulatory_glossary_metadata_for_no_match() -> None:
     candidate = TenderEvidenceCandidate(
         document_id=DOCUMENT_ID,

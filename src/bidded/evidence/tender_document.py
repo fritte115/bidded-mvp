@@ -13,6 +13,7 @@ from bidded.evidence.contract_clause_tags import (
     ContractClauseTagMatch,
     match_contract_clause_tags,
 )
+from bidded.evidence.contract_terms import extract_contract_terms
 from bidded.evidence.regulatory_glossary import (
     RegulatoryGlossaryMatch,
     match_regulatory_glossary,
@@ -614,6 +615,10 @@ def _metadata_for_candidate(candidate: TenderEvidenceCandidate) -> dict[str, Any
             _contract_clause_tag_match_metadata(match)
             for match in contract_clause_tag_matches
         ]
+
+    extracted_terms = extract_contract_terms(candidate.excerpt)
+    if extracted_terms.has_terms:
+        metadata["extracted_terms"] = extracted_terms.as_metadata()
 
     glossary_matches = match_regulatory_glossary(candidate.excerpt)
     if not glossary_matches:
