@@ -174,6 +174,7 @@ class ScenarioRound2Model:
             "unsupported_claims": [],
             "blocker_challenges": [],
             "revised_stance": "conditional_bid",
+            "confidence": 0.64,
             "evidence_refs": [_tender_ref()],
             "missing_info": ["Staffing confidence remains incomplete."],
             "recommended_actions": ["Resolve the staffing gap before bid approval."],
@@ -295,8 +296,7 @@ def _ready_state() -> BidRunState:
                                 "Confirm no exclusion ground applies."
                             ),
                             "blocker_hint": (
-                                "Confirmed exclusion grounds can block bid "
-                                "submission."
+                                "Confirmed exclusion grounds can block bid submission."
                             ),
                         }
                     ],
@@ -467,12 +467,9 @@ def test_judge_gates_formal_compliance_blockers_to_no_bid_and_persists() -> None
                 "entry_id": "quality_management_sosfs",
                 "requirement_type": "quality_management",
                 "display_label": "Quality management / SOSFS",
-                "suggested_proof_action": (
-                    "Prepare quality management certificates."
-                ),
+                "suggested_proof_action": ("Prepare quality management certificates."),
                 "blocker_hint": (
-                    "Missing mandatory quality-system proof can block "
-                    "qualification."
+                    "Missing mandatory quality-system proof can block qualification."
                 ),
             }
         ],

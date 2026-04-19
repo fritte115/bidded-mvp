@@ -53,9 +53,7 @@ class RecordingRound1Model:
         if request.agent_role.value == SpecialistRole.COMPLIANCE.value:
             formal_blockers = [
                 {
-                    "claim": (
-                        "The tender requires ISO 27001 proof before submission."
-                    ),
+                    "claim": ("The tender requires ISO 27001 proof before submission."),
                     "evidence_refs": [tender_ref],
                 }
             ]
@@ -381,13 +379,10 @@ def test_non_compliance_formal_blocker_fails_before_round_1_persistence() -> Non
         GraphRouteNode.END,
     )
     assert result.state.status is AgentRunStatus.FAILED
-    assert result.state.retry_counts == {
-        GraphRouteNode.ROUND_1_WIN_STRATEGIST.value: 2
-    }
+    assert result.state.retry_counts == {GraphRouteNode.ROUND_1_WIN_STRATEGIST.value: 2}
     assert result.state.motions == {}
     assert not any(
-        output.round_name == "round_1_motion"
-        for output in result.state.agent_outputs
+        output.round_name == "round_1_motion" for output in result.state.agent_outputs
     )
     assert result.state.validation_errors
     assert "formal_blockers" in result.state.validation_errors[-1].message
@@ -409,8 +404,7 @@ def test_financial_proof_gap_cannot_be_compliance_formal_blocker() -> None:
     assert result.state.status is AgentRunStatus.FAILED
     assert result.state.motions == {}
     assert not any(
-        output.round_name == "round_1_motion"
-        for output in result.state.agent_outputs
+        output.round_name == "round_1_motion" for output in result.state.agent_outputs
     )
     assert result.state.validation_errors
     assert "formal_blockers" in result.state.validation_errors[-1].field_path

@@ -317,9 +317,7 @@ def test_round_1_join_blocks_round_2_until_all_roles_are_valid() -> None:
             _ready_state().model_copy(
                 update={
                     "run_context": {
-                        "document_parse_statuses": {
-                            str(DOCUMENT_ID): "parser_failed"
-                        }
+                        "document_parse_statuses": {str(DOCUMENT_ID): "parser_failed"}
                     }
                 }
             ),

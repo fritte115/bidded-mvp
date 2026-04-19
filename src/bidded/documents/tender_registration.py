@@ -207,9 +207,7 @@ def _upsert_tender_document(
         "metadata": metadata,
     }
     response = (
-        client.table("documents")
-        .upsert(payload, on_conflict="storage_path")
-        .execute()
+        client.table("documents").upsert(payload, on_conflict="storage_path").execute()
     )
     return _first_returned_id(response, "documents")
 
@@ -234,7 +232,7 @@ def _storage_path(
 ) -> str:
     title_slug = _slugify(title) or "tender"
     filename = _safe_pdf_filename(original_filename)
-    return f"demo/tenders/{title_slug}/{checksum_sha256[:12]}-{filename}"
+    return f"demo/procurements/{title_slug}/{checksum_sha256[:12]}-{filename}"
 
 
 def _safe_pdf_filename(filename: str) -> str:

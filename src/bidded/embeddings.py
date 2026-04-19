@@ -292,9 +292,7 @@ def _response_embedding(response: Any) -> list[float]:
 
     raw_embedding = _get_value(data[0], "embedding")
     if not isinstance(raw_embedding, list):
-        raise EmbeddingGenerationError(
-            "embedding response did not include a vector."
-        )
+        raise EmbeddingGenerationError("embedding response did not include a vector.")
     try:
         return [float(value) for value in raw_embedding]
     except (TypeError, ValueError) as exc:

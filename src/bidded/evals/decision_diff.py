@@ -105,9 +105,7 @@ def diff_decision_payloads(
     baseline_decisions = _normalized_decisions_from_payload(baseline_payload)
     candidate_decisions = _normalized_decisions_from_payload(candidate_payload)
     if not baseline_decisions or not candidate_decisions:
-        raise DecisionDiffError(
-            "No decisions found in baseline or candidate payload."
-        )
+        raise DecisionDiffError("No decisions found in baseline or candidate payload.")
     return _diff_decisions(
         baseline_decisions,
         candidate_decisions,
@@ -211,8 +209,7 @@ def write_decision_diff_json(report: DecisionDiffReport, path: Path) -> None:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps(decision_diff_json_payload(report), indent=2, sort_keys=True)
-        + "\n",
+        json.dumps(decision_diff_json_payload(report), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
 
@@ -258,15 +255,11 @@ def _diff_decisions(
     baseline_source: str,
     candidate_source: str,
 ) -> DecisionDiffReport:
-    baseline_by_id = {
-        decision.decision_id: decision for decision in baseline_decisions
-    }
+    baseline_by_id = {decision.decision_id: decision for decision in baseline_decisions}
     candidate_by_id = {
         decision.decision_id: decision for decision in candidate_decisions
     }
-    decision_ids = tuple(
-        sorted(set(baseline_by_id) | set(candidate_by_id))
-    )
+    decision_ids = tuple(sorted(set(baseline_by_id) | set(candidate_by_id)))
     return DecisionDiffReport(
         baseline_source=baseline_source,
         candidate_source=candidate_source,
@@ -427,9 +420,7 @@ def _normalized_decision_mapping(
                 *_claims(decision.get("potential_blockers")),
             ]
         ),
-        risks=_normalized_risks(
-            decision.get("risks") or decision.get("risk_register")
-        ),
+        risks=_normalized_risks(decision.get("risks") or decision.get("risk_register")),
         missing_info=_normalized_strings(_sequence(decision.get("missing_info"))),
         recommended_actions=_normalized_strings(
             _sequence(decision.get("recommended_actions"))
@@ -574,10 +565,7 @@ def _normalize_text(value: str) -> str:
 
 def _stable_key(value: object) -> str:
     if isinstance(value, Mapping):
-        return "|".join(
-            f"{key}={_stable_key(value[key])}"
-            for key in sorted(value)
-        )
+        return "|".join(f"{key}={_stable_key(value[key])}" for key in sorted(value))
     if isinstance(value, Sequence) and not isinstance(value, str):
         return ",".join(_stable_key(child) for child in value)
     return str(value)

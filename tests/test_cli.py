@@ -494,6 +494,11 @@ def test_cli_register_demo_tender_accepts_metadata(
         )(),
     )
     monkeypatch.setattr(cli, "_create_supabase_client", lambda _settings: client)
+    monkeypatch.setattr(
+        cli,
+        "resolve_graph_handlers",
+        lambda _settings: {"graph": "handlers"},
+    )
 
     def record_registration(
         supabase_client: object,
@@ -858,6 +863,11 @@ def test_cli_worker_delegates_to_lifecycle_service(
         )(),
     )
     monkeypatch.setattr(cli, "_create_supabase_client", lambda _settings: client)
+    monkeypatch.setattr(
+        cli,
+        "resolve_graph_handlers",
+        lambda _settings: {"graph": "handlers"},
+    )
 
     def record_worker(supabase_client: object, **kwargs: Any) -> SimpleNamespace:
         captured_worker["client"] = supabase_client
@@ -893,6 +903,8 @@ def test_cli_worker_delegates_to_lifecycle_service(
     assert captured_worker["client"] is client
     assert captured_worker["run_id"] == "11111111-1111-4111-8111-111111111111"
     assert captured_worker["company_id"] is None
+    assert captured_worker["graph_handlers"] == {"graph": "handlers"}
+    assert captured_worker["graph_handlers"] == {"graph": "handlers"}
 
 
 def test_cli_demo_smoke_delegates_and_prints_operator_summary(
@@ -1102,9 +1114,7 @@ def test_cli_run_status_prints_operator_snapshot(
 
     def record_status(supabase_client: object, **kwargs: Any) -> RunStatusSnapshot:
         assert supabase_client is client
-        assert kwargs == {
-            "run_id": "11111111-1111-4111-8111-111111111111"
-        }
+        assert kwargs == {"run_id": "11111111-1111-4111-8111-111111111111"}
         return RunStatusSnapshot(
             run_id="11111111-1111-4111-8111-111111111111",
             status=AgentRunStatus.FAILED,
@@ -1138,9 +1148,7 @@ def test_cli_run_status_prints_operator_snapshot(
     assert "Created: 2026-04-18T17:00:00+00:00" in captured.out
     assert "Started: 2026-04-18T17:30:00+00:00" in captured.out
     assert "Completed: 2026-04-18T17:45:00+00:00" in captured.out
-    assert "Error: graph_failed from graph - Evidence board is empty." in (
-        captured.out
-    )
+    assert "Error: graph_failed from graph - Evidence board is empty." in (captured.out)
     assert "Agent outputs: 10" in captured.out
     assert "Decision present: yes" in captured.out
     assert "Last recorded step: judge" in captured.out
@@ -1167,9 +1175,7 @@ def test_cli_run_status_verbose_prints_demo_trace_with_latest_problem_step(
 
     def record_status(supabase_client: object, **kwargs: Any) -> RunStatusSnapshot:
         assert supabase_client is client
-        assert kwargs == {
-            "run_id": "11111111-1111-4111-8111-111111111111"
-        }
+        assert kwargs == {"run_id": "11111111-1111-4111-8111-111111111111"}
         return RunStatusSnapshot(
             run_id="11111111-1111-4111-8111-111111111111",
             status=AgentRunStatus.FAILED,
@@ -1368,9 +1374,7 @@ def test_cli_eval_golden_runs_selected_case_and_writes_json(
     assert "Wrote JSON" in captured.out
     assert "Wrote Markdown" in captured.out
     assert '"case_id": "obvious_bid"' in json_path.read_text(encoding="utf-8")
-    assert "Pass rate: 100.00% (1/1)" in markdown_path.read_text(
-        encoding="utf-8"
-    )
+    assert "Pass rate: 100.00% (1/1)" in markdown_path.read_text(encoding="utf-8")
 
 
 def test_cli_eval_golden_default_does_not_construct_anthropic(
@@ -1628,12 +1632,8 @@ def test_cli_eval_golden_returns_nonzero_for_failed_expectations(
                             claim_type=EvidenceCoverageClaimType.BLOCKER,
                             claim="Required blocker.",
                             reason="missing_required_source_type",
-                            missing_source_types=(
-                                EvidenceSourceType.TENDER_DOCUMENT,
-                            ),
-                            present_source_types=(
-                                EvidenceSourceType.COMPANY_PROFILE,
-                            ),
+                            missing_source_types=(EvidenceSourceType.TENDER_DOCUMENT,),
+                            present_source_types=(EvidenceSourceType.COMPANY_PROFILE,),
                         ),
                     ),
                 ),

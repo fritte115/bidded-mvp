@@ -138,9 +138,7 @@ def _cited_evidence_rows(
     agent_outputs: Sequence[Mapping[str, Any]],
 ) -> list[Mapping[str, Any]]:
     final_decision = _mapping(decision_row.get("final_decision"))
-    evidence_ids = {
-        str(value) for value in _sequence(decision_row.get("evidence_ids"))
-    }
+    evidence_ids = {str(value) for value in _sequence(decision_row.get("evidence_ids"))}
     evidence_keys: set[str] = set()
     _collect_evidence_identifiers(final_decision, evidence_ids, evidence_keys)
     for output in agent_outputs:
@@ -428,9 +426,7 @@ def _markdown_evidence_section(evidence_rows: Sequence[Any]) -> list[str]:
             ]
             if value
         )
-        lines.append(
-            f"- {row.get('evidence_key')} ({source}): {row.get('excerpt')}"
-        )
+        lines.append(f"- {row.get('evidence_key')} ({source}): {row.get('excerpt')}")
     lines.append("")
     return lines
 

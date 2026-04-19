@@ -14,12 +14,21 @@ from bidded.embeddings import (
 )
 
 EmbeddingMode = Literal["disabled", "live", "mock"]
+SwarmBackend = Literal["auto", "anthropic", "evidence_locked"]
+
+_DEFAULT_MESSAGES_MODEL = "claude-sonnet-4-6"
+_KNOWN_INVALID_ANTHROPIC_MODELS: dict[str, str] = {
+    "claude-sonnet-4-20250514": _DEFAULT_MESSAGES_MODEL,
+    "claude-3-5-sonnet-20241022": _DEFAULT_MESSAGES_MODEL,
+}
 
 
 class BiddedSettings(BaseSettings):
     """Runtime settings loaded from environment variables or a local .env file."""
 
     anthropic_api_key: str | None = None
+    bidded_swarm_backend: SwarmBackend = "auto"
+    bidded_anthropic_model: str = _DEFAULT_MESSAGES_MODEL
     openai_api_key: str | None = None
     supabase_url: str | None = None
     supabase_service_role_key: str | None = None
@@ -29,7 +38,20 @@ class BiddedSettings(BaseSettings):
     embedding_dimensions: int = DOCUMENT_CHUNK_EMBEDDING_DIMENSIONS
     embedding_mode: EmbeddingMode = DEFAULT_EMBEDDING_MODE
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra="ignore")
+
+    @field_validator("bidded_swarm_backend", mode="before")
+    @classmethod
+    def _normalize_swarm_backend(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
+
+    @field_validator("bidded_anthropic_model", mode="after")
+    @classmethod
+    def _normalize_anthropic_model(cls, value: str) -> str:
+        stripped = value.strip()
+        return _KNOWN_INVALID_ANTHROPIC_MODELS.get(stripped, stripped)
 
     @field_validator("embedding_mode", mode="before")
     @classmethod

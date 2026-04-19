@@ -97,8 +97,7 @@ def test_prepare_procurement_manifest_registers_and_prepares_seven_pdfs(
     assert result.manifest_path == manifest_path
     assert result.procurement_directory == procurement_dir
     assert result.document_ids == tuple(
-        f"44444444-4444-4444-8444-44444444444{index}"
-        for index in range(1, 8)
+        f"44444444-4444-4444-8444-44444444444{index}" for index in range(1, 8)
     )
     assert [call["pdf_path"] for call in registrations] == [
         procurement_dir / document["path"] for document in documents
@@ -107,9 +106,7 @@ def test_prepare_procurement_manifest_registers_and_prepares_seven_pdfs(
         document["source_label"] for document in documents
     ]
     assert [call["procurement_document_role"] for call in registrations] == roles
-    assert {call["tender_title"] for call in registrations} == {
-        "Seven PDF procurement"
-    }
+    assert {call["tender_title"] for call in registrations} == {"Seven PDF procurement"}
     assert {call["issuing_authority"] for call in registrations} == {
         "Example Municipality"
     }

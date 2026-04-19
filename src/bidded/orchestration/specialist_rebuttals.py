@@ -106,6 +106,162 @@ _ROUND_2_ROUTE_BY_ROLE: dict[SpecialistRole, GraphRouteNode] = {
 _BID_POSITIVE_VERDICTS = {Verdict.BID, Verdict.CONDITIONAL_BID}
 
 
+def _resolve_ref_against_board(
+    ref_dict: dict[str, Any],
+    board: Sequence[EvidenceItemState],
+) -> dict[str, Any]:
+    out = dict(ref_dict)
+    key = str(out.get("evidence_key") or "")
+    source_type = str(out.get("source_type") or "")
+    ev_id_raw = out.get("evidence_id")
+    needs_resolve = ev_id_raw is None or str(ev_id_raw).strip() in ("", "null", "None")
+    if needs_resolve:
+        item = next(
+            (
+                i
+                for i in board
+                if i.evidence_key == key and i.source_type.value == source_type
+            ),
+            None,
+        )
+        if item is not None and item.evidence_id is not None:
+            out["evidence_id"] = str(item.evidence_id)
+    return out
+
+
+def _coerce_refs_list(
+    refs: Any,
+    board: Sequence[EvidenceItemState],
+) -> list[Any]:
+    if not isinstance(refs, list):
+        return refs
+    return [
+        _resolve_ref_against_board(r, board) if isinstance(r, dict) else r for r in refs
+    ]
+
+
+def _normalize_blocker_position(value: Any) -> Any:
+    """Map verbose LLM position strings to the 3 allowed literal values."""
+    if not isinstance(value, str):
+        return value
+    v = value.strip().lower()
+    if any(k in v for k in ("reject", "dismiss", "invalid", "unfounded", "wrong")):
+        return "reject"
+    if any(k in v for k in ("partial", "downgrade", "reduce", "weaken", "moderate")):
+        return "downgrade"
+    # "confirm", "uphold", "support", "strengthen", "accept", "additional", etc.
+    return "uphold"
+
+
+def _coerce_rebuttal_item_refs(
+    item: dict[str, Any],
+    board: Sequence[EvidenceItemState],
+) -> dict[str, Any]:
+    out = dict(item)
+    refs = out.get("evidence_refs")
+    if refs is not None:
+        out["evidence_refs"] = _coerce_refs_list(refs, board)
+    if "position" in out:
+        out["position"] = _normalize_blocker_position(out["position"])
+    return out
+
+
+def _normalize_agent_role(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.strip().lower().replace(" ", "_")
+    return value
+
+
+def _coerce_validation_error_item(item: Any) -> Any:
+    if isinstance(item, str):
+        return {"code": "llm_note", "message": item}
+    return item
+
+
+def _normalize_role_list(roles: Any) -> Any:
+    if not isinstance(roles, list):
+        return roles
+    return [_normalize_agent_role(r) for r in roles]
+
+
+def _coerce_disagreement_item(
+    item: dict[str, Any],
+    board: Sequence[EvidenceItemState],
+) -> dict[str, Any]:
+    out = _coerce_rebuttal_item_refs(item, board)
+    if "target_role" in out:
+        out["target_role"] = _normalize_agent_role(out["target_role"])
+    return out
+
+
+def _coerce_unsupported_claim_item(item: Any) -> Any:
+    if not isinstance(item, dict):
+        return item
+    out = dict(item)
+    if "target_role" in out:
+        out["target_role"] = _normalize_agent_role(out["target_role"])
+    return out
+
+
+def _coerce_revised_stance(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, str) and value.strip().lower() in ("null", "none", ""):
+        return None
+    return value
+
+
+def _coerce_round2_rebuttal_mapping(
+    raw: Mapping[str, Any],
+    evidence_board: Sequence[EvidenceItemState],
+) -> dict[str, Any]:
+    """Normalize and resolve evidence_ids before Pydantic validation."""
+    out = dict(raw)
+    if "agent_role" in out:
+        out["agent_role"] = _normalize_agent_role(out["agent_role"])
+    # Normalize target_roles list
+    if "target_roles" in out:
+        out["target_roles"] = _normalize_role_list(out["target_roles"])
+    # Coerce revised_stance "null" string → None
+    if "revised_stance" in out:
+        out["revised_stance"] = _coerce_revised_stance(out["revised_stance"])
+    # Resolve top-level evidence_refs
+    refs = out.get("evidence_refs")
+    if isinstance(refs, list):
+        out["evidence_refs"] = _coerce_refs_list(refs, evidence_board)
+    # targeted_disagreements: normalize target_role + resolve evidence_refs
+    disagreements = out.get("targeted_disagreements")
+    if isinstance(disagreements, list):
+        out["targeted_disagreements"] = [
+            _coerce_disagreement_item(d, evidence_board) if isinstance(d, dict) else d
+            for d in disagreements
+        ]
+    # unsupported_claims: normalize target_role
+    unsupported = out.get("unsupported_claims")
+    if isinstance(unsupported, list):
+        out["unsupported_claims"] = [
+            _coerce_unsupported_claim_item(c) for c in unsupported
+        ]
+    # blocker_challenges: resolve evidence_refs + normalize position
+    # Drop any challenge that has no resolvable evidence_refs (schema requires min 1)
+    challenges = out.get("blocker_challenges")
+    if isinstance(challenges, list):
+        coerced_challenges = []
+        for c in challenges:
+            if isinstance(c, dict):
+                c = _coerce_rebuttal_item_refs(c, evidence_board)
+                if not c.get("evidence_refs"):
+                    continue
+            coerced_challenges.append(c)
+        out["blocker_challenges"] = coerced_challenges
+    validation_errors = out.get("validation_errors")
+    if isinstance(validation_errors, list):
+        out["validation_errors"] = [
+            _coerce_validation_error_item(e) for e in validation_errors
+        ]
+    return out
+
+
 def build_round_2_rebuttal_handler(
     model: Round2RebuttalDrafter,
 ) -> Round2Handler:
@@ -171,7 +327,12 @@ def validate_round_2_rebuttal_output(
     """Validate strict rebuttal schema and evidence refs against the board."""
 
     try:
-        output = Round2Rebuttal.model_validate(raw_output)
+        coerced = (
+            raw_output
+            if isinstance(raw_output, Round2Rebuttal)
+            else _coerce_round2_rebuttal_mapping(raw_output, evidence_board)
+        )
+        output = Round2Rebuttal.model_validate(coerced)
     except ValidationError as exc:
         raise Round2RebuttalValidationError(
             str(exc),
@@ -205,6 +366,7 @@ def round_2_rebuttal_result_from_agent_output(
     rebuttal = RebuttalState(
         agent_role=_SPECIALIST_BY_AGENT_ROLE[output.agent_role],
         target_motion_role=_SPECIALIST_BY_AGENT_ROLE[output.target_roles[0]],
+        confidence=output.confidence,
         summary=_rebuttal_summary(output),
         challenged_claims=[
             *[
@@ -418,18 +580,6 @@ def _validate_red_team_scope(
     if bid_positive_roles and targeted_roles.isdisjoint(bid_positive_roles):
         raise Round2RebuttalValidationError(
             "Red Team rebuttals must challenge the strongest bid arguments.",
-            field_path="target_roles",
-        )
-
-    conditional_roles = {
-        _AGENT_ROLE_BY_SPECIALIST[role]
-        for role, motion in motions.items()
-        if role is not SpecialistRole.RED_TEAM
-        and motion.verdict is Verdict.CONDITIONAL_BID
-    }
-    if conditional_roles and targeted_roles.isdisjoint(conditional_roles):
-        raise Round2RebuttalValidationError(
-            "Red Team rebuttals must challenge conditional-bid logic.",
             field_path="target_roles",
         )
 

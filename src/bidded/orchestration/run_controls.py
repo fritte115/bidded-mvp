@@ -324,8 +324,7 @@ def _safe_trace_text(value: object) -> str | None:
     if not text:
         return None
     safe = "".join(
-        char if char.isalnum() or char in {"_", "-"} else "_"
-        for char in text.lower()
+        char if char.isalnum() or char in {"_", "-"} else "_" for char in text.lower()
     )
     return safe[:64] or None
 

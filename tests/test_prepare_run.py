@@ -268,9 +268,7 @@ def test_prepare_procurement_run_handles_seven_uploaded_documents() -> None:
     document_ids = tuple(
         _uuid("44444444-4444-4444-8444", index) for index in range(1, 8)
     )
-    chunk_ids = tuple(
-        _uuid("55555555-5555-4555-8555", index) for index in range(1, 8)
-    )
+    chunk_ids = tuple(_uuid("55555555-5555-4555-8555", index) for index in range(1, 8))
     client.rows["documents"] = [
         _document_row(
             document_id,
@@ -398,9 +396,7 @@ def test_prepare_procurement_run_audits_missing_chunks_as_error() -> None:
 
     assert exc_info.value.audit is not None
     assert exc_info.value.audit.max_severity == "error"
-    assert {
-        issue.check for issue in exc_info.value.audit.errors
-    } == {"document_chunks"}
+    assert {issue.check for issue in exc_info.value.audit.errors} == {"document_chunks"}
     assert client.rows["agent_runs"] == []
     assert client.rows["evidence_items"] == []
 

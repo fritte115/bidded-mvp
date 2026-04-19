@@ -163,6 +163,118 @@ def build_round_1_specialist_request(
     )
 
 
+def _resolve_ref_against_board(
+    ref_dict: dict[str, Any],
+    board: Sequence[EvidenceItemState],
+) -> dict[str, Any]:
+    out = dict(ref_dict)
+    key = str(out.get("evidence_key") or "")
+    source_type = str(out.get("source_type") or "")
+    ev_id_raw = out.get("evidence_id")
+    needs_resolve = ev_id_raw is None or str(ev_id_raw).strip() in ("", "null", "None")
+    if needs_resolve:
+        item = next(
+            (
+                i
+                for i in board
+                if i.evidence_key == key and i.source_type.value == source_type
+            ),
+            None,
+        )
+        if item is not None and item.evidence_id is not None:
+            out["evidence_id"] = str(item.evidence_id)
+    return out
+
+
+def _coerce_refs_list(
+    refs: Any,
+    board: Sequence[EvidenceItemState],
+) -> list[Any]:
+    if not isinstance(refs, list):
+        return refs
+    return [
+        _resolve_ref_against_board(r, board) if isinstance(r, dict) else r for r in refs
+    ]
+
+
+def _merge_title_detail_into_claim(item: dict[str, Any]) -> dict[str, Any]:
+    out = dict(item)
+    claim = (out.get("claim") or "").strip()
+    if not claim:
+        title = (out.get("title") or "").strip()
+        detail = (out.get("detail") or "").strip()
+        summary = (out.get("summary") or "").strip()
+        if title and detail:
+            claim = f"{title} — {detail}"
+        elif title:
+            claim = title
+        elif detail:
+            claim = detail
+        elif summary:
+            claim = summary
+    if claim:
+        out["claim"] = claim
+    for key in ("title", "detail", "summary", "description", "name", "heading"):
+        out.pop(key, None)
+    return out
+
+
+def _coerce_claim_list(
+    items: Any,
+    board: Sequence[EvidenceItemState],
+) -> list[Any]:
+    if not isinstance(items, list):
+        return items
+    result = []
+    for item in items:
+        if isinstance(item, dict):
+            out = _merge_title_detail_into_claim(item)
+            refs = out.get("evidence_refs")
+            if refs is not None:
+                out["evidence_refs"] = _coerce_refs_list(refs, board)
+            result.append(out)
+        else:
+            result.append(item)
+    return result
+
+
+def _normalize_agent_role(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.strip().lower().replace(" ", "_")
+    return value
+
+
+def _coerce_validation_error_item(item: Any) -> Any:
+    if isinstance(item, str):
+        return {"code": "llm_note", "message": item}
+    return item
+
+
+def _coerce_round1_motion_mapping(
+    raw: Mapping[str, Any],
+    evidence_board: Sequence[EvidenceItemState],
+) -> dict[str, Any]:
+    """Normalize field aliases and resolve evidence_ids before Pydantic validation."""
+    out = dict(raw)
+    if "agent_role" in out:
+        out["agent_role"] = _normalize_agent_role(out["agent_role"])
+    for field in (
+        "top_findings",
+        "role_specific_risks",
+        "formal_blockers",
+        "potential_blockers",
+    ):
+        val = out.get(field)
+        if isinstance(val, list):
+            out[field] = _coerce_claim_list(val, evidence_board)
+    validation_errors = out.get("validation_errors")
+    if isinstance(validation_errors, list):
+        out["validation_errors"] = [
+            _coerce_validation_error_item(e) for e in validation_errors
+        ]
+    return out
+
+
 def validate_round_1_motion_output(
     raw_output: Round1Motion | Mapping[str, Any],
     *,
@@ -172,7 +284,12 @@ def validate_round_1_motion_output(
     """Validate strict motion schema and evidence refs against the board."""
 
     try:
-        output = Round1Motion.model_validate(raw_output)
+        coerced = (
+            raw_output
+            if isinstance(raw_output, Round1Motion)
+            else _coerce_round1_motion_mapping(raw_output, evidence_board)
+        )
+        output = Round1Motion.model_validate(coerced)
     except ValidationError as exc:
         raise Round1MotionValidationError(
             str(exc),

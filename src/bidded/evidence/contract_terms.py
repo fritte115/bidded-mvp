@@ -88,22 +88,16 @@ class ExtractedContractTerms:
     @property
     def has_terms(self) -> bool:
         return bool(
-            self.money_amounts
-            or self.recurrence_or_cap_phrases
-            or self.day_deadlines
+            self.money_amounts or self.recurrence_or_cap_phrases or self.day_deadlines
         )
 
     def as_metadata(self) -> dict[str, list[dict[str, object]]]:
         return {
-            "money_amounts": [
-                term.as_metadata() for term in self.money_amounts
-            ],
+            "money_amounts": [term.as_metadata() for term in self.money_amounts],
             "recurrence_or_cap_phrases": [
                 term.as_metadata() for term in self.recurrence_or_cap_phrases
             ],
-            "day_deadlines": [
-                term.as_metadata() for term in self.day_deadlines
-            ],
+            "day_deadlines": [term.as_metadata() for term in self.day_deadlines],
         }
 
 
@@ -277,9 +271,7 @@ def _day_deadline_context(text: str) -> str:
 def _normalize_for_matching(value: str) -> str:
     decomposed = unicodedata.normalize("NFKD", value.casefold())
     without_diacritics = "".join(
-        character
-        for character in decomposed
-        if not unicodedata.combining(character)
+        character for character in decomposed if not unicodedata.combining(character)
     )
     return re.sub(r"\s+", " ", without_diacritics).strip()
 

@@ -181,6 +181,7 @@ class SpecialistMotionState(StrictStateModel):
 class RebuttalState(StrictStateModel):
     agent_role: SpecialistRole
     target_motion_role: SpecialistRole
+    confidence: float = Field(default=0.0, ge=0, le=1)
     summary: str = Field(min_length=1)
     challenged_claims: list[str] = Field(default_factory=list)
     accepted_claims: list[str] = Field(default_factory=list)
@@ -277,7 +278,8 @@ class BidRunState(StrictStateModel):
                     "evidence_board",
                 }
             ),
-            owned_write_fields=_RUNTIME_CONTROL_FIELDS | frozenset(
+            owned_write_fields=_RUNTIME_CONTROL_FIELDS
+            | frozenset(
                 {
                     "validation_errors",
                 }
@@ -296,7 +298,8 @@ class BidRunState(StrictStateModel):
                     "evidence_board",
                 }
             ),
-            owned_write_fields=_RUNTIME_CONTROL_FIELDS | frozenset(
+            owned_write_fields=_RUNTIME_CONTROL_FIELDS
+            | frozenset(
                 {
                     "evidence_board",
                     "scout_output",
@@ -315,7 +318,8 @@ class BidRunState(StrictStateModel):
                     "working_retrieval_results",
                 }
             ),
-            owned_write_fields=_RUNTIME_CONTROL_FIELDS | frozenset(
+            owned_write_fields=_RUNTIME_CONTROL_FIELDS
+            | frozenset(
                 {
                     "motions",
                     "validation_errors",
@@ -334,7 +338,8 @@ class BidRunState(StrictStateModel):
                     "working_retrieval_results",
                 }
             ),
-            owned_write_fields=_RUNTIME_CONTROL_FIELDS | frozenset(
+            owned_write_fields=_RUNTIME_CONTROL_FIELDS
+            | frozenset(
                 {
                     "rebuttals",
                     "validation_errors",
@@ -354,7 +359,8 @@ class BidRunState(StrictStateModel):
                     "validation_errors",
                 }
             ),
-            owned_write_fields=_RUNTIME_CONTROL_FIELDS | frozenset(
+            owned_write_fields=_RUNTIME_CONTROL_FIELDS
+            | frozenset(
                 {
                     "final_decision",
                     "validation_errors",

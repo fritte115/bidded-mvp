@@ -60,9 +60,7 @@ def test_adversarial_golden_cases_document_expected_behavior_metadata() -> None:
         "stale_company_evidence": "stale_company_evidence_requires_refresh",
         "conflicting_deadlines": "conflicting_deadlines_routes_human_review",
         "weak_margin": "weak_margin_requires_commercial_action",
-        "red_team_blocker_challenge": (
-            "red_team_blockers_require_formal_evidence"
-        ),
+        "red_team_blocker_challenge": ("red_team_blockers_require_formal_evidence"),
     }
 
     for case in golden_demo_cases(fixture_group="adversarial"):

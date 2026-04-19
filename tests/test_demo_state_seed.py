@@ -88,10 +88,9 @@ def test_seed_demo_states_is_idempotent_and_preserves_manual_rows() -> None:
     second = seed_demo_states(client)
 
     assert second == first
-    assert (
-        {table: len(rows) for table, rows in client.rows.items()}
-        == counts_after_first
-    )
+    assert {
+        table: len(rows) for table, rows in client.rows.items()
+    } == counts_after_first
     assert client.rows["agent_runs"][0] == manual_run
     assert len({row["id"] for row in client.rows["agent_runs"]}) == 5
     assert len(

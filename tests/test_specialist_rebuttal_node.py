@@ -79,6 +79,7 @@ class RecordingRound2Model:
             ],
             "blocker_challenges": [],
             "revised_stance": revised_stance,
+            "confidence": 0.68,
             "evidence_refs": [tender_ref],
             "missing_info": ["Named consultant availability remains unproven."],
             "recommended_actions": ["Resolve the staffing evidence gap."],
@@ -89,9 +90,9 @@ class InvalidEvidenceRound2Model(RecordingRound2Model):
     def draft_rebuttal(self, request: Round2RebuttalRequest) -> dict[str, Any]:
         payload = super().draft_rebuttal(request)
         if request.agent_role is AgentRole.RED_TEAM:
-            payload["targeted_disagreements"][0]["evidence_refs"][0][
-                "evidence_id"
-            ] = str(UNKNOWN_EVIDENCE_ID)
+            payload["targeted_disagreements"][0]["evidence_refs"][0]["evidence_id"] = (
+                str(UNKNOWN_EVIDENCE_ID)
+            )
         return payload
 
 
@@ -272,9 +273,7 @@ def test_invalid_round_2_rebuttal_fails_before_round_2_persistence() -> None:
     handlers = replace(
         default_graph_node_handlers(),
         round_1_specialist=_round_1_motion,
-        round_2_rebuttal=build_round_2_rebuttal_handler(
-            InvalidEvidenceRound2Model()
-        ),
+        round_2_rebuttal=build_round_2_rebuttal_handler(InvalidEvidenceRound2Model()),
     )
 
     result = run_bidded_graph_shell(_ready_state(), handlers=handlers)
@@ -289,12 +288,10 @@ def test_invalid_round_2_rebuttal_fails_before_round_2_persistence() -> None:
     assert set(result.state.motions) == set(SpecialistRole)
     assert result.state.rebuttals == {}
     assert any(
-        output.round_name == "round_1_motion"
-        for output in result.state.agent_outputs
+        output.round_name == "round_1_motion" for output in result.state.agent_outputs
     )
     assert not any(
-        output.round_name == "round_2_rebuttal"
-        for output in result.state.agent_outputs
+        output.round_name == "round_2_rebuttal" for output in result.state.agent_outputs
     )
     assert result.state.validation_errors
     assert "not present in evidence_board" in result.state.validation_errors[-1].message

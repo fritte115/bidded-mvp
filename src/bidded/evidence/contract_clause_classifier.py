@@ -229,9 +229,7 @@ def _validate_output_allowed_by_request(
 ) -> None:
     if output.tag_id in request.allowed_tag_ids:
         return
-    raise ValueError(
-        "classification tag_id must be one of request.allowed_tag_ids"
-    )
+    raise ValueError("classification tag_id must be one of request.allowed_tag_ids")
 
 
 def _fallback_low_confidence(

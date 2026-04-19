@@ -310,8 +310,7 @@ def _demo_evidence_payloads(*, company_id: UUID) -> list[dict[str, Any]]:
             evidence_id=_fixture_uuid("evidence", "tender-named-lead"),
             evidence_key="DEMO-REPLAY-TENDER-NAMED-LEAD",
             excerpt=(
-                "Supplier must name a security-cleared delivery lead in the "
-                "submission."
+                "Supplier must name a security-cleared delivery lead in the submission."
             ),
             normalized_meaning=(
                 "The tender requires a named security-cleared delivery lead."
@@ -343,8 +342,7 @@ def _demo_evidence_payloads(*, company_id: UUID) -> list[dict[str, Any]]:
                 "40 percent."
             ),
             normalized_meaning=(
-                "The award model weights quality at 60 percent and price at "
-                "40 percent."
+                "The award model weights quality at 60 percent and price at 40 percent."
             ),
             category="award_criterion",
             requirement_type=None,
@@ -356,12 +354,10 @@ def _demo_evidence_payloads(*, company_id: UUID) -> list[dict[str, Any]]:
             evidence_id=_fixture_uuid("evidence", "tender-liability"),
             evidence_key="DEMO-REPLAY-TENDER-LIABILITY",
             excerpt=(
-                "The contract includes liability penalties for material delivery "
-                "delay."
+                "The contract includes liability penalties for material delivery delay."
             ),
             normalized_meaning=(
-                "The contract contains liability penalties for material delivery "
-                "delay."
+                "The contract contains liability penalties for material delivery delay."
             ),
             category="contract_risk",
             requirement_type=RequirementType.CONTRACT_OBLIGATION,
@@ -409,8 +405,7 @@ def _demo_evidence_payloads(*, company_id: UUID) -> list[dict[str, Any]]:
                 "status active."
             ),
             normalized_meaning=(
-                "The company has active ISO 27001 certification for managed "
-                "delivery."
+                "The company has active ISO 27001 certification for managed delivery."
             ),
             category="certification",
             source_label=company_source,
@@ -839,6 +834,7 @@ def _build_round_2_rebuttals(
                     )
                 ],
                 revised_stance=BidVerdict.CONDITIONAL_BID,
+                confidence=0.68,
                 evidence_refs=[refs["dpa"]],
             ),
         ),
@@ -859,6 +855,7 @@ def _build_round_2_rebuttals(
                     )
                 ],
                 revised_stance=BidVerdict.BID,
+                confidence=0.74,
                 evidence_refs=[refs["evaluation"]],
             ),
         ),
@@ -881,6 +878,7 @@ def _build_round_2_rebuttals(
                     )
                 ],
                 revised_stance=BidVerdict.CONDITIONAL_BID,
+                confidence=0.66,
                 evidence_refs=[refs["company_rate_card"]],
             ),
         ),
@@ -905,6 +903,7 @@ def _build_round_2_rebuttals(
                     )
                 ],
                 revised_stance=BidVerdict.NO_BID,
+                confidence=0.71,
                 evidence_refs=[refs["named_lead"]],
                 missing_info=["Named lead CV remains the critical open item."],
             ),
@@ -951,8 +950,7 @@ def _build_judge_decision(
                 "requirement_type": RequirementType.QUALIFICATION_REQUIREMENT,
                 "status": "unknown" if needs_review else "unmet",
                 "assessment": (
-                    "The tender asks for a named lead; fixture evidence lacks "
-                    "the CV."
+                    "The tender asks for a named lead; fixture evidence lacks the CV."
                 ),
                 "evidence_refs": [refs["named_lead"]],
             },
@@ -1050,9 +1048,7 @@ def _evidence_refs(
         "dpa": _agent_ref(evidence_by_key["DEMO-REPLAY-TENDER-DPA"]),
         "exclusion": _agent_ref(evidence_by_key["DEMO-REPLAY-TENDER-EXCLUSION"]),
         "company_iso": _agent_ref(evidence_by_key["DEMO-REPLAY-COMPANY-ISO-27001"]),
-        "company_capacity": _agent_ref(
-            evidence_by_key["DEMO-REPLAY-COMPANY-CAPACITY"]
-        ),
+        "company_capacity": _agent_ref(evidence_by_key["DEMO-REPLAY-COMPANY-CAPACITY"]),
         "company_reference": _agent_ref(
             evidence_by_key["DEMO-REPLAY-COMPANY-REFERENCE"]
         ),
@@ -1176,8 +1172,7 @@ def _upsert_owned_fixture_rows(
     payloads: Sequence[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     return [
-        _upsert_owned_fixture_row(client, table_name, payload)
-        for payload in payloads
+        _upsert_owned_fixture_row(client, table_name, payload) for payload in payloads
     ]
 
 

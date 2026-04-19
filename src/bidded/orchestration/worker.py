@@ -6,7 +6,12 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 from uuid import UUID
 
-from bidded.orchestration.graph import GraphRunResult, run_bidded_graph_shell
+from bidded.orchestration.graph import (
+    GraphNodeHandlers,
+    GraphRunResult,
+    OnStepCallback,
+    run_bidded_graph_shell,
+)
 from bidded.orchestration.judge import persist_final_decision
 from bidded.orchestration.pending_run import DEMO_TENANT_KEY
 from bidded.orchestration.state import (
@@ -51,7 +56,7 @@ class SupabaseWorkerClient(Protocol):
     def table(self, table_name: str) -> SupabaseWorkerQuery: ...
 
 
-GraphRunner = Callable[[BidRunState], GraphRunResult]
+GraphRunner = Callable[..., GraphRunResult]
 LogSink = Callable[[str], None]
 NowFactory = Callable[[], datetime]
 
@@ -78,13 +83,31 @@ def run_worker_once(
     run_id: UUID | str | None = None,
     company_id: UUID | str | None = None,
     tenant_key: str = DEMO_TENANT_KEY,
-    graph_runner: GraphRunner = run_bidded_graph_shell,
+    graph_runner: GraphRunner | None = None,
+    graph_handlers: GraphNodeHandlers | None = None,
     now_factory: NowFactory | None = None,
     log: LogSink | None = None,
 ) -> WorkerRunResult:
     """Run one pending Supabase agent_run through the deterministic graph."""
 
     now = now_factory or _utc_now
+    if graph_handlers is not None:
+
+        def _runner(
+            state: BidRunState,
+            *,
+            on_step: OnStepCallback | None = None,
+        ) -> GraphRunResult:
+            return run_bidded_graph_shell(
+                state,
+                handlers=graph_handlers,
+                on_step=on_step,
+            )
+
+        graph_runner = _runner
+    elif graph_runner is None:
+        graph_runner = run_bidded_graph_shell
+
     selected_run = _select_worker_run(
         client,
         run_id=run_id,
@@ -130,6 +153,7 @@ def run_worker_once(
         timestamp=started_at,
         metadata=metadata,
         demo_trace=demo_trace.entries,
+        current_step="preflight",
     )
     if claimed_run is None:
         message = "No pending demo agent run found."
@@ -148,6 +172,35 @@ def run_worker_once(
 
     active_step: _TraceStepTiming | None = None
     try:
+        last_persisted_step: dict[str, str] = {"value": "preflight"}
+        persisted_metadata: dict[str, Any] = {"value": dict(metadata)}
+
+        def _on_step(current_state: BidRunState) -> None:
+            if current_state.status is not AgentRunStatus.RUNNING:
+                return
+            new_step = _current_step_value(current_state)
+            if not new_step or new_step == last_persisted_step["value"]:
+                return
+            try:
+                persisted_metadata["value"] = _update_run_status(
+                    client,
+                    run_id=normalized_run_id,
+                    tenant_key=tenant_key,
+                    status=AgentRunStatus.RUNNING,
+                    timestamp=_timestamp(now),
+                    metadata=persisted_metadata["value"],
+                    error_details=None,
+                    current_step=new_step,
+                )
+                last_persisted_step["value"] = new_step
+                _log(log, f"Agent run {normalized_run_id} reached {new_step}.")
+            except Exception as exc:  # noqa: BLE001 - best-effort telemetry
+                _log(
+                    log,
+                    f"Failed to persist stage {new_step} for "
+                    f"run {normalized_run_id}: {exc}",
+                )
+
         active_step = demo_trace.start("load_run_context")
         state = build_bid_run_state_from_supabase(
             client,
@@ -157,7 +210,11 @@ def run_worker_once(
         demo_trace.complete(active_step)
         active_step = None
         active_step = demo_trace.start("run_graph")
-        graph_result = graph_runner(state)
+        try:
+            graph_result = graph_runner(state, on_step=_on_step)
+        except TypeError:
+            graph_result = graph_runner(state)
+        metadata = persisted_metadata["value"]
         terminal_state = graph_result.state
         visited_nodes = tuple(node.value for node in graph_result.visited_nodes)
 
@@ -184,8 +241,7 @@ def run_worker_once(
                 error_details=error_details,
             )
             message = (
-                f"Agent run {normalized_run_id} failed: "
-                f"{error_details['message']}"
+                f"Agent run {normalized_run_id} failed: {error_details['message']}"
             )
             _log(log, message)
             return WorkerRunResult(
@@ -322,10 +378,7 @@ def build_bid_run_state_from_supabase(
     chunk_rows = _fetch_tenant_rows(
         client,
         "document_chunks",
-        (
-            "id,tenant_key,document_id,page_start,page_end,chunk_index,text,"
-            "metadata"
-        ),
+        ("id,tenant_key,document_id,page_start,page_end,chunk_index,text,metadata"),
         tenant_key=tenant_key,
     )
     evidence_rows = _fetch_tenant_rows(
@@ -454,11 +507,13 @@ def _update_run_status(
     timestamp: str,
     metadata: Mapping[str, Any],
     error_details: Mapping[str, Any] | None,
+    current_step: str | None = None,
 ) -> dict[str, Any]:
     next_metadata = _worker_metadata(
         metadata,
         status=status,
         timestamp=timestamp,
+        current_step=current_step,
     )
     payload: dict[str, Any] = {
         "status": status.value,
@@ -490,12 +545,14 @@ def _claim_worker_run(
     timestamp: str,
     metadata: Mapping[str, Any],
     demo_trace: Sequence[Mapping[str, Any]],
+    current_step: str | None = None,
 ) -> dict[str, Any] | None:
     next_metadata = _worker_metadata(
         metadata,
         status=AgentRunStatus.RUNNING,
         timestamp=timestamp,
         demo_trace=demo_trace,
+        current_step=current_step,
     )
     payload: dict[str, Any] = {
         "status": AgentRunStatus.RUNNING.value,
@@ -535,6 +592,7 @@ def _terminal_metadata(
         metadata,
         status=terminal_state.status,
         timestamp=timestamp,
+        current_step=_current_step_value(terminal_state),
         details=details,
         demo_trace=demo_trace,
     )
@@ -545,6 +603,7 @@ def _worker_metadata(
     *,
     status: AgentRunStatus,
     timestamp: str,
+    current_step: str | None = None,
     details: Mapping[str, Any] | None = None,
     demo_trace: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -555,6 +614,9 @@ def _worker_metadata(
     if demo_trace is not None:
         merged["demo_trace"] = _sanitize_demo_trace_entries(demo_trace)
     worker = dict(_mapping(merged.get("worker")))
+    if current_step is not None:
+        merged["current_step"] = current_step
+        worker["current_step"] = current_step
     worker.update(
         {
             "name": DEFAULT_WORKER_NAME,
@@ -566,6 +628,11 @@ def _worker_metadata(
         worker.update(dict(details))
     merged["worker"] = worker
     return merged
+
+
+def _current_step_value(state: BidRunState) -> str:
+    value = state.current_step
+    return value.value if hasattr(value, "value") else str(value)
 
 
 class _DemoTrace:
@@ -646,8 +713,7 @@ def _safe_trace_text(value: object) -> str | None:
     if not text:
         return None
     safe = "".join(
-        char if char.isalnum() or char in {"_", "-"} else "_"
-        for char in text.lower()
+        char if char.isalnum() or char in {"_", "-"} else "_" for char in text.lower()
     )
     return safe[:64] or None
 
@@ -813,9 +879,7 @@ def _evidence_state_from_row(row: Mapping[str, Any]) -> EvidenceItemState:
         page_end=_optional_int(row.get("page_end")),
         company_id=_optional_uuid(row.get("company_id")),
         field_path=(
-            str(row.get("field_path"))
-            if row.get("field_path") is not None
-            else None
+            str(row.get("field_path")) if row.get("field_path") is not None else None
         ),
     )
 

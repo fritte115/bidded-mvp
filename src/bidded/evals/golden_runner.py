@@ -416,9 +416,7 @@ def score_evidence_coverage(
         covered_claim_count += 1
 
     score = (
-        1.0
-        if material_claim_count == 0
-        else covered_claim_count / material_claim_count
+        1.0 if material_claim_count == 0 else covered_claim_count / material_claim_count
     )
     return EvidenceCoverageScore(
         score=score,
@@ -460,10 +458,7 @@ def render_golden_eval_markdown(report: GoldenEvalReport) -> str:
         "# Golden Eval Report",
         "",
         f"Status: {status}",
-        (
-            f"Pass rate: {pass_rate:.2%} "
-            f"({report.passed_count}/{report.total_count})"
-        ),
+        (f"Pass rate: {pass_rate:.2%} ({report.passed_count}/{report.total_count})"),
         f"Failed cases: {failed_case_ids}",
         "",
         "## Runtime Summary",
@@ -527,9 +522,7 @@ def golden_eval_report_json_payload(report: GoldenEvalReport) -> dict[str, Any]:
         ],
         "version_metadata": report.version_metadata.model_dump(mode="json"),
         "version_warnings": list(report.version_warnings),
-        "results": [
-            _golden_case_report_payload(result) for result in report.results
-        ],
+        "results": [_golden_case_report_payload(result) for result in report.results],
     }
 
 
@@ -636,8 +629,7 @@ def _golden_case_failure_markdown(result: GoldenCaseEvalResult) -> list[str]:
         )
         if coverage.unsupported_claim_count:
             lines.append(
-                "- Unsupported material claims: "
-                f"{coverage.unsupported_claim_count}"
+                f"- Unsupported material claims: {coverage.unsupported_claim_count}"
             )
         for detail in coverage.missing_citation_details:
             missing = _source_type_values(detail.missing_source_types)

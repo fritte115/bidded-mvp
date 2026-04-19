@@ -94,9 +94,7 @@ def run_demo_environment_doctor(
             checks.append(DoctorCheck("env", "fail", f"{env_name} is missing"))
 
     client: SupabaseDoctorClient | None = None
-    if {"SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"}.intersection(
-        missing_environment
-    ):
+    if {"SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"}.intersection(missing_environment):
         checks.append(
             DoctorCheck(
                 "supabase database",
@@ -160,8 +158,7 @@ def _check_supabase_tables(client: SupabaseDoctorClient) -> DoctorCheck:
         return DoctorCheck(
             "supabase database",
             "fail",
-            "Missing or unreadable demo tables: "
-            f"{', '.join(missing_or_unreadable)}",
+            f"Missing or unreadable demo tables: {', '.join(missing_or_unreadable)}",
         )
     return DoctorCheck(
         "supabase database",

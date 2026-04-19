@@ -45,8 +45,7 @@ def test_clause_segmentation_detects_numbered_headings_and_wrapped_text() -> Non
     second_chunk_id = UUID("77777777-7777-4777-8777-777777777777")
     chunks = [
         _retrieved_chunk(
-            "1. General conditions\n"
-            "Supplier shall attend the kickoff meeting.",
+            "1. General conditions\nSupplier shall attend the kickoff meeting.",
             page_start=1,
             chunk_index=0,
         ),
@@ -109,17 +108,13 @@ def test_clause_segmentation_detects_heading_only_sections() -> None:
         "Supplier must protect confidential information. "
         "The obligation shall survive termination."
     )
-    assert segments[1].body_text == (
-        "Leverantören ska ansvara för underleverantörer."
-    )
+    assert segments[1].body_text == ("Leverantören ska ansvara för underleverantörer.")
 
 
 def test_tender_evidence_items_include_clause_section_metadata() -> None:
     chunks = [
         _retrieved_chunk(
-            "4. Insurance\n"
-            "Supplier shall maintain\n"
-            "professional liability insurance.",
+            "4. Insurance\nSupplier shall maintain\nprofessional liability insurance.",
             page_start=6,
         )
     ]
@@ -279,9 +274,7 @@ def test_tender_evidence_extraction_uses_regulatory_glossary_terms() -> None:
         "exclusion_ground",
         "quality_management",
     ]
-    assert [
-        item["metadata"]["regulatory_glossary_ids"][0] for item in items
-    ] == [
+    assert [item["metadata"]["regulatory_glossary_ids"][0] for item in items] == [
         "professional_misconduct",
         "quality_management_sosfs",
     ]
@@ -572,9 +565,7 @@ def test_tender_evidence_items_apply_mocked_clause_classifier_metadata() -> None
     assert item["metadata"]["contract_clause_classification"] == {
         "tag_id": "liability_caps",
         "confidence": 0.83,
-        "rationale": (
-            "The clause uses document-specific wording for a liability cap."
-        ),
+        "rationale": ("The clause uses document-specific wording for a liability cap."),
         "evidence_key": item["evidence_key"],
         "clause_provenance": None,
         "missing_info": [],
@@ -698,9 +689,9 @@ def test_tender_evidence_items_extract_structured_contract_terms() -> None:
             "context": "payment_deadline",
         }
     ]
-    assert terms_by_excerpt[
-        "Supplier must also accept payment within 30 days."
-    ]["day_deadlines"] == [
+    assert terms_by_excerpt["Supplier must also accept payment within 30 days."][
+        "day_deadlines"
+    ] == [
         {
             "raw_text": "30 days",
             "days": 30,
@@ -810,9 +801,7 @@ class RecordingSupabaseClient:
     def __init__(self) -> None:
         self.rows: dict[str, list[dict[str, object]]] = {"evidence_items": []}
         self.upserts: list[tuple[list[dict[str, object]], str | None]] = []
-        self.selects: list[
-            tuple[str, str | None, list[tuple[str, str]]]
-        ] = []
+        self.selects: list[tuple[str, str | None, list[tuple[str, str]]]] = []
         self.table_names: list[str] = []
 
     def table(self, table_name: str) -> RecordingEvidenceQuery:

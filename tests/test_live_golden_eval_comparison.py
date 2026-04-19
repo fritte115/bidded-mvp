@@ -32,9 +32,7 @@ def test_live_golden_comparison_highlights_material_differences() -> None:
                     EvidenceCoverageClaim(
                         claim_type=EvidenceCoverageClaimType.JUDGE_DECISION,
                         claim="Reject the bid without cited evidence.",
-                        citation_requirement=(
-                            EvidenceCitationRequirement.ANY_EVIDENCE
-                        ),
+                        citation_requirement=(EvidenceCitationRequirement.ANY_EVIDENCE),
                         evidence_refs=(),
                     ),
                 ),
@@ -126,9 +124,7 @@ def test_live_golden_comparison_writes_json_and_markdown_report(
                     EvidenceCoverageClaim(
                         claim_type=EvidenceCoverageClaimType.JUDGE_DECISION,
                         claim="Reject the bid without cited evidence.",
-                        citation_requirement=(
-                            EvidenceCitationRequirement.ANY_EVIDENCE
-                        ),
+                        citation_requirement=(EvidenceCitationRequirement.ANY_EVIDENCE),
                         evidence_refs=(),
                     ),
                 ),

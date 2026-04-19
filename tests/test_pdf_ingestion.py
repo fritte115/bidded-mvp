@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import fitz
 import pytest
@@ -73,6 +73,8 @@ class RecordingQuery:
         self.insert_payload: list[dict[str, Any]] | None = None
         self.update_payload: dict[str, Any] | None = None
         self.delete_requested = False
+        self.upsert_payload: list[dict[str, Any]] | None = None
+        self.on_conflict: str | None = None
 
     def select(self, columns: str) -> RecordingQuery:
         self.selected_columns = columns
@@ -86,6 +88,16 @@ class RecordingQuery:
         self.insert_payload = payload
         return self
 
+    def upsert(
+        self,
+        payload: list[dict[str, Any]],
+        *,
+        on_conflict: str | None = None,
+    ) -> RecordingQuery:
+        self.upsert_payload = payload
+        self.on_conflict = on_conflict
+        return self
+
     def update(self, payload: dict[str, Any]) -> RecordingQuery:
         self.update_payload = payload
         return self
@@ -95,10 +107,22 @@ class RecordingQuery:
         return self
 
     def execute(self) -> object:
+        if self.upsert_payload is not None:
+            self.client.inserts.setdefault("evidence_items", []).append(
+                self.upsert_payload
+            )
+            rows = [
+                {**row, "id": f"ev-{index}"}
+                for index, row in enumerate(self.upsert_payload, start=1)
+            ]
+            self.client.rows.setdefault("evidence_items", []).extend(rows)
+            self.upsert_payload = None
+            return type("Response", (), {"data": rows})()
+
         if self.insert_payload is not None:
             inserted_rows = []
-            for index, payload in enumerate(self.insert_payload, start=1):
-                row = {**payload, "id": f"chunk-{index}"}
+            for _index, payload in enumerate(self.insert_payload, start=1):
+                row = {**payload, "id": str(uuid4())}
                 inserted_rows.append(row)
                 self.client.rows.setdefault(self.table_name, []).append(row)
             self.client.inserts.setdefault(self.table_name, []).append(
@@ -122,8 +146,7 @@ class RecordingQuery:
                 row
                 for row in rows
                 if not all(
-                    str(row.get(column)) == value
-                    for column, value in self.filters
+                    str(row.get(column)) == value for column, value in self.filters
                 )
             ]
             return type("Response", (), {"data": []})()
@@ -222,9 +245,7 @@ def test_ingest_tender_pdf_document_extracts_and_persists_page_chunks() -> None:
 
     assert client.storage.bucket_names == ["procurement-fixtures"]
     assert client.storage.bucket.downloads == ["demo/tenders/skakrav/tender.pdf"]
-    assert client.deletes["document_chunks"] == [
-        [("document_id", str(DOCUMENT_ID))]
-    ]
+    assert client.deletes["document_chunks"] == [[("document_id", str(DOCUMENT_ID))]]
 
     inserted_chunks = client.inserts["document_chunks"][0]
     assert [chunk["chunk_index"] for chunk in inserted_chunks] == [0, 1]
@@ -247,6 +268,9 @@ def test_ingest_tender_pdf_document_extracts_and_persists_page_chunks() -> None:
     assert parsed_metadata["parser"]["page_count"] == 2
     assert parsed_metadata["parser"]["chunk_count"] == 2
     assert "error_message" not in parsed_metadata["parser"]
+
+    assert "evidence_items" in client.inserts
+    assert client.inserts["evidence_items"]
 
 
 def test_ingest_tender_pdf_populates_chunk_embeddings_when_configured() -> None:
@@ -320,9 +344,9 @@ def test_ingest_tender_pdf_document_fails_when_embeddings_are_required() -> None
 
     failed_update = client.updates["documents"][-1][0]
     assert failed_update["parse_status"] == "parser_failed"
-    assert "provider unavailable" in failed_update["metadata"]["parser"][
-        "error_message"
-    ]
+    assert (
+        "provider unavailable" in failed_update["metadata"]["parser"]["error_message"]
+    )
 
 
 def test_ingest_tender_pdf_document_marks_empty_text_pdf_as_parser_failed() -> None:

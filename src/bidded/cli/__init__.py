@@ -40,6 +40,7 @@ from bidded.evals.live_comparison import (
     write_live_golden_eval_comparison_json,
     write_live_golden_eval_comparison_markdown,
 )
+from bidded.llm.factory import resolve_graph_handlers
 from bidded.orchestration import (
     AgentRunStatus,
     PendingRunContextError,
@@ -258,8 +259,7 @@ def build_parser() -> argparse.ArgumentParser:
     smoke_parser.add_argument(
         "--anthropic-model",
         help=(
-            "Anthropic model for --live-llm. Defaults to "
-            f"{DEFAULT_ANTHROPIC_MODEL}."
+            f"Anthropic model for --live-llm. Defaults to {DEFAULT_ANTHROPIC_MODEL}."
         ),
     )
     smoke_parser.set_defaults(handler=_run_demo_smoke_command)
@@ -282,6 +282,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional demo company UUID filter when picking the oldest pending run.",
     )
     worker_parser.set_defaults(handler=_run_worker_command)
+
+    serve_parser = subparsers.add_parser(
+        "serve",
+        help="Start the Bidded HTTP API server.",
+        description="Start the Bidded HTTP API server (default: http://0.0.0.0:8000).",
+    )
+    serve_parser.add_argument("--host", default="0.0.0.0", help="Bind host.")
+    serve_parser.add_argument("--port", type=int, default=8000, help="Bind port.")
+    serve_parser.set_defaults(handler=_run_serve_command)
 
     status_parser = subparsers.add_parser(
         "run-status",
@@ -620,6 +629,22 @@ def _run_prepare_manifest_run_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_serve_command(args: argparse.Namespace) -> int:
+    try:
+        import uvicorn  # noqa: PLC0415
+
+        from bidded.api_server import app  # noqa: PLC0415
+    except ImportError:
+        print(
+            "fastapi and uvicorn are required. "
+            "Run: pip install fastapi 'uvicorn[standard]'",
+            file=sys.stderr,
+        )
+        return 2
+    uvicorn.run(app, host=args.host, port=args.port)
+    return 0
+
+
 def _run_worker_command(args: argparse.Namespace) -> int:
     settings = load_settings()
     try:
@@ -629,6 +654,7 @@ def _run_worker_command(args: argparse.Namespace) -> int:
             run_id=args.run_id,
             company_id=args.company_id,
             log=print,
+            graph_handlers=resolve_graph_handlers(settings),
         )
     except (RuntimeError, WorkerLifecycleError) as exc:
         print(str(exc), file=sys.stderr)
@@ -1090,10 +1116,7 @@ def _print_golden_case_eval_result(result: GoldenCaseEvalResult) -> None:
             f"{coverage.score:.2f} below threshold {coverage.threshold:.2f}"
         )
         if coverage.unsupported_claim_count:
-            print(
-                "  Unsupported material claims: "
-                f"{coverage.unsupported_claim_count}"
-            )
+            print(f"  Unsupported material claims: {coverage.unsupported_claim_count}")
         for detail in coverage.missing_citation_details:
             missing = _source_type_values(detail.missing_source_types)
             present = _source_type_values(detail.present_source_types)
@@ -1151,8 +1174,7 @@ def _print_live_golden_eval_comparison_report(
             )
         if comparison.evidence_coverage_delta not in (None, 0):
             print(
-                "  Evidence coverage delta: "
-                f"{comparison.evidence_coverage_delta:+.2f}"
+                f"  Evidence coverage delta: {comparison.evidence_coverage_delta:+.2f}"
             )
 
 

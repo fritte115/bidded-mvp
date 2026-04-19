@@ -172,8 +172,7 @@ def test_mocked_end_to_end_run_persists_evidence_locked_swarm(
     )
     assert len(persisted_decision["metadata"]["source_agent_outputs"]) == 10
     assert all(
-        source["agent_role"] != "evidence_scout"
-        or source["round_name"] == "evidence"
+        source["agent_role"] != "evidence_scout" or source["round_name"] == "evidence"
         for source in persisted_decision["metadata"]["source_agent_outputs"]
     )
 
@@ -181,20 +180,17 @@ def test_mocked_end_to_end_run_persists_evidence_locked_swarm(
         assert judge_model.requested_verdicts == ["bid"]
         assert persisted_decision["verdict"] == "no_bid"
         assert "bankruptcy exclusion ground" in " ".join(
-            _claim_texts(
-                persisted_decision["final_decision"]["compliance_blockers"]
-            )
+            _claim_texts(persisted_decision["final_decision"]["compliance_blockers"])
         )
-        assert "Formal compliance blockers require no_bid" in (
-            persisted_decision["final_decision"]["cited_memo"]
+        assert (
+            "Formal compliance blockers require no_bid"
+            in (persisted_decision["final_decision"]["cited_memo"])
         )
     else:
         assert persisted_decision["verdict"] == "conditional_bid"
         assert persisted_decision["final_decision"]["compliance_blockers"] == []
         assert "named security-cleared lead" in " ".join(
-            _claim_texts(
-                persisted_decision["final_decision"]["potential_blockers"]
-            )
+            _claim_texts(persisted_decision["final_decision"]["potential_blockers"])
         )
         assert "Named security-cleared lead CV" in " ".join(
             persisted_decision["final_decision"]["missing_info"]
@@ -287,7 +283,7 @@ def _prepare_pending_evidence_locked_run(
         client,
         tender_id=registration.tender_id,
         company_id=registration.company_id,
-        document_id=registration.document_id,
+        document_ids=[registration.document_id],
         created_via="mocked_e2e_test",
     )
 
@@ -378,9 +374,7 @@ class MockedRound1Model:
         company_capacity = _ref_by(
             request.evidence_board,
             source_type=EvidenceSourceType.COMPANY_PROFILE,
-            field_path=(
-                "capabilities.delivery_capacity.security_cleared_consultants"
-            ),
+            field_path=("capabilities.delivery_capacity.security_cleared_consultants"),
         )
         exclusion_ground = _ref_by(
             request.evidence_board,
@@ -395,8 +389,7 @@ class MockedRound1Model:
                 formal_blockers.append(
                     {
                         "claim": (
-                            "A confirmed bankruptcy exclusion ground blocks "
-                            "submission."
+                            "A confirmed bankruptcy exclusion ground blocks submission."
                         ),
                         "evidence_refs": [exclusion_ground],
                     }
@@ -483,9 +476,7 @@ class MockedRound2Model:
         company_capacity = _ref_by(
             request.evidence_board,
             source_type=EvidenceSourceType.COMPANY_PROFILE,
-            field_path=(
-                "capabilities.delivery_capacity.security_cleared_consultants"
-            ),
+            field_path=("capabilities.delivery_capacity.security_cleared_consultants"),
         )
 
         return {
@@ -511,10 +502,9 @@ class MockedRound2Model:
             ],
             "blocker_challenges": [],
             "revised_stance": "conditional_bid",
+            "confidence": 0.66,
             "evidence_refs": [named_lead, company_capacity],
-            "missing_info": [
-                "Named security-cleared lead CV remains missing."
-            ],
+            "missing_info": ["Named security-cleared lead CV remains missing."],
             "potential_evidence_gaps": [
                 "Subcontractor surge capacity has no resolved evidence item."
             ],
@@ -525,8 +515,7 @@ class MockedRound2Model:
                 {
                     "code": "unsupported_claim",
                     "message": (
-                        "Unverified subcontractor capacity was isolated as "
-                        "unsupported."
+                        "Unverified subcontractor capacity was isolated as unsupported."
                     ),
                     "field_path": "unsupported_claims[0]",
                     "retryable": False,
@@ -563,9 +552,7 @@ class MockedJudgeModel:
         company_capacity = _ref_by(
             request.evidence_board,
             source_type=EvidenceSourceType.COMPANY_PROFILE,
-            field_path=(
-                "capabilities.delivery_capacity.security_cleared_consultants"
-            ),
+            field_path=("capabilities.delivery_capacity.security_cleared_consultants"),
         )
         potential_blockers = [
             claim.model_dump(mode="json") for claim in request.potential_blockers
@@ -589,9 +576,7 @@ class MockedJudgeModel:
                 {
                     "requirement": "Active ISO 27001 certification",
                     "status": "met",
-                    "assessment": (
-                        "Tender and company evidence both cite ISO 27001."
-                    ),
+                    "assessment": ("Tender and company evidence both cite ISO 27001."),
                     "evidence_refs": [tender_iso, company_iso],
                 },
                 {
@@ -902,8 +887,7 @@ def _ref_by(
             "evidence_id": str(item.evidence_id),
         }
     raise AssertionError(
-        f"Missing evidence ref for {source_type.value} "
-        f"{excerpt_contains or field_path}"
+        f"Missing evidence ref for {source_type.value} {excerpt_contains or field_path}"
     )
 
 

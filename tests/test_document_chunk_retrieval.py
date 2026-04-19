@@ -101,12 +101,9 @@ def _chunk(**overrides: Any) -> dict[str, Any]:
 
 def _assert_final_score_uses_hybrid_weights(retrieval: dict[str, Any]) -> None:
     assert retrieval["final_score"] == round(
-        HYBRID_RETRIEVAL_WEIGHTS["embedding_score"]
-        * retrieval["embedding_score"]
-        + HYBRID_RETRIEVAL_WEIGHTS["keyword_score"]
-        * retrieval["keyword_score"]
-        + HYBRID_RETRIEVAL_WEIGHTS["glossary_score"]
-        * retrieval["glossary_score"]
+        HYBRID_RETRIEVAL_WEIGHTS["embedding_score"] * retrieval["embedding_score"]
+        + HYBRID_RETRIEVAL_WEIGHTS["keyword_score"] * retrieval["keyword_score"]
+        + HYBRID_RETRIEVAL_WEIGHTS["glossary_score"] * retrieval["glossary_score"]
         + HYBRID_RETRIEVAL_WEIGHTS["requirement_type"]
         * retrieval["requirement_type_score"],
         6,

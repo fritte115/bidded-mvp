@@ -261,9 +261,7 @@ def test_golden_eval_runner_selects_one_case_by_id() -> None:
 
     assert report.total_count == 1
     assert report.passed
-    assert [result.case_id for result in report.results] == [
-        "hard_compliance_no_bid"
-    ]
+    assert [result.case_id for result in report.results] == ["hard_compliance_no_bid"]
 
 
 def test_golden_eval_runner_rejects_unknown_case_id() -> None:
@@ -351,8 +349,7 @@ def test_golden_eval_fails_verdict_outside_allowed_set() -> None:
     result = report.results[0]
     assert not report.passed
     assert result.verdict_regression_failures == (
-        "actual verdict no_bid not in allowed set: "
-        "conditional_bid, needs_human_review",
+        "actual verdict no_bid not in allowed set: conditional_bid, needs_human_review",
     )
 
 
@@ -458,10 +455,7 @@ def test_golden_eval_runner_writes_readable_markdown_report(
     assert "Pass rate: 100.00% (1/1)" in markdown
     assert "Failed cases: none" in markdown
     assert "prompt_version=bidded_prompt_v1" in markdown
-    assert (
-        "| obvious_bid | PASS | bid | bid | 1.00 | 0 | none |"
-        in markdown
-    )
+    assert "| obvious_bid | PASS | bid | bid | 1.00 | 0 | none |" in markdown
 
 
 def test_golden_eval_runner_exports_mixed_pass_report(
@@ -494,16 +488,14 @@ def test_golden_eval_runner_exports_mixed_pass_report(
 
     payload = json.loads(json_path.read_text(encoding="utf-8"))
     markdown = markdown_path.read_text(encoding="utf-8")
-    assert payload["runtime_summary"]["failed_case_ids"] == [
-        "hard_compliance_no_bid"
-    ]
+    assert payload["runtime_summary"]["failed_case_ids"] == ["hard_compliance_no_bid"]
     assert payload["failed_cases"][0]["case_id"] == "hard_compliance_no_bid"
     assert payload["failed_cases"][0]["status"] == "failed"
     assert payload["failed_cases"][0]["validation_errors"] == ["schema_error"]
     assert payload["failed_cases"][0]["evidence_coverage"]["score"] == 0.0
-    assert payload["failed_cases"][0]["evidence_coverage"][
-        "unsupported_claim_count"
-    ] == 1
+    assert (
+        payload["failed_cases"][0]["evidence_coverage"]["unsupported_claim_count"] == 1
+    )
     assert "Status: FAIL" in markdown
     assert "Failed cases: hard_compliance_no_bid" in markdown
     assert "## Failure Details" in markdown
@@ -564,9 +556,7 @@ def test_golden_eval_runner_includes_normalized_actual_decision_in_json(
     write_golden_eval_json(report, json_path)
 
     result = json.loads(json_path.read_text(encoding="utf-8"))["results"][0]
-    assert result["actual_decision"]["decision_id"] == (
-        "conditional_bid_next_actions"
-    )
+    assert result["actual_decision"]["decision_id"] == ("conditional_bid_next_actions")
     assert result["actual_decision"]["verdict"] == "conditional_bid"
     assert result["actual_decision"]["blockers"] == []
     assert result["actual_decision"]["missing_info"] == [

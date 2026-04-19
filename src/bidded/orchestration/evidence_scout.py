@@ -179,6 +179,142 @@ def build_evidence_scout_request(
     )
 
 
+def _merge_title_detail_into_claim(item: dict[str, Any]) -> dict[str, Any]:
+    """LLMs often emit title/detail instead of the schema's single ``claim`` field."""
+    out = dict(item)
+    claim = (out.get("claim") or "").strip()
+    if not claim:
+        title = (out.get("title") or "").strip()
+        detail = (out.get("detail") or "").strip()
+        summary = (out.get("summary") or "").strip()
+        if title and detail:
+            claim = f"{title} — {detail}"
+        elif title:
+            claim = title
+        elif detail:
+            claim = detail
+        elif summary:
+            claim = summary
+    if claim:
+        out["claim"] = claim
+    for key in (
+        "title",
+        "detail",
+        "summary",
+        "description",
+        "name",
+        "heading",
+    ):
+        out.pop(key, None)
+    return out
+
+
+def _resolve_ref_against_board(
+    ref_dict: dict[str, Any],
+    board: Sequence[EvidenceItemState],
+) -> dict[str, Any]:
+    """Fill in evidence_id from board when Claude omits or mismatches it."""
+    out = dict(ref_dict)
+    key = str(out.get("evidence_key") or "")
+    source_type = str(out.get("source_type") or "")
+    ev_id_raw = out.get("evidence_id")
+    needs_resolve = ev_id_raw is None or str(ev_id_raw).strip() in ("", "null", "None")
+    if needs_resolve:
+        item = next(
+            (
+                i
+                for i in board
+                if i.evidence_key == key and i.source_type.value == source_type
+            ),
+            None,
+        )
+        if item is not None and item.evidence_id is not None:
+            out["evidence_id"] = str(item.evidence_id)
+    return out
+
+
+def _coerce_refs_list(
+    refs: Any,
+    board: Sequence[EvidenceItemState],
+) -> list[Any]:
+    if not isinstance(refs, list):
+        return refs
+    return [
+        _resolve_ref_against_board(r, board) if isinstance(r, dict) else r for r in refs
+    ]
+
+
+_FINDING_ALLOWED_KEYS = frozenset(
+    {"category", "claim", "evidence_refs", "requirement_type"}
+)
+
+
+def _coerce_finding_item(
+    item: dict[str, Any],
+    board: Sequence[EvidenceItemState],
+) -> dict[str, Any]:
+    out = _merge_title_detail_into_claim(item)
+    refs = out.get("evidence_refs")
+    if refs is not None:
+        out["evidence_refs"] = _coerce_refs_list(refs, board)
+    # Whitelist: drop any extra keys Claude invents (relevance_note, etc.)
+    return {k: v for k, v in out.items() if k in _FINDING_ALLOWED_KEYS}
+
+
+def _coerce_blocker_item(item: Any) -> str:
+    """Scout potential_blockers are list[str] — extract claim text from any shape."""
+    if isinstance(item, str):
+        return item
+    if isinstance(item, dict):
+        out = _merge_title_detail_into_claim(item)
+        claim = (out.get("claim") or "").strip()
+        return claim or str(item)
+    return str(item)
+
+
+def _coerce_validation_error_item(item: Any) -> Any:
+    if isinstance(item, str):
+        return {"code": "llm_note", "message": item}
+    return item
+
+
+def _normalize_agent_role(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.strip().lower().replace(" ", "_")
+    return value
+
+
+def _coerce_evidence_scout_mapping(
+    raw: Mapping[str, Any],
+    evidence_board: Sequence[EvidenceItemState],
+) -> dict[str, Any]:
+    """Normalize field aliases and resolve evidence_ids before Pydantic validation."""
+    out = dict(raw)
+
+    # Normalize agent_role: 'Evidence Scout' → 'evidence_scout'
+    if "agent_role" in out:
+        out["agent_role"] = _normalize_agent_role(out["agent_role"])
+
+    findings = out.get("findings")
+    if isinstance(findings, list):
+        out["findings"] = [
+            _coerce_finding_item(f, evidence_board) if isinstance(f, dict) else f
+            for f in findings
+        ]
+
+    blockers = out.get("potential_blockers")
+    if isinstance(blockers, list):
+        out["potential_blockers"] = [_coerce_blocker_item(b) for b in blockers]
+
+    validation_errors = out.get("validation_errors")
+    if isinstance(validation_errors, list):
+        out["validation_errors"] = [
+            _coerce_validation_error_item(e) for e in validation_errors
+        ]
+
+    return out
+
+
 def validate_evidence_scout_output(
     raw_output: EvidenceScoutOutput | Mapping[str, Any],
     *,
@@ -187,7 +323,12 @@ def validate_evidence_scout_output(
     """Validate strict scout schema and evidence refs against the board."""
 
     try:
-        output = EvidenceScoutOutput.model_validate(raw_output)
+        if isinstance(raw_output, EvidenceScoutOutput):
+            output = raw_output
+        else:
+            output = EvidenceScoutOutput.model_validate(
+                _coerce_evidence_scout_mapping(raw_output, evidence_board)
+            )
     except ValidationError as exc:
         raise EvidenceScoutValidationError(
             str(exc),
@@ -199,13 +340,6 @@ def validate_evidence_scout_output(
             finding.evidence_refs,
             evidence_board=evidence_board,
             field_path=f"findings[{finding_index}].evidence_refs",
-        )
-
-    for blocker_index, blocker in enumerate(output.potential_blockers):
-        _validate_evidence_refs(
-            blocker.evidence_refs,
-            evidence_board=evidence_board,
-            field_path=f"potential_blockers[{blocker_index}].evidence_refs",
         )
 
     return output
@@ -220,17 +354,21 @@ def scout_output_state_from_agent_output(
         findings=[
             ScoutFindingState(
                 category=finding.category.value,
-                requirement_type=finding.requirement_type,
                 claim=finding.claim,
                 evidence_refs=[
                     _state_ref_from_agent_ref(evidence_ref)
                     for evidence_ref in finding.evidence_refs
                 ],
+                requirement_type=(
+                    finding.requirement_type.value
+                    if finding.requirement_type is not None
+                    else None
+                ),
             )
             for finding in output.findings
         ],
         missing_info=list(output.missing_info),
-        potential_blockers=[blocker.claim for blocker in output.potential_blockers],
+        potential_blockers=list(output.potential_blockers),
     )
 
 

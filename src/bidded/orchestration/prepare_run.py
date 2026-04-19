@@ -175,8 +175,7 @@ def prepare_procurement_run(
                 document_id=document_id,
                 check="document_chunks",
                 message=(
-                    f"Document {document_id} has no document_chunks after "
-                    "preparation."
+                    f"Document {document_id} has no document_chunks after preparation."
                 ),
             )
             raise PrepareRunError(str(audit.errors[0].message), audit=audit)
@@ -452,9 +451,7 @@ def _build_preparation_audit(
         )
 
     typed_requirement_count = sum(
-        1
-        for row in tender_evidence_rows
-        if row.get("requirement_type") is not None
+        1 for row in tender_evidence_rows if row.get("requirement_type") is not None
     )
     issues.append(
         PreparationAuditIssue(

@@ -110,9 +110,7 @@ def test_decision_diff_reports_added_and_removed_blockers() -> None:
     blocker_diff = diff.decision_diffs[0].fields["blockers"]
     assert diff.has_material_changes
     assert blocker_diff.added == ("Liability cap needs commercial approval.",)
-    assert blocker_diff.removed == (
-        "Named lead proof remains open before submission.",
-    )
+    assert blocker_diff.removed == ("Named lead proof remains open before submission.",)
 
 
 def test_decision_diff_reports_changed_cited_evidence_keys() -> None:
@@ -328,9 +326,7 @@ def _decision_payload(
             "missing_info": missing_info,
             "recommended_actions": recommended_actions,
         },
-        "evidence": [
-            {"evidence_key": evidence_key} for evidence_key in evidence_keys
-        ],
+        "evidence": [{"evidence_key": evidence_key} for evidence_key in evidence_keys],
     }
 
 

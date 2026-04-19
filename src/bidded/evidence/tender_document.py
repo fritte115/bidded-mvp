@@ -482,9 +482,7 @@ def _build_clause_scoped_evidence_candidates(
                 segment=segment,
                 chunks_by_id=chunks_by_id,
             )
-            source_label = str(
-                chunk.metadata.get("source_label") or "tender document"
-            )
+            source_label = str(chunk.metadata.get("source_label") or "tender document")
             candidates.append(
                 TenderEvidenceCandidate(
                     document_id=segment.document_id,
@@ -618,19 +616,23 @@ def get_tender_evidence_item_by_key(
 
 def _evidence_key(candidate: TenderEvidenceCandidate) -> str:
     readable_slug = _slug(candidate.excerpt)
-    digest = sha256(
-        "|".join(
-            [
-                str(candidate.document_id),
-                str(candidate.chunk_id),
-                str(candidate.page_start),
-                str(candidate.page_end),
-                candidate.category,
-                candidate.excerpt,
-                candidate.normalized_meaning,
-            ]
-        ).encode("utf-8")
-    ).hexdigest()[:8].upper()
+    digest = (
+        sha256(
+            "|".join(
+                [
+                    str(candidate.document_id),
+                    str(candidate.chunk_id),
+                    str(candidate.page_start),
+                    str(candidate.page_end),
+                    candidate.category,
+                    candidate.excerpt,
+                    candidate.normalized_meaning,
+                ]
+            ).encode("utf-8")
+        )
+        .hexdigest()[:8]
+        .upper()
+    )
     return (
         f"TENDER-P{candidate.page_start}-"
         f"{_slug(candidate.category)}-{readable_slug[:80].strip('-')}-{digest}"
@@ -640,9 +642,7 @@ def _evidence_key(candidate: TenderEvidenceCandidate) -> str:
 def _metadata_for_candidate(candidate: TenderEvidenceCandidate) -> dict[str, Any]:
     metadata: dict[str, Any] = {"source": "tender_evidence_board"}
     if candidate.clause_section is not None:
-        metadata["clause_section"] = _clause_section_metadata(
-            candidate.clause_section
-        )
+        metadata["clause_section"] = _clause_section_metadata(candidate.clause_section)
     contract_clause_tag_matches = match_contract_clause_tags(
         _contract_clause_context(candidate)
     )
@@ -663,9 +663,7 @@ def _metadata_for_candidate(candidate: TenderEvidenceCandidate) -> dict[str, Any
     if not glossary_matches:
         return metadata
 
-    metadata["regulatory_glossary_ids"] = [
-        match.entry_id for match in glossary_matches
-    ]
+    metadata["regulatory_glossary_ids"] = [match.entry_id for match in glossary_matches]
     metadata["regulatory_glossary"] = [
         _glossary_match_metadata(match) for match in glossary_matches
     ]

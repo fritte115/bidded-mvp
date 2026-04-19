@@ -194,10 +194,7 @@ class Round1Motion(StrictAgentOutputModel):
         if self.agent_role not in _SPECIALIST_ROLES:
             raise ValueError("round 1 motion agent_role must be a specialist")
 
-        if (
-            self.formal_blockers
-            and self.agent_role is not AgentRole.COMPLIANCE_OFFICER
-        ):
+        if self.formal_blockers and self.agent_role is not AgentRole.COMPLIANCE_OFFICER:
             raise ValueError(
                 "formal_blockers are only valid for compliance_officer motions"
             )
@@ -212,6 +209,7 @@ class Round2Rebuttal(StrictAgentOutputModel):
     unsupported_claims: list[UnsupportedClaim] = Field(default_factory=list)
     blocker_challenges: list[BlockerChallenge] = Field(default_factory=list)
     revised_stance: BidVerdict | None = None
+    confidence: float = Field(ge=0, le=1)
     evidence_refs: list[EvidenceReference] = Field(default_factory=list)
     missing_info: list[str] = Field(default_factory=list)
     potential_evidence_gaps: list[str] = Field(default_factory=list)

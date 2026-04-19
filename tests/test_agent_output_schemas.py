@@ -196,6 +196,7 @@ def test_specialist_artifacts_reject_non_specialist_roles() -> None:
         Round2Rebuttal(
             agent_role=AgentRole.COMPLIANCE_OFFICER,
             target_roles=[AgentRole.JUDGE],
+            confidence=0.5,
         )
 
 
@@ -252,6 +253,7 @@ def test_round_2_rebuttal_captures_disagreements_and_revised_stance() -> None:
             )
         ],
         revised_stance=BidVerdict.NO_BID,
+        confidence=0.71,
         evidence_refs=[_evidence_ref()],
         missing_info=["Named staffing confirmation."],
         recommended_actions=["Escalate unresolved blockers to the operator."],
@@ -261,6 +263,7 @@ def test_round_2_rebuttal_captures_disagreements_and_revised_stance() -> None:
     payload = rebuttal.model_dump(mode="json")
 
     assert payload["agent_role"] == "red_team"
+    assert payload["confidence"] == 0.71
     assert payload["revised_stance"] == "no_bid"
     assert payload["targeted_disagreements"][0]["target_role"] == "win_strategist"
     assert Round2Rebuttal.model_validate(payload) == rebuttal
@@ -279,6 +282,7 @@ def test_round_2_rebuttal_captures_disagreements_and_revised_stance() -> None:
             {
                 "agent_role": "red_team",
                 "target_roles": ["win_strategist"],
+                "confidence": 0.62,
                 "targeted_disagreements": [
                     {
                         "target_role": "win_strategist",
@@ -371,9 +375,7 @@ def test_judge_decision_covers_final_audit_artifact_contract() -> None:
     assert payload["potential_evidence_gaps"] == [
         "Company evidence lacks a certificate expiry excerpt."
     ]
-    assert payload["compliance_matrix"][0]["requirement_type"] == (
-        "quality_management"
-    )
+    assert payload["compliance_matrix"][0]["requirement_type"] == ("quality_management")
     assert payload["potential_blockers"][0]["requirement_type"] == (
         "quality_management"
     )

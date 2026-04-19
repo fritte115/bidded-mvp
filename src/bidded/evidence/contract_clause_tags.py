@@ -289,9 +289,7 @@ def match_contract_clause_tags(text: str) -> tuple[ContractClauseTagMatch, ...]:
 def _normalize_for_matching(value: str) -> str:
     decomposed = unicodedata.normalize("NFKD", value.casefold())
     without_diacritics = "".join(
-        character
-        for character in decomposed
-        if not unicodedata.combining(character)
+        character for character in decomposed if not unicodedata.combining(character)
     )
     return re.sub(r"\s+", " ", without_diacritics).strip()
 

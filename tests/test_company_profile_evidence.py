@@ -162,7 +162,7 @@ def test_company_profile_evidence_upsert_is_idempotent() -> None:
     second_payload, second_conflict = client.evidence_table.upserts[1]
     assert first_payload == second_payload
     assert first_conflict == second_conflict == "tenant_key,evidence_key"
-    assert first_result.rows_returned == second_result.rows_returned == len(
-        first_payload
+    assert (
+        first_result.rows_returned == second_result.rows_returned == len(first_payload)
     )
     assert len({item["evidence_key"] for item in first_payload}) == len(first_payload)

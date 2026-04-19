@@ -185,12 +185,10 @@ def test_worker_runs_specified_pending_run_and_persists_audit_rows() -> None:
     ]
     assert all(entry["status"] == "completed" for entry in demo_trace)
     assert all(
-        entry["started_at"] == "2026-04-18T18:00:00+00:00"
-        for entry in demo_trace
+        entry["started_at"] == "2026-04-18T18:00:00+00:00" for entry in demo_trace
     )
     assert all(
-        entry["completed_at"] == "2026-04-18T18:00:00+00:00"
-        for entry in demo_trace
+        entry["completed_at"] == "2026-04-18T18:00:00+00:00" for entry in demo_trace
     )
     assert all(entry["duration_ms"] == 0 for entry in demo_trace)
     assert "raw_prompt" not in repr(demo_trace)
@@ -270,9 +268,7 @@ def test_worker_claims_run_before_graph_execution() -> None:
     assert captured_state["metadata"]["worker"]["updated_at"] == (
         "2026-04-18T18:00:00+00:00"
     )
-    assert client.rows["agent_runs"][0]["started_at"] == (
-        "2026-04-18T18:00:00+00:00"
-    )
+    assert client.rows["agent_runs"][0]["started_at"] == ("2026-04-18T18:00:00+00:00")
 
 
 @pytest.mark.parametrize("status", ["succeeded", "failed", "needs_human_review"])
@@ -390,9 +386,7 @@ def test_worker_loads_typed_and_legacy_requirement_type_evidence() -> None:
         "shall_requirement",
         "contract_risk",
     ]
-    assert state.evidence_board[0].metadata == {
-        "contract_clause_ids": ["insurance"]
-    }
+    assert state.evidence_board[0].metadata == {"contract_clause_ids": ["insurance"]}
 
 
 def test_worker_passes_preparation_audit_into_graph_context() -> None:

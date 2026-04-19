@@ -132,6 +132,164 @@ _FORMAL_BLOCKER_REQUIREMENT_TYPES = frozenset(
 )
 
 
+def _resolve_ref_against_board(
+    ref_dict: dict[str, Any],
+    board: Sequence[EvidenceItemState],
+) -> dict[str, Any]:
+    out = dict(ref_dict)
+    key = str(out.get("evidence_key") or "")
+    source_type = str(out.get("source_type") or "")
+    evidence_id = out.get("evidence_id")
+    needs_resolve = evidence_id is None or str(evidence_id).strip() in {
+        "",
+        "null",
+        "None",
+    }
+    if not needs_resolve:
+        return out
+    item = next(
+        (
+            board_item
+            for board_item in board
+            if board_item.evidence_key == key
+            and board_item.source_type.value == source_type
+        ),
+        None,
+    )
+    if item is not None and item.evidence_id is not None:
+        out["evidence_id"] = str(item.evidence_id)
+    return out
+
+
+def _coerce_refs_list(
+    refs: Any,
+    board: Sequence[EvidenceItemState],
+) -> list[Any]:
+    if not isinstance(refs, list):
+        return refs
+    return [
+        _resolve_ref_against_board(ref, board) if isinstance(ref, dict) else ref
+        for ref in refs
+    ]
+
+
+def _merge_title_detail_into_claim(item: dict[str, Any]) -> dict[str, Any]:
+    out = dict(item)
+    claim = str(out.get("claim") or "").strip()
+    if not claim:
+        title = str(out.get("title") or "").strip()
+        detail = str(out.get("detail") or "").strip()
+        summary = str(out.get("summary") or "").strip()
+        if title and detail:
+            claim = f"{title} - {detail}"
+        elif title:
+            claim = title
+        elif detail:
+            claim = detail
+        elif summary:
+            claim = summary
+    if claim:
+        out["claim"] = claim
+    for key in ("title", "detail", "summary", "description", "name", "heading"):
+        out.pop(key, None)
+    return out
+
+
+def _coerce_item_with_refs(
+    item: dict[str, Any],
+    board: Sequence[EvidenceItemState],
+    *,
+    coerce_claim: bool = False,
+    lowercase_fields: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    out = _merge_title_detail_into_claim(item) if coerce_claim else dict(item)
+    refs = out.get("evidence_refs")
+    if refs is not None:
+        out["evidence_refs"] = _coerce_refs_list(refs, board)
+    for field in lowercase_fields:
+        if isinstance(out.get(field), str):
+            out[field] = out[field].strip().lower()
+    return out
+
+
+def _normalize_agent_role(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.strip().lower().replace(" ", "_")
+    return value
+
+
+def _coerce_validation_error_item(item: Any) -> Any:
+    if isinstance(item, str):
+        return {"code": "llm_note", "message": item}
+    return item
+
+
+def _has_unresolved_null_ref(refs: Sequence[Any]) -> bool:
+    return any(
+        ref.get("evidence_id") is None
+        or str(ref.get("evidence_id", "")).strip() in {"", "null", "None"}
+        for ref in refs
+        if isinstance(ref, dict)
+    )
+
+
+def _coerce_judge_decision_mapping(
+    raw: Mapping[str, Any],
+    evidence_board: Sequence[EvidenceItemState],
+) -> dict[str, Any]:
+    """Normalize common Claude JSON quirks before strict schema validation."""
+
+    out = dict(raw)
+    if "agent_role" in out:
+        out["agent_role"] = _normalize_agent_role(out["agent_role"])
+    refs = out.get("evidence_refs")
+    if isinstance(refs, list):
+        out["evidence_refs"] = _coerce_refs_list(refs, evidence_board)
+    for field in ("compliance_blockers", "potential_blockers"):
+        value = out.get(field)
+        if isinstance(value, list):
+            out[field] = [
+                _coerce_item_with_refs(item, evidence_board, coerce_claim=True)
+                if isinstance(item, dict)
+                else item
+                for item in value
+            ]
+    matrix = out.get("compliance_matrix")
+    if isinstance(matrix, list):
+        coerced_matrix = []
+        for item in matrix:
+            if isinstance(item, dict):
+                item = _coerce_item_with_refs(
+                    item,
+                    evidence_board,
+                    lowercase_fields=("status",),
+                )
+                if _has_unresolved_null_ref(item.get("evidence_refs") or []):
+                    item["evidence_refs"] = []
+            coerced_matrix.append(item)
+        out["compliance_matrix"] = coerced_matrix
+    risks = out.get("risk_register")
+    if isinstance(risks, list):
+        coerced_risks = []
+        for item in risks:
+            if isinstance(item, dict):
+                item = _coerce_item_with_refs(
+                    item,
+                    evidence_board,
+                    lowercase_fields=("severity",),
+                )
+                if _has_unresolved_null_ref(item.get("evidence_refs") or []):
+                    item["evidence_refs"] = []
+            coerced_risks.append(item)
+        out["risk_register"] = coerced_risks
+    validation_errors = out.get("validation_errors")
+    if isinstance(validation_errors, list):
+        out["validation_errors"] = [
+            _coerce_validation_error_item(error) for error in validation_errors
+        ]
+    return out
+
+
 def build_judge_handler(model: JudgeDecisionDrafter) -> JudgeHandler:
     """Build a graph handler from a Claude-like Judge adapter."""
 
@@ -219,7 +377,12 @@ def validate_judge_decision_output(
     """Validate strict Judge schema and evidence refs against the board."""
 
     try:
-        output = JudgeDecision.model_validate(raw_output)
+        coerced = (
+            raw_output
+            if isinstance(raw_output, JudgeDecision)
+            else _coerce_judge_decision_mapping(raw_output, evidence_board)
+        )
+        output = JudgeDecision.model_validate(coerced)
     except ValidationError as exc:
         raise JudgeDecisionValidationError(
             str(exc),

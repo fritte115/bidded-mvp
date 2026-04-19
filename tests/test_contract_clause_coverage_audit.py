@@ -130,9 +130,7 @@ def test_contract_clause_audit_flags_heading_with_missing_body_text() -> None:
     )
 
     insurance_warnings = [
-        warning
-        for warning in warnings
-        if warning.contract_clause_id == "insurance"
+        warning for warning in warnings if warning.contract_clause_id == "insurance"
     ]
     assert len(insurance_warnings) == 1
     assert insurance_warnings[0].severity == "warning"
@@ -218,9 +216,7 @@ def test_contract_clause_audit_flags_missing_expected_extracted_terms() -> None:
         "liability_cap",
         "recurrence",
     )
-    assert term_warnings["TENDER-PAYMENT-001"].missing_terms == (
-        "payment_deadline",
-    )
+    assert term_warnings["TENDER-PAYMENT-001"].missing_terms == ("payment_deadline",)
 
 
 def test_contract_clause_audit_handles_provided_swedish_contract_snippet() -> None:
@@ -266,17 +262,14 @@ def test_contract_clause_audit_handles_provided_swedish_contract_snippet() -> No
 def test_clause_audit_warnings_flow_to_agent_requests_without_hard_gate() -> None:
     state = _state(
         chunks=[
-            _chunk(
-                "Public access rules may require disclosure of supplier material."
-            )
+            _chunk("Public access rules may require disclosure of supplier material.")
         ]
     )
 
     scout_request = build_evidence_scout_request(state, top_k_per_category=1)
     round_1_state = state.model_copy(update={"scout_output": ScoutOutputState()})
     round_1_requests = [
-        build_round_1_specialist_request(round_1_state, role)
-        for role in SpecialistRole
+        build_round_1_specialist_request(round_1_state, role) for role in SpecialistRole
     ]
     judge_request = build_judge_decision_request(_judge_ready_state(round_1_state))
 

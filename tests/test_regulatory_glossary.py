@@ -60,9 +60,12 @@ def test_regulatory_glossary_matches_normalized_swedish_diacritics() -> None:
 
 
 def test_regulatory_glossary_returns_empty_tuple_for_no_match() -> None:
-    assert match_regulatory_glossary(
-        "The kickoff workshop introduces project roles and contact details."
-    ) == ()
+    assert (
+        match_regulatory_glossary(
+            "The kickoff workshop introduces project roles and contact details."
+        )
+        == ()
+    )
 
 
 def test_regulatory_glossary_multiple_matches_follow_curated_precedence() -> None:

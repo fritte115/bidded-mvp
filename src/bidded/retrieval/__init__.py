@@ -95,9 +95,7 @@ def retrieve_document_chunks(
 
     normalized_document_id = _normalize_uuid_or_none(document_id)
     rpc_rows: list[Mapping[str, Any]] = []
-    if embedding_adapter is not None and _is_live_embedding_adapter(
-        embedding_adapter
-    ):
+    if embedding_adapter is not None and _is_live_embedding_adapter(embedding_adapter):
         rpc_rows = _retrieve_with_supabase_rpc_rows(
             client,
             query=normalized_query,
@@ -202,8 +200,34 @@ def rank_document_chunk_rows(
     )
 
     return [
-        _retrieved_hybrid_chunk(candidate)
-        for candidate in ranked_candidates[:top_k]
+        _retrieved_hybrid_chunk(candidate) for candidate in ranked_candidates[:top_k]
+    ]
+
+
+def list_document_chunks_for_document(
+    client: SupabaseDocumentChunkClient,
+    *,
+    document_id: UUID | str,
+    tenant_key: str = DEMO_TENANT_KEY,
+) -> list[RetrievedDocumentChunk]:
+    """Return all stored chunks for one document in stable chunk order."""
+
+    normalized_document_id = _normalize_uuid(document_id, "document_id")
+    response = _document_chunk_query(
+        client,
+        document_id=normalized_document_id,
+        tenant_key=tenant_key,
+    ).execute()
+    rows = sorted(
+        _response_rows(response),
+        key=lambda row: (_int_value(row.get("chunk_index")), str(row.get("id") or "")),
+    )
+    return [
+        _retrieved_chunk(
+            row,
+            retrieval_metadata={"method": "document_scan", "score": 1.0},
+        )
+        for row in rows
     ]
 
 
@@ -380,10 +404,7 @@ def _normalized_rpc_row(row: Mapping[str, Any]) -> dict[str, Any]:
     normalized_row = dict(row)
     if "chunk_id" in normalized_row and "id" not in normalized_row:
         normalized_row["id"] = normalized_row["chunk_id"]
-    if (
-        "chunk_document_id" in normalized_row
-        and "document_id" not in normalized_row
-    ):
+    if "chunk_document_id" in normalized_row and "document_id" not in normalized_row:
         normalized_row["document_id"] = normalized_row["chunk_document_id"]
     return normalized_row
 
@@ -554,6 +575,7 @@ __all__ = [
     "MockEmbeddingAdapter",
     "RetrievedDocumentChunk",
     "RetrievalError",
+    "list_document_chunks_for_document",
     "rank_document_chunk_rows",
     "retrieve_document_chunks",
 ]

@@ -92,9 +92,14 @@ class RecordingMockClaude:
 def _ready_state() -> BidRunState:
     chunks: list[DocumentChunkState] = []
     evidence_board: list[EvidenceItemState] = []
-    for index, (category, evidence_key, evidence_id, chunk_id, excerpt, meaning) in (
-        enumerate(SCOUT_FACTS, start=1)
-    ):
+    for index, (
+        category,
+        evidence_key,
+        evidence_id,
+        chunk_id,
+        excerpt,
+        meaning,
+    ) in enumerate(SCOUT_FACTS, start=1):
         chunks.append(
             DocumentChunkState(
                 chunk_id=chunk_id,
@@ -228,9 +233,7 @@ def test_evidence_scout_preserves_nullable_requirement_type() -> None:
         for output in result.state.agent_outputs
         if output.agent_role == "evidence_scout"
     )
-    assert scout_row.payload["findings"][0]["requirement_type"] == (
-        "shall_requirement"
-    )
+    assert scout_row.payload["findings"][0]["requirement_type"] == ("shall_requirement")
     assert scout_row.payload["findings"][1]["requirement_type"] is None
 
 

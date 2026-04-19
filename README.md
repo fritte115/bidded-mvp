@@ -315,6 +315,7 @@ Pending run och worker-körning:
   --company-id "$COMPANY_ID" \
   --document-id "$DOCUMENT_ID" \
   --document-id "$ATTACHMENT_DOCUMENT_ID"
+```
 
 For a real multi-PDF procurement package, keep the files in a local
 gitignored directory such as `data/demo/incoming/<procurement-name>/` and add a
@@ -379,6 +380,12 @@ and optional procurement role in document metadata, then calls the same
 preparation path as `prepare-run`. Do not add the PDFs or customer manifest to
 git; automated tests use synthetic PDFs and mocked rows instead.
 
+Worker/API runtime uses the Anthropic-backed swarm automatically when
+`ANTHROPIC_API_KEY` is present and no explicit `BIDDED_SWARM_BACKEND` override is
+set. Use `BIDDED_SWARM_BACKEND=evidence_locked` to force deterministic handlers
+for offline tests or fixture rehearsal.
+
+```bash
 .venv/bin/bidded worker --run-id "$AGENT_RUN_ID"
 
 # Eller kör äldsta pending demo-run:
@@ -447,11 +454,13 @@ status, export och fallback-replay finns i
 | `EMBEDDING_MODE` | Ingestion/retrieval | Default är `mock`; använd `live` först när live embeddings uttryckligen ska köras. |
 | `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS` | Ingestion/retrieval | Låser v1-kontraktet till `openai`, `text-embedding-3-small` och 1536 dimensioner. |
 
-### Kommande Live-Agent Användning
+### Swarm Runtime
 
 | Variabel | Används av | Kommentar |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | Python worker / Claude | Behövs när mockade agent handlers ersätts med live Claude-anrop i worker/demo-smoke. |
+| `BIDDED_SWARM_BACKEND` | Python worker/API | Default `auto`: använder Anthropic-handlers när `ANTHROPIC_API_KEY` finns och annars deterministiska `evidence_locked`-handlers. Sätt `evidence_locked` för offline/test och `anthropic` för fail-fast livekrav. |
+| `BIDDED_ANTHROPIC_MODEL` | Python worker/API Anthropic swarm | Valfri modelloverride för swarmen; default dokumenteras i `.env.example`. |
+| `ANTHROPIC_API_KEY` | Python worker/API Claude swarm | När nyckeln finns och ingen backend override är satt kör worker/API den riktiga Anthropic-swarmvägen. |
 
 ## Utvecklingsflöde Idag
 
@@ -608,3 +617,18 @@ Det här är frågor som behöver stämmas av mot den Lovable-frontend som redan
 10. Hur hanteras demo-säkerhet i Supabase? PRD:n säger ingen Auth/RLS i v1, men om Lovable pratar direkt med Supabase från browsern behöver vi bestämma om det är öppen demo-åtkomst, read-only anon + RPC, eller en server-side wrapper.
 11. Ska Lovable kunna skapa en helt ny demo-run från fixture-data utan live agent execution, så att frontenden alltid kan visas även om Claude/Supabase-worker inte kör?
 12. Finns det redan komponenter eller naming conventions i Lovable-frontenden som bör styra våra tabellnamn, view-namn eller JSON-fältnamn?
+
+## Frontend
+
+The demo UI lives in `frontend/`. It is a React + Vite + TypeScript app (Lovable-generated) that connects to Supabase to create pending `agent_runs` and display results. All agent data is currently mock — Supabase wiring follows once the Python backend (US-001–US-024) is complete.
+
+```bash
+cd frontend
+cp .env.example .env
+# Fill in VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
+npm install
+npm run dev   # starts on localhost:8080
+npm run build # production build to frontend/dist/
+```
+
+See `frontend/INTEGRATION.md` for Supabase schema and data shape contracts that align with the Python backend.

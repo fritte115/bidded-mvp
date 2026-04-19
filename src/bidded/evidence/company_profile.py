@@ -362,8 +362,7 @@ def _build_geography_evidence(
                 category="geography",
                 excerpt=f"{label}: {', '.join(values)}.",
                 normalized_meaning=(
-                    f"The company profile lists {label.lower()} as "
-                    f"{', '.join(values)}."
+                    f"The company profile lists {label.lower()} as {', '.join(values)}."
                 ),
                 source_label=source_label,
                 confidence=0.85,

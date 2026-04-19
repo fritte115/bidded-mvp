@@ -34,9 +34,7 @@ from bidded.versioning import (
     default_version_metadata,
 )
 
-LIVE_GOLDEN_EVAL_COMPARISON_SCHEMA_VERSION = (
-    "2026-04-19.live-golden-comparison.v1"
-)
+LIVE_GOLDEN_EVAL_COMPARISON_SCHEMA_VERSION = "2026-04-19.live-golden-comparison.v1"
 
 
 class LiveGoldenEvalStatus(StrEnum):
@@ -247,11 +245,7 @@ def run_live_golden_eval_comparison(
     difference_count = sum(1 for comparison in comparisons if comparison.has_difference)
     passed = difference_count == 0 and mock_report.passed
     return LiveGoldenEvalComparisonReport(
-        status=(
-            LiveGoldenEvalStatus.PASSED
-            if passed
-            else LiveGoldenEvalStatus.FAILED
-        ),
+        status=(LiveGoldenEvalStatus.PASSED if passed else LiveGoldenEvalStatus.FAILED),
         passed=passed,
         total_count=len(comparisons),
         compared_count=compared_count,
@@ -391,8 +385,7 @@ def _compare_live_case(
         live_result=live_result,
         verdict_changed=live_result.actual_verdict is not mock_result.actual_verdict,
         validation_errors_changed=(
-            live_result.actual_validation_errors
-            != mock_result.actual_validation_errors
+            live_result.actual_validation_errors != mock_result.actual_validation_errors
         ),
         mock_validation_errors=mock_result.actual_validation_errors,
         live_validation_errors=live_result.actual_validation_errors,
@@ -487,8 +480,7 @@ def _live_case_comparison_detail_lines(
         )
     if comparison.evidence_coverage_delta not in (None, 0):
         lines.append(
-            "- Evidence coverage delta: "
-            f"{comparison.evidence_coverage_delta:+.2f}"
+            f"- Evidence coverage delta: {comparison.evidence_coverage_delta:+.2f}"
         )
     lines.append("")
     return lines

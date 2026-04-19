@@ -357,8 +357,7 @@ def _audited_tag_ids_for_text(text: str) -> tuple[str, ...]:
     for tag_id in AUDITED_CONTRACT_CLAUSE_TAG_IDS:
         patterns = _signal_patterns_for_tag(tag_id)
         if any(
-            _normalize_for_matching(pattern) in normalized_text
-            for pattern in patterns
+            _normalize_for_matching(pattern) in normalized_text for pattern in patterns
         ):
             matched_tag_ids.append(tag_id)
     return tuple(matched_tag_ids)
@@ -461,9 +460,7 @@ def _required_int(value: int | None, field_name: str) -> int:
 def _normalize_for_matching(value: str) -> str:
     decomposed = unicodedata.normalize("NFKD", value.casefold())
     without_diacritics = "".join(
-        character
-        for character in decomposed
-        if not unicodedata.combining(character)
+        character for character in decomposed if not unicodedata.combining(character)
     )
     return re.sub(r"\s+", " ", without_diacritics).strip()
 

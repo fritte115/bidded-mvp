@@ -93,8 +93,7 @@ class GoldenDemoCase(StrictStateModel):
             item = evidence_by_key.get(evidence_ref.evidence_key)
             if item is None:
                 raise ValueError(
-                    f"{self.case_id} cites missing evidence "
-                    f"{evidence_ref.evidence_key}"
+                    f"{self.case_id} cites missing evidence {evidence_ref.evidence_key}"
                 )
             if item.source_type is not evidence_ref.source_type:
                 raise ValueError(
@@ -212,8 +211,7 @@ def _hard_compliance_no_bid_case() -> GoldenDemoCase:
         case_id="hard_compliance_no_bid",
         key="TENDER-INSOLVENCY-EXCLUSION",
         excerpt=(
-            "Supplier must not be bankrupt or subject to insolvency exclusion "
-            "grounds."
+            "Supplier must not be bankrupt or subject to insolvency exclusion grounds."
         ),
         normalized_meaning=(
             "The tender makes bankruptcy or insolvency a formal exclusion ground."
@@ -225,8 +223,7 @@ def _hard_compliance_no_bid_case() -> GoldenDemoCase:
         case_id="hard_compliance_no_bid",
         key="COMPANY-ACTIVE-INSOLVENCY",
         excerpt=(
-            "Legal status note: active insolvency proceeding recorded for the "
-            "supplier."
+            "Legal status note: active insolvency proceeding recorded for the supplier."
         ),
         normalized_meaning=(
             "The company profile records an active insolvency proceeding."
@@ -349,8 +346,7 @@ def _conflicting_evidence_needs_review_case() -> GoldenDemoCase:
         case_id="conflicting_evidence_needs_review",
         key="COMPANY-LEAD-ALLOCATED",
         excerpt=(
-            "Named lead A is allocated full-time to another customer until "
-            "2026-07-15."
+            "Named lead A is allocated full-time to another customer until 2026-07-15."
         ),
         normalized_meaning=(
             "Another company profile field says the same lead is not available."

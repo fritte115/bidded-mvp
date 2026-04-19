@@ -88,9 +88,7 @@ def test_export_succeeded_decision_bundle_writes_markdown_and_json(
             "requirement_type": "contract_obligation",
         }
     ]
-    assert payload["decision"]["missing_info"] == [
-        "Named security-cleared lead CV."
-    ]
+    assert payload["decision"]["missing_info"] == ["Named security-cleared lead CV."]
     assert payload["decision"]["recommended_actions"] == [
         "Attach named security-cleared lead CV.",
         "Confirm liability cap before final bid approval.",

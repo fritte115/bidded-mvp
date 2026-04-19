@@ -14,6 +14,12 @@ from bidded.documents.chunk_embeddings import (
     DocumentChunkEmbeddingResult,
     populate_document_chunk_embeddings,
 )
+from bidded.evidence.tender_document import (
+    TenderEvidenceUpsertResult,
+    build_tender_evidence_candidates,
+    upsert_tender_evidence_items,
+)
+from bidded.retrieval import list_document_chunks_for_document
 
 DEMO_TENANT_KEY = "demo"
 PDF_TEXT_EXTRACTION_NON_GOAL_MESSAGE = (
@@ -153,6 +159,10 @@ def ingest_tender_pdf_document(
             embedding_adapter=embedding_adapter,
             require_embeddings=require_embeddings,
         )
+        ensure_tender_evidence_items_for_document(
+            client,
+            document_id=normalized_document_id,
+        )
         parsed_metadata: dict[str, Any] = {
             **source_metadata,
             "parser": {
@@ -222,6 +232,27 @@ def _populate_chunk_embeddings(
         raise PdfIngestionError(str(exc)) from exc
 
 
+def ensure_tender_evidence_items_for_document(
+    client: SupabasePdfIngestionClient,
+    *,
+    document_id: UUID | str,
+) -> TenderEvidenceUpsertResult:
+    """Materialize deterministic tender evidence rows for one parsed document."""
+
+    normalized_document_id = _normalize_uuid(document_id, "document_id")
+    chunks = list_document_chunks_for_document(
+        client,
+        document_id=normalized_document_id,
+        tenant_key=DEMO_TENANT_KEY,
+    )
+    candidates = build_tender_evidence_candidates(chunks)
+    return upsert_tender_evidence_items(
+        client,
+        candidates,
+        tenant_key=DEMO_TENANT_KEY,
+    )
+
+
 def build_document_chunks(
     *,
     document_id: UUID,
@@ -281,9 +312,7 @@ def _fetch_tender_document(
     if isinstance(data, list) and data and isinstance(data[0], Mapping):
         row = dict(data[0])
         if row.get("document_role") != "tender_document":
-            raise PdfIngestionError(
-                f"Document is not a tender_document: {document_id}"
-            )
+            raise PdfIngestionError(f"Document is not a tender_document: {document_id}")
         return row
 
     raise PdfIngestionError(f"Tender document does not exist: {document_id}")
@@ -448,5 +477,6 @@ __all__ = [
     "PdfIngestionError",
     "PdfIngestionResult",
     "build_document_chunks",
+    "ensure_tender_evidence_items_for_document",
     "ingest_tender_pdf_document",
 ]

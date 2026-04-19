@@ -84,7 +84,7 @@ def test_create_pending_run_context_inserts_pending_agent_run() -> None:
         client,
         tender_id=TENDER_ID,
         company_id=COMPANY_ID,
-        document_id=DOCUMENT_ID,
+        document_ids=[DOCUMENT_ID],
     )
 
     assert result.run_id == RUN_ID
@@ -183,7 +183,7 @@ def test_create_pending_run_context_validates_required_rows(
             client,
             tender_id=TENDER_ID,
             company_id=COMPANY_ID,
-            document_id=DOCUMENT_ID,
+            document_ids=[DOCUMENT_ID],
         )
 
     assert "agent_runs" not in client.inserts
@@ -201,7 +201,7 @@ def test_create_pending_run_context_requires_tender_document_linkage() -> None:
             client,
             tender_id=TENDER_ID,
             company_id=COMPANY_ID,
-            document_id=DOCUMENT_ID,
+            document_ids=[DOCUMENT_ID],
         )
 
     assert "agent_runs" not in client.inserts

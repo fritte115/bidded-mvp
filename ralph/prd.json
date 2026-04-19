@@ -1055,7 +1055,7 @@
       ],
       "priority": 69,
       "passes": false,
-      "notes": ""
+      "notes": "Integration branch codex/merge-ui-with-backend-20260419 merged latest origin/merge-ui-with-backend while preserving current backend contracts; still needs the dedicated committed contract document before this story can pass."
     },
     {
       "id": "US-070",
@@ -1071,7 +1071,7 @@
       ],
       "priority": 70,
       "passes": false,
-      "notes": ""
+      "notes": "Integration branch now keeps the API start-run surface and routes worker execution through the handler factory with Anthropic auto-selection; story remains open until all adapter acceptance tests and documented UI payload contracts are closed."
     },
     {
       "id": "US-071",
@@ -1086,7 +1086,7 @@
       ],
       "priority": 71,
       "passes": false,
-      "notes": ""
+      "notes": "Frontend directory and package lock were imported and frontend test/lint/build gates pass on the integration branch; story remains open until root Makefile frontend targets and any explicit mock-fallback documentation are completed."
     },
     {
       "id": "US-072",
@@ -1102,7 +1102,7 @@
       ],
       "priority": 72,
       "passes": false,
-      "notes": ""
+      "notes": "Existing frontend mapping tests and backend API tests pass after the merge, but shared cross-stack contract fixtures/snapshots and update rules remain to be added."
     }
   ]
 }

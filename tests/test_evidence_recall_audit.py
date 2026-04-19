@@ -103,9 +103,7 @@ def test_evidence_recall_flags_missing_submission_document_coverage() -> None:
             )
         ],
         evidence_board=[
-            _evidence_item(
-                requirement_type=RequirementType.QUALIFICATION_REQUIREMENT
-            )
+            _evidence_item(requirement_type=RequirementType.QUALIFICATION_REQUIREMENT)
         ],
     )
 
@@ -126,9 +124,7 @@ def test_evidence_recall_flags_missing_financial_standing_coverage() -> None:
     warnings = audit_evidence_recall(
         chunks=[_chunk("Bidders must submit a current credit report.")],
         evidence_board=[
-            _evidence_item(
-                requirement_type=RequirementType.QUALIFICATION_REQUIREMENT
-            )
+            _evidence_item(requirement_type=RequirementType.QUALIFICATION_REQUIREMENT)
         ],
     )
 

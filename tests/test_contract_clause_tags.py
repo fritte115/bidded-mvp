@@ -46,9 +46,12 @@ def test_contract_clause_tags_match_normalized_swedish_diacritics() -> None:
 
 
 def test_contract_clause_tags_return_empty_tuple_for_no_match() -> None:
-    assert match_contract_clause_tags(
-        "The kickoff workshop introduces project roles and contact details."
-    ) == ()
+    assert (
+        match_contract_clause_tags(
+            "The kickoff workshop introduces project roles and contact details."
+        )
+        == ()
+    )
 
 
 def test_contract_clause_tags_multiple_matches_follow_curated_precedence() -> None:

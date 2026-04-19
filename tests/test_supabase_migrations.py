@@ -54,9 +54,7 @@ def _requirement_type_sql() -> str:
 
 def _pgvector_search_sql() -> str:
     migration_files = sorted(
-        (PROJECT_ROOT / "supabase" / "migrations").glob(
-            "*_add_pgvector_search.sql"
-        )
+        (PROJECT_ROOT / "supabase" / "migrations").glob("*_add_pgvector_search.sql")
     )
 
     assert [path.name for path in migration_files] == [
@@ -91,8 +89,7 @@ def test_core_domain_migration_creates_demo_scoped_tables() -> None:
         assert "created_at timestamptz not null default now()" in table_body
         assert "tenant_key text not null default 'demo'" in table_body
         assert (
-            f"constraint {table_name}_tenant_key_demo_check "
-            "check (tenant_key = 'demo')"
+            f"constraint {table_name}_tenant_key_demo_check check (tenant_key = 'demo')"
         ) in table_body
 
 
@@ -198,8 +195,7 @@ def test_agent_audit_migration_creates_demo_scoped_audit_tables() -> None:
         assert "created_at timestamptz not null default now()" in table_body
         assert "tenant_key text not null default 'demo'" in table_body
         assert (
-            f"constraint {table_name}_tenant_key_demo_check "
-            "check (tenant_key = 'demo')"
+            f"constraint {table_name}_tenant_key_demo_check check (tenant_key = 'demo')"
         ) in table_body
 
 
@@ -296,8 +292,7 @@ def test_chunk_evidence_migration_creates_demo_scoped_evidence_tables() -> None:
         assert "created_at timestamptz not null default now()" in table_body
         assert "tenant_key text not null default 'demo'" in table_body
         assert (
-            f"constraint {table_name}_tenant_key_demo_check "
-            "check (tenant_key = 'demo')"
+            f"constraint {table_name}_tenant_key_demo_check check (tenant_key = 'demo')"
         ) in table_body
 
 
@@ -317,10 +312,7 @@ def test_document_chunks_store_page_text_and_nullable_embedding_support() -> Non
             "unique (document_id, chunk_index)"
         ),
         "constraint document_chunks_page_start_check check (page_start > 0)",
-        (
-            "constraint document_chunks_page_end_check "
-            "check (page_end >= page_start)"
-        ),
+        ("constraint document_chunks_page_end_check check (page_end >= page_start)"),
         "constraint document_chunks_chunk_index_check check (chunk_index >= 0)",
         "constraint document_chunks_text_check check (text <> '')",
     ]:
