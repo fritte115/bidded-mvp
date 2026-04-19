@@ -583,8 +583,8 @@
         "Automated tests mock Supabase, Storage, PDF processing, and Claude and cover PDF-present, PDF-absent, mocked-LLM, and live-LLM flag handling; pytest and ruff check pass."
       ],
       "priority": 38,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added demo-smoke service/CLI with PDF fallback, mocked default graph, live-LLM opt-in, secret-redacted summary, and persisted decision readback. Complete."
     },
     {
       "id": "US-039",

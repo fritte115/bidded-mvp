@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-038",
-  "storyTitle": "Add live demo smoke command",
+  "currentStory": "US-039",
+  "storyTitle": "Add demo step trace",
   "nextAction": "implement",
-  "progressTokens": 3330,
+  "progressTokens": 3405,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

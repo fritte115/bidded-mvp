@@ -44,6 +44,7 @@ def test_cli_help_prints_without_external_services() -> None:
     assert "seed-demo-company" in result.stdout
     assert "seed-demo-states" in result.stdout
     assert "doctor" in result.stdout
+    assert "demo-smoke" in result.stdout
     assert "run-status" in result.stdout
     assert "retry-run" in result.stdout
     assert "reset-stale-runs" in result.stdout
@@ -178,6 +179,28 @@ def test_cli_doctor_help_prints_without_external_services() -> None:
     assert result.returncode == 0, result.stderr
     assert "doctor" in result.stdout
     assert "--check-anthropic" in result.stdout
+
+
+def test_cli_demo_smoke_help_prints_without_external_services() -> None:
+    env = os.environ.copy()
+    env.pop("ANTHROPIC_API_KEY", None)
+    env.pop("SUPABASE_URL", None)
+    env.pop("SUPABASE_SERVICE_ROLE_KEY", None)
+    env["PYTHONPATH"] = str(PROJECT_ROOT / "src")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "bidded.cli", "demo-smoke", "--help"],
+        cwd=PROJECT_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "demo-smoke" in result.stdout
+    assert "--pdf-path" in result.stdout
+    assert "--live-llm" in result.stdout
 
 
 class RecordingCompanyTable:
@@ -474,6 +497,192 @@ def test_cli_worker_delegates_to_lifecycle_service(
     assert captured_worker["client"] is client
     assert captured_worker["run_id"] == "11111111-1111-4111-8111-111111111111"
     assert captured_worker["company_id"] is None
+
+
+def test_cli_demo_smoke_delegates_and_prints_operator_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    pdf_path = tmp_path / "missing.pdf"
+    client = object()
+    captured_smoke: dict[str, Any] = {}
+    monkeypatch.setattr(
+        cli,
+        "load_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {
+                "supabase_url": "https://example.supabase.co",
+                "supabase_service_role_key": "test-service-role-secret",
+                "supabase_storage_bucket": "procurement-fixtures",
+                "anthropic_api_key": None,
+            },
+        )(),
+    )
+    monkeypatch.setattr(cli, "_create_supabase_client", lambda _settings: client)
+
+    def fail_anthropic_client(_api_key: str) -> object:
+        raise AssertionError("mocked smoke must not construct Anthropic")
+
+    monkeypatch.setattr(cli, "_create_anthropic_client", fail_anthropic_client)
+
+    def record_smoke(supabase_client: object, **kwargs: Any) -> SimpleNamespace:
+        captured_smoke["client"] = supabase_client
+        captured_smoke.update(kwargs)
+        return SimpleNamespace(
+            requested_pdf_path=pdf_path,
+            resolved_pdf_path=tmp_path / "bidded-smoke-tender.pdf",
+            pdf_source="generated_fixture",
+            llm_mode="mocked",
+            run_id="11111111-1111-4111-8111-111111111111",
+            terminal_status=AgentRunStatus.SUCCEEDED,
+            decision_verdict=Verdict.CONDITIONAL_BID,
+            evidence_count=14,
+            failure_reason=None,
+            steps=[
+                SimpleNamespace(
+                    name="seed_demo_company",
+                    status="ok",
+                    detail="seeded Nordic Digital Delivery AB",
+                ),
+                SimpleNamespace(
+                    name="read_decision",
+                    status="ok",
+                    detail="status succeeded; decision present yes",
+                ),
+            ],
+        )
+
+    monkeypatch.setattr(cli, "run_demo_smoke", record_smoke)
+
+    result = cli.main(["demo-smoke", "--pdf-path", str(pdf_path)])
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Bidded demo smoke" in captured.out
+    assert "PDF source: generated_fixture" in captured.out
+    assert "LLM mode: mocked" in captured.out
+    assert "OK seed_demo_company: seeded Nordic Digital Delivery AB" in captured.out
+    assert "Terminal status: succeeded" in captured.out
+    assert "Decision verdict: conditional_bid" in captured.out
+    assert "Evidence count: 14" in captured.out
+    assert "Failure reason: none" in captured.out
+    assert "test-service-role-secret" not in captured.out
+    assert captured_smoke == {
+        "client": client,
+        "pdf_path": pdf_path,
+        "bucket_name": "procurement-fixtures",
+        "live_llm": False,
+        "anthropic_client": None,
+        "anthropic_model": None,
+    }
+
+
+def test_cli_demo_smoke_live_llm_creates_anthropic_client(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client = object()
+    anthropic_client = object()
+    captured_smoke: dict[str, Any] = {}
+    monkeypatch.setattr(
+        cli,
+        "load_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {
+                "supabase_url": "https://example.supabase.co",
+                "supabase_service_role_key": "service-role",
+                "supabase_storage_bucket": "procurement-fixtures",
+                "anthropic_api_key": "sk-ant-test-secret",
+            },
+        )(),
+    )
+    monkeypatch.setattr(cli, "_create_supabase_client", lambda _settings: client)
+    monkeypatch.setattr(
+        cli,
+        "_create_anthropic_client",
+        lambda api_key: anthropic_client if api_key == "sk-ant-test-secret" else None,
+    )
+
+    def record_smoke(supabase_client: object, **kwargs: Any) -> SimpleNamespace:
+        captured_smoke["client"] = supabase_client
+        captured_smoke.update(kwargs)
+        return SimpleNamespace(
+            requested_pdf_path=Path(cli.DEMO_TENDER_PDF_HINT),
+            resolved_pdf_path=Path(cli.DEMO_TENDER_PDF_HINT),
+            pdf_source="provided",
+            llm_mode="live",
+            run_id="11111111-1111-4111-8111-111111111111",
+            terminal_status=AgentRunStatus.SUCCEEDED,
+            decision_verdict=Verdict.BID,
+            evidence_count=15,
+            failure_reason=None,
+            steps=[],
+        )
+
+    monkeypatch.setattr(cli, "run_demo_smoke", record_smoke)
+
+    result = cli.main(
+        [
+            "demo-smoke",
+            "--live-llm",
+            "--anthropic-model",
+            "claude-test-model",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "LLM mode: live" in captured.out
+    assert "Decision verdict: bid" in captured.out
+    assert captured_smoke == {
+        "client": client,
+        "pdf_path": Path(cli.DEMO_TENDER_PDF_HINT),
+        "bucket_name": "procurement-fixtures",
+        "live_llm": True,
+        "anthropic_client": anthropic_client,
+        "anthropic_model": "claude-test-model",
+    }
+
+
+def test_cli_demo_smoke_live_llm_requires_anthropic_key(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client = object()
+    monkeypatch.setattr(
+        cli,
+        "load_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {
+                "supabase_url": "https://example.supabase.co",
+                "supabase_service_role_key": "test-service-role-secret",
+                "supabase_storage_bucket": "procurement-fixtures",
+                "anthropic_api_key": None,
+            },
+        )(),
+    )
+    monkeypatch.setattr(cli, "_create_supabase_client", lambda _settings: client)
+    monkeypatch.setattr(
+        cli,
+        "run_demo_smoke",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("smoke should not run without an Anthropic key")
+        ),
+    )
+
+    result = cli.main(["demo-smoke", "--live-llm"])
+
+    captured = capsys.readouterr()
+    assert result == 2
+    assert "ANTHROPIC_API_KEY is required" in captured.err
+    assert "test-service-role-secret" not in captured.err
 
 
 def test_cli_run_status_prints_operator_snapshot(

@@ -220,3 +220,8 @@ No Ralph story sessions have completed yet.
 - **Files**: src/bidded/orchestration/run_controls.py, src/bidded/orchestration/__init__.py, src/bidded/cli/__init__.py, tests/test_operator_run_controls.py, tests/test_cli.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
 - **Key learnings**: Keep operator recovery separate from worker execution; retries create new pending rows, while stale resets use guarded status updates with explicit operator reasons.
 ---
+## 2026-04-19 03:23 CEST - US-038
+- **Implemented**: Added an injectable `demo-smoke` flow and CLI covering seed, PDF fallback/registration, ingestion, evidence creation, pending run, worker execution, and decision readback with mocked-default/live-LLM flag handling.
+- **Files**: src/bidded/demo_smoke.py, src/bidded/cli/__init__.py, tests/test_demo_smoke.py, tests/test_cli.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
+- **Key learnings**: Keep smoke orchestration injectable and read verdicts back from `bid_decisions` instead of treating worker return values as persisted readback.
+---

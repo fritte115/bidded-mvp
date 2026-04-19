@@ -9,6 +9,12 @@ from bidded import __version__
 from bidded.config import load_settings
 from bidded.db.seed_demo_company import seed_demo_company
 from bidded.db.seed_demo_states import seed_demo_states
+from bidded.demo_smoke import (
+    DEFAULT_ANTHROPIC_MODEL,
+    DemoSmokeError,
+    DemoSmokeResult,
+    run_demo_smoke,
+)
 from bidded.doctor import run_demo_environment_doctor
 from bidded.documents import TenderPdfRegistrationError, register_demo_tender_pdf
 from bidded.orchestration import (
@@ -135,6 +141,44 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     doctor_parser.set_defaults(handler=_run_doctor_command)
+
+    smoke_parser = subparsers.add_parser(
+        "demo-smoke",
+        aliases=["smoke-demo"],
+        help="Run the bounded live-demo smoke flow.",
+        description=(
+            "Run a bounded opt-in demo smoke flow covering seed, PDF "
+            "registration, ingestion, evidence creation, pending run creation, "
+            "worker execution, and decision readback. If the PDF path is absent, "
+            "a generated text-PDF fixture is used."
+        ),
+    )
+    smoke_parser.add_argument(
+        "--pdf-path",
+        type=Path,
+        default=Path(DEMO_TENDER_PDF_HINT),
+        help=(
+            "Local text-PDF path. Defaults to the preferred gitignored demo "
+            f"input {DEMO_TENDER_PDF_HINT}; when absent, a generated fixture "
+            "PDF is used."
+        ),
+    )
+    smoke_parser.add_argument(
+        "--live-llm",
+        action="store_true",
+        help=(
+            "Use real Claude calls for agent outputs. By default the smoke "
+            "uses deterministic mocked graph handlers."
+        ),
+    )
+    smoke_parser.add_argument(
+        "--anthropic-model",
+        help=(
+            "Anthropic model for --live-llm. Defaults to "
+            f"{DEFAULT_ANTHROPIC_MODEL}."
+        ),
+    )
+    smoke_parser.set_defaults(handler=_run_demo_smoke_command)
 
     worker_parser = subparsers.add_parser(
         "worker",
@@ -352,6 +396,43 @@ def _run_worker_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_demo_smoke_command(args: argparse.Namespace) -> int:
+    settings = load_settings()
+    try:
+        client = _create_supabase_client(settings)
+    except RuntimeError as exc:
+        print(_redact_known_secrets(str(exc), settings), file=sys.stderr)
+        return 2
+
+    anthropic_client = None
+    if args.live_llm:
+        api_key = getattr(settings, "anthropic_api_key", None)
+        if not api_key:
+            print("ANTHROPIC_API_KEY is required for --live-llm.", file=sys.stderr)
+            return 2
+        try:
+            anthropic_client = _create_anthropic_client(api_key)
+        except Exception as exc:  # pragma: no cover - depends on Anthropic internals
+            print(_redact_known_secrets(str(exc), settings), file=sys.stderr)
+            return 2
+
+    try:
+        result = run_demo_smoke(
+            client,
+            pdf_path=args.pdf_path,
+            bucket_name=settings.supabase_storage_bucket,
+            live_llm=args.live_llm,
+            anthropic_client=anthropic_client,
+            anthropic_model=args.anthropic_model,
+        )
+    except (RuntimeError, DemoSmokeError) as exc:
+        print(_redact_known_secrets(str(exc), settings), file=sys.stderr)
+        return 2
+
+    _print_demo_smoke_result(result)
+    return 1 if result.terminal_status is AgentRunStatus.FAILED else 0
+
+
 def _run_status_command(args: argparse.Namespace) -> int:
     settings = load_settings()
     try:
@@ -428,6 +509,33 @@ def _format_error_details(error_details: dict[str, Any] | None) -> str:
     source = _display_value(error_details.get("source"))
     message = _display_value(error_details.get("message"))
     return f"{code} from {source} - {message}"
+
+
+def _print_demo_smoke_result(result: DemoSmokeResult) -> None:
+    print("Bidded demo smoke")
+    print(f"PDF source: {result.pdf_source}")
+    print(f"Requested PDF: {_display_value(result.requested_pdf_path)}")
+    print(f"Resolved PDF: {result.resolved_pdf_path}")
+    print(f"LLM mode: {result.llm_mode}")
+    for step in result.steps:
+        print(f"{step.status.upper()} {step.name}: {step.detail}")
+    print(f"Run ID: {result.run_id}")
+    print(f"Terminal status: {result.terminal_status.value}")
+    print(
+        "Decision verdict: "
+        f"{result.decision_verdict.value if result.decision_verdict else 'none'}"
+    )
+    print(f"Evidence count: {result.evidence_count}")
+    print(f"Failure reason: {result.failure_reason or 'none'}")
+
+
+def _redact_known_secrets(message: str, settings: Any) -> str:
+    redacted = message
+    for attr in ("supabase_service_role_key", "anthropic_api_key"):
+        secret = getattr(settings, attr, None)
+        if secret:
+            redacted = redacted.replace(str(secret), "[redacted]")
+    return redacted
 
 
 def _metadata_pair(value: str) -> tuple[str, str]:

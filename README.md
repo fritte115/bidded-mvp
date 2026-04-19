@@ -35,6 +35,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Worker lifecycle CLI | `bidded worker` kör en specificerad pending run eller äldsta pending demo-run, uppdaterar `agent_runs`, kör graphen och persisterar normaliserade `agent_outputs` och `bid_decisions`. |
 | Operator run controls | `bidded run-status`, `bidded retry-run` och `bidded reset-stale-runs` visar auditstatus, skapar lineage-kopplade retries och failar stale `running` runs med operator reason. |
 | Demo doctor | `bidded doctor` kontrollerar demo-miljövariabler, Supabase-tabeller, Storage-bucket och optional Anthropic-connectivity utan att skriva ut secrets. |
+| Demo smoke | `bidded demo-smoke` kör ett opt-in smoke-flöde över seed, PDF-registrering, ingestion, evidence, pending run, worker och decision readback; default är mockade agenthandlers, medan `--live-llm` använder Claude. |
 | Frontend | Ingen frontend i repot. Lovable är fortsatt tänkt som tunn demo-UI ovanpå Supabase, men de närmaste stories prioriterar demo-hardening innan en ny handoff-story. |
 
 README:n beskriver därför både nuläget och den stack som PRD:n definierar att vi bygger mot. När stories implementeras ska planerade delar flyttas till faktiskt levererade delar.
@@ -246,17 +247,13 @@ PRD:n beskriver en lokal CLI/worker. Den kan nu:
 - köra en specificerad `agent_run` via ID eller plocka äldsta pending run för demo-bolaget
 - claim:a pending runs med `status = pending`-guard innan graphen startar, så dubbelkörningar stoppas
 - kontrollera demo-miljön med `bidded doctor` innan live demo
+- köra ett bounded `demo-smoke` som seeder demo-bolag, registrerar PDF, ingest:ar, skapar evidence, skapar pending run, kör worker och läser tillbaka beslut
 - visa run-status med timestamps, errors, agent-output count, decision presence och senaste graphsteg
 - skapa en ny `pending` retry-run kopplad till failed eller `needs_human_review` source-run utan att mutera immutable `agent_outputs`
 - resetta stale `running` runs till `failed` med explicit operator reason och status-guard
 - uppdatera run-status till `running`, `succeeded`, `failed` eller `needs_human_review`
 - skriva normaliserade `agent_outputs` och `bid_decisions` utan raw full prompts som default audit artifact
 - logga tillräckligt lokalt för demooperation medan Supabase förblir source of truth
-
-Planerade kommande kommandon ska kunna:
-
-- konvertera seedade bolagsfakta till `company_profile` evidence items
-- extrahera och chunka text-PDF:er
 
 Seed-kommandot kräver `SUPABASE_URL` och `SUPABASE_SERVICE_ROLE_KEY`:
 
@@ -276,6 +273,21 @@ gitignored: `data/demo/incoming/Bilaga Skakrav.pdf`.
   --issuing-authority "Example Municipality" \
   --procurement-reference "REF-2026-001" \
   --metadata procedure=open
+```
+
+Demo smoke använder samma Supabase- och Storage-inställningar. Om vald PDF saknas
+genereras en liten text-PDF fixture lokalt för smoke-körningen. Agentdelen är
+mockad som default, så normal smoke kräver inte live Claude:
+
+```bash
+.venv/bin/bidded demo-smoke \
+  --pdf-path data/demo/incoming/Bilaga\ Skakrav.pdf
+
+# Manual rehearsal med live Claude:
+.venv/bin/bidded demo-smoke \
+  --pdf-path data/demo/incoming/Bilaga\ Skakrav.pdf \
+  --live-llm \
+  --anthropic-model claude-sonnet-4-5
 ```
 
 Pending run och worker-körning:
@@ -352,7 +364,7 @@ python3 -m venv .venv
 .venv/bin/ruff check .
 ```
 
-Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandon för bolag och replaybara demo-states, tenderregistreringen, PDF-ingestion med optional chunk embeddings, evidence builders, graph routing shell, worker lifecycle CLI, operator run controls och mocked end-to-end coverage finns; övriga demo-kommandon byggs i senare stories.
+Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandon för bolag och replaybara demo-states, tenderregistreringen, PDF-ingestion med optional chunk embeddings, evidence builders, graph routing shell, worker lifecycle CLI, operator run controls, demo-smoke och mocked end-to-end coverage finns; övriga demo-kommandon byggs i senare stories.
 
 ## Teststrategi
 
