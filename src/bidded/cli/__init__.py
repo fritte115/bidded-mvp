@@ -313,6 +313,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional golden case ID to run instead of the full fixture set.",
     )
     eval_parser.add_argument(
+        "--fixture-group",
+        choices=("core", "adversarial", "all"),
+        default="core",
+        help=(
+            "Fixture group to run. Defaults to core; use adversarial for "
+            "edge-case fixtures or all for the combined set."
+        ),
+    )
+    eval_parser.add_argument(
         "--json-path",
         type=Path,
         help="Optional destination for a stable JSON eval report.",
@@ -630,7 +639,10 @@ def _run_export_decision_command(args: argparse.Namespace) -> int:
 
 def _run_eval_golden_command(args: argparse.Namespace) -> int:
     try:
-        result = run_golden_evals(case_id=args.case_id)
+        result = run_golden_evals(
+            case_id=args.case_id,
+            fixture_group=args.fixture_group,
+        )
         if args.json_path is not None:
             write_golden_eval_json(result, args.json_path)
     except (GoldenEvalError, OSError) as exc:

@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-048",
-  "storyTitle": "Add adversarial fixtures",
+  "currentStory": "US-049",
+  "storyTitle": "Export eval report",
   "nextAction": "implement",
-  "progressTokens": 4095,
+  "progressTokens": 4170,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

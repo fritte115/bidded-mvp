@@ -36,8 +36,8 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Operator run controls | `bidded run-status`, `bidded retry-run`, `bidded reset-stale-runs` och `bidded export-decision` visar auditstatus, demo trace, skapar lineage-kopplade retries, failar stale `running` runs och exporterar beslut med evidens. |
 | Demo doctor | `bidded doctor` kontrollerar demo-miljövariabler, Supabase-tabeller, Storage-bucket och optional Anthropic-connectivity utan att skriva ut secrets. |
 | Demo smoke | `bidded demo-smoke` kör ett opt-in smoke-flöde över seed, PDF-registrering, ingestion, evidence, pending run, worker och decision readback; default är mockade agenthandlers, medan `--live-llm` använder Claude. |
-| Golden demo cases | `bidded.fixtures.golden_cases` exponerar sex deterministiska, evidence-backed regression cases för `bid`, `no_bid`, `conditional_bid`, `needs_human_review`, saknad bolagsevidens och unsupported-claim rejection. |
-| Golden eval runner | `bidded eval-golden` kör de deterministiska golden cases, eller ett valt case ID, rapporterar allowed-verdict-/blocker-/validation-/evidence-ref-/coverage-avvikelser och kan skriva stabil JSON utan live Claude eller Supabase. |
+| Golden demo cases | `bidded.fixtures.golden_cases` exponerar sex core-cases och sex adversarial, evidence-backed regression cases för verdicts, saknad bolagsevidens, unsupported claims, near-miss certifiering, dolda skall-krav, stale evidence, deadline-konflikter, svag marginal och Red Team blocker-challenges. |
+| Golden eval runner | `bidded eval-golden` kör deterministiska golden cases per `--fixture-group core/adversarial/all`, eller ett valt case ID, rapporterar allowed-verdict-/blocker-/validation-/evidence-ref-/coverage-avvikelser och kan skriva stabil JSON utan live Claude eller Supabase. |
 | Decision diff | `bidded diff-decisions` jämför normaliserade eval-resultat, decision-export JSON eller persisted run IDs på verdict, confidence, blockers, risker, missing info, actions och citerade evidence keys utan brus från prose/order. |
 | Frontend | Ingen frontend i repot. Lovable är fortsatt tänkt som tunn demo-UI ovanpå Supabase, men de närmaste stories prioriterar demo-hardening innan en ny handoff-story. |
 
@@ -336,6 +336,9 @@ Pending run och worker-körning:
 .venv/bin/bidded eval-golden \
   --case-id hard_compliance_no_bid \
   --json-path golden-eval.json
+
+.venv/bin/bidded eval-golden \
+  --fixture-group adversarial
 
 .venv/bin/bidded diff-decisions \
   --baseline-json baseline-golden-eval.json \

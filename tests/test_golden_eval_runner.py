@@ -37,6 +37,71 @@ def test_golden_eval_runner_passes_all_recorded_cases() -> None:
     assert all(result.evidence_coverage.passed for result in report.results)
 
 
+def test_golden_eval_runner_selects_adversarial_fixture_group() -> None:
+    report = run_golden_evals(fixture_group="adversarial")
+
+    assert report.total_count == 6
+    assert report.failed_count == 0
+    assert report.passed
+    assert {result.case_id for result in report.results} == {
+        "near_miss_certification",
+        "hidden_shall_requirement",
+        "stale_company_evidence",
+        "conflicting_deadlines",
+        "weak_margin",
+        "red_team_blocker_challenge",
+    }
+
+
+@pytest.mark.parametrize(
+    ("case_id", "expected_failure"),
+    [
+        ("near_miss_certification", "bid_not_allowed"),
+        ("hidden_shall_requirement", "bid_not_allowed"),
+        ("stale_company_evidence", "bid_not_allowed"),
+        ("conflicting_deadlines", "human_review_required"),
+        ("weak_margin", "missing_commercial_action"),
+        ("red_team_blocker_challenge", "unsupported_blocker_challenged"),
+    ],
+)
+def test_golden_eval_catches_adversarial_failure_examples(
+    case_id: str,
+    expected_failure: str,
+) -> None:
+    report = run_golden_evals(
+        case_id=case_id,
+        fixture_group="adversarial",
+        outcome_provider=_adversarial_failure_outcome,
+    )
+
+    result = report.results[0]
+    assert not report.passed
+    assert not result.passed
+    if expected_failure == "bid_not_allowed":
+        assert result.verdict_regression_failures == (
+            "actual verdict bid not in allowed set: conditional_bid",
+        )
+    elif expected_failure == "human_review_required":
+        assert result.verdict_regression_failures == (
+            "actual verdict conditional_bid not in allowed set: needs_human_review",
+        )
+    elif expected_failure == "missing_commercial_action":
+        assert result.missing_required_recommended_actions == (
+            "Have Delivery/CFO approve the margin or identify lower-cost "
+            "staffing before bid submission.",
+        )
+    else:
+        assert result.verdict_regression_failures == (
+            "actual verdict no_bid not in allowed set: conditional_bid",
+        )
+        assert result.unexpected_hard_blockers == (
+            "Missing ISO 14001 is a formal exclusion blocker.",
+        )
+        assert result.missing_expected_unsupported_claim_rejections == (
+            "Missing ISO 14001 is a formal exclusion blocker.",
+        )
+
+
 def test_golden_eval_scores_full_evidence_coverage() -> None:
     def covered_outcome(case: GoldenDemoCase) -> GoldenActualOutcome:
         return _expected_outcome_with_claim(
@@ -455,6 +520,39 @@ def _expected_outcome_with_claim(
         validation_errors=case.expected.validation_errors,
         evidence_refs=case.expected.required_evidence_refs,
         coverage_claims=claims,
+    )
+
+
+def _adversarial_failure_outcome(case: GoldenDemoCase) -> GoldenActualOutcome:
+    if case.adversarial_category in {
+        "near_miss_certification",
+        "hidden_shall_requirement",
+        "stale_company_evidence",
+    }:
+        return GoldenActualOutcome(
+            verdict=Verdict.BID,
+            evidence_refs=case.expected.required_evidence_refs,
+        )
+
+    if case.adversarial_category == "conflicting_deadlines":
+        return GoldenActualOutcome(
+            verdict=Verdict.CONDITIONAL_BID,
+            missing_info=case.expected.missing_info,
+            recommended_actions=case.expected.recommended_actions,
+            evidence_refs=case.expected.required_evidence_refs,
+        )
+
+    if case.adversarial_category == "weak_margin":
+        return GoldenActualOutcome(
+            verdict=case.expected.verdict,
+            missing_info=case.expected.missing_info,
+            evidence_refs=case.expected.required_evidence_refs,
+        )
+
+    return GoldenActualOutcome(
+        verdict=Verdict.NO_BID,
+        blockers=("Missing ISO 14001 is a formal exclusion blocker.",),
+        evidence_refs=case.expected.required_evidence_refs,
     )
 
 

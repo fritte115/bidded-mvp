@@ -257,6 +257,7 @@ def test_cli_eval_golden_help_prints_without_external_services() -> None:
     assert result.returncode == 0, result.stderr
     assert "eval-golden" in result.stdout
     assert "--case-id" in result.stdout
+    assert "--fixture-group" in result.stdout
     assert "--json-path" in result.stdout
 
 
@@ -1048,6 +1049,35 @@ def test_cli_eval_golden_runs_selected_case_and_writes_json(
     assert "PASS obvious_bid" in captured.out
     assert "Wrote JSON" in captured.out
     assert '"case_id": "obvious_bid"' in json_path.read_text(encoding="utf-8")
+
+
+def test_cli_eval_golden_passes_fixture_group_selector(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    captured_kwargs: dict[str, Any] = {}
+
+    def record_golden_eval(**kwargs: Any) -> GoldenEvalReport:
+        captured_kwargs.update(kwargs)
+        return GoldenEvalReport(
+            passed=True,
+            total_count=0,
+            passed_count=0,
+            failed_count=0,
+            results=(),
+        )
+
+    monkeypatch.setattr(cli, "run_golden_evals", record_golden_eval)
+
+    result = cli.main(["eval-golden", "--fixture-group", "adversarial"])
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Golden evals: 0/0 passed" in captured.out
+    assert captured_kwargs == {
+        "case_id": None,
+        "fixture_group": "adversarial",
+    }
 
 
 def test_cli_eval_golden_returns_nonzero_for_failed_expectations(

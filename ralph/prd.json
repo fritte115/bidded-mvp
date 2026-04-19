@@ -733,8 +733,8 @@
         "Tests validate fixture grouping, expected outcome metadata, and at least one failing-output example for each adversarial category; pytest and ruff check pass."
       ],
       "priority": 48,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added typed adversarial fixture group, six synthetic edge cases, eval/CLI group selection, metadata tests, and failing-output examples. Complete."
     },
     {
       "id": "US-049",

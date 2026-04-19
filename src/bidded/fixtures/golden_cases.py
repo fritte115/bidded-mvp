@@ -21,6 +21,22 @@ DecisionRule = Literal[
     "conflicting_evidence_routes_human_review",
     "missing_company_evidence_is_not_auto_no_bid",
     "unsupported_claims_are_rejected",
+    "near_miss_certification_requires_exact_match",
+    "hidden_shall_requirements_are_material",
+    "stale_company_evidence_requires_refresh",
+    "conflicting_deadlines_routes_human_review",
+    "weak_margin_requires_commercial_action",
+    "red_team_blockers_require_formal_evidence",
+]
+GoldenFixtureGroup = Literal["core", "adversarial"]
+GoldenFixtureSelection = Literal["core", "adversarial", "all"]
+AdversarialCategory = Literal[
+    "near_miss_certification",
+    "hidden_shall_requirement",
+    "stale_company_evidence",
+    "conflicting_deadlines",
+    "weak_margin",
+    "red_team_blocker_challenge",
 ]
 
 _FIXTURE_NAMESPACE = uuid5(
@@ -53,10 +69,12 @@ class GoldenExpectedOutcome(StrictStateModel):
 
 
 class GoldenDemoCase(StrictStateModel):
-    """Typed, evidence-backed regression fixture for a core decision behavior."""
+    """Typed, evidence-backed regression fixture for a decision behavior."""
 
     case_id: str = Field(min_length=1, pattern=r"^[a-z0-9_]+$")
     title: str = Field(min_length=1)
+    fixture_group: GoldenFixtureGroup = "core"
+    adversarial_category: AdversarialCategory | None = None
     tender_evidence: tuple[EvidenceItemState, ...] = Field(min_length=1)
     company_evidence: tuple[EvidenceItemState, ...] = ()
     expected: GoldenExpectedOutcome
@@ -89,13 +107,26 @@ class GoldenDemoCase(StrictStateModel):
                     "with the wrong evidence_id"
                 )
 
+        if self.fixture_group == "adversarial" and self.adversarial_category is None:
+            raise ValueError(f"{self.case_id} must define an adversarial category")
+        if self.fixture_group == "core" and self.adversarial_category is not None:
+            raise ValueError(f"{self.case_id} core cases cannot set a category")
+
         return self
 
 
-def golden_demo_cases() -> tuple[GoldenDemoCase, ...]:
+def golden_demo_cases(
+    fixture_group: GoldenFixtureSelection = "core",
+) -> tuple[GoldenDemoCase, ...]:
     """Return the deterministic golden case set for bid/no-bid regression tests."""
 
-    return _GOLDEN_DEMO_CASES
+    if fixture_group == "core":
+        return _GOLDEN_CORE_CASES
+    if fixture_group == "adversarial":
+        return _GOLDEN_ADVERSARIAL_CASES
+    if fixture_group == "all":
+        return (*_GOLDEN_CORE_CASES, *_GOLDEN_ADVERSARIAL_CASES)
+    raise ValueError(f"Unknown golden fixture group: {fixture_group}")
 
 
 def _obvious_bid_case() -> GoldenDemoCase:
@@ -458,6 +489,378 @@ def _unsupported_agent_claim_rejection_case() -> GoldenDemoCase:
     )
 
 
+def _near_miss_certification_case() -> GoldenDemoCase:
+    tender_iso = _tender_evidence(
+        case_id="near_miss_certification",
+        key="TENDER-ACTIVE-ISO-27001",
+        excerpt=(
+            "Supplier shall hold an active ISO 27001 certificate covering "
+            "managed hosting operations at submission."
+        ),
+        normalized_meaning=(
+            "The tender requires active ISO 27001 certification for managed "
+            "hosting at submission time."
+        ),
+        category="qualification_requirement",
+        requirement_type=RequirementType.QUALITY_MANAGEMENT,
+    )
+    company_iso_9001 = _company_evidence(
+        case_id="near_miss_certification",
+        key="COMPANY-ISO-9001-ONLY",
+        excerpt=(
+            "ISO 9001 quality management certificate active; ISO 27001 audit "
+            "is scheduled for Q4 2026."
+        ),
+        normalized_meaning=(
+            "The company has active ISO 9001 and only a future ISO 27001 audit."
+        ),
+        category="certification",
+        field_path="certifications.iso_9001",
+    )
+
+    return GoldenDemoCase(
+        case_id="near_miss_certification",
+        title="Adversarial near-miss certification",
+        fixture_group="adversarial",
+        adversarial_category="near_miss_certification",
+        tender_evidence=(tender_iso,),
+        company_evidence=(company_iso_9001,),
+        expected=GoldenExpectedOutcome(
+            verdict=Verdict.CONDITIONAL_BID,
+            missing_info=(
+                "Active ISO 27001 certificate covering managed hosting is missing.",
+            ),
+            recommended_actions=(
+                "Obtain or attach active ISO 27001 proof before treating the "
+                "qualification as satisfied.",
+            ),
+            required_evidence_refs=(_ref(tender_iso), _ref(company_iso_9001)),
+            decision_rules=(
+                "near_miss_certification_requires_exact_match",
+                "conditional_bid_requires_next_actions",
+            ),
+            rationale=(
+                "CONDITIONAL_BID because "
+                "GOLDEN-NEAR-MISS-CERTIFICATION-TENDER-ACTIVE-ISO-27001 "
+                "requires active ISO 27001, while "
+                "GOLDEN-NEAR-MISS-CERTIFICATION-COMPANY-ISO-9001-ONLY proves "
+                "ISO 9001 and a future ISO 27001 audit, not the required "
+                "active certificate."
+            ),
+        ),
+    )
+
+
+def _hidden_shall_requirement_case() -> GoldenDemoCase:
+    tender_service_desk = _tender_evidence(
+        case_id="hidden_shall_requirement",
+        key="TENDER-HIDDEN-HOLIDAY-SHALL",
+        excerpt=(
+            "Operational appendix 2.4: the supplier shall staff the service "
+            "desk 08:00-18:00 CET, including Swedish public holidays."
+        ),
+        normalized_meaning=(
+            "A shall requirement in the appendix mandates service desk staffing "
+            "through Swedish public holidays."
+        ),
+        category="shall_requirement",
+        requirement_type=RequirementType.SHALL_REQUIREMENT,
+    )
+    company_service_desk = _company_evidence(
+        case_id="hidden_shall_requirement",
+        key="COMPANY-WEEKDAY-SERVICE-DESK",
+        excerpt="Service desk is staffed 08:00-17:00 CET on business weekdays.",
+        normalized_meaning=(
+            "The company profile proves weekday staffing but not the required "
+            "holiday and extended-hour coverage."
+        ),
+        category="support_model",
+        field_path="delivery_model.service_desk.hours",
+    )
+
+    return GoldenDemoCase(
+        case_id="hidden_shall_requirement",
+        title="Adversarial hidden shall requirement",
+        fixture_group="adversarial",
+        adversarial_category="hidden_shall_requirement",
+        tender_evidence=(tender_service_desk,),
+        company_evidence=(company_service_desk,),
+        expected=GoldenExpectedOutcome(
+            verdict=Verdict.CONDITIONAL_BID,
+            missing_info=(
+                "Holiday and 17:00-18:00 service desk coverage proof is missing.",
+            ),
+            recommended_actions=(
+                "Confirm staffed coverage for Swedish public holidays and "
+                "08:00-18:00 CET before submission.",
+            ),
+            required_evidence_refs=(
+                _ref(tender_service_desk),
+                _ref(company_service_desk),
+            ),
+            decision_rules=(
+                "hidden_shall_requirements_are_material",
+                "conditional_bid_requires_next_actions",
+            ),
+            rationale=(
+                "CONDITIONAL_BID because "
+                "GOLDEN-HIDDEN-SHALL-REQUIREMENT-TENDER-HIDDEN-HOLIDAY-SHALL "
+                "is a material shall requirement, while "
+                "GOLDEN-HIDDEN-SHALL-REQUIREMENT-COMPANY-WEEKDAY-SERVICE-DESK "
+                "does not prove holiday or extended-hour coverage."
+            ),
+        ),
+    )
+
+
+def _stale_company_evidence_case() -> GoldenDemoCase:
+    tender_recent_reference = _tender_evidence(
+        case_id="stale_company_evidence",
+        key="TENDER-RECENT-REFERENCE",
+        excerpt=(
+            "Supplier shall include one comparable public-sector reference "
+            "completed during the last three years."
+        ),
+        normalized_meaning=(
+            "The tender requires a comparable reference completed within the "
+            "last three years."
+        ),
+        category="qualification_requirement",
+        requirement_type=RequirementType.QUALIFICATION_REQUIREMENT,
+    )
+    company_old_reference = _company_evidence(
+        case_id="stale_company_evidence",
+        key="COMPANY-OLD-REFERENCE",
+        excerpt=(
+            "Municipality case-management delivery completed in 2021 with "
+            "positive customer feedback."
+        ),
+        normalized_meaning=(
+            "The company has a comparable reference, but it is older than the "
+            "tender's three-year window."
+        ),
+        category="reference",
+        field_path="reference_projects[stale_municipality_case]",
+    )
+
+    return GoldenDemoCase(
+        case_id="stale_company_evidence",
+        title="Adversarial stale company evidence",
+        fixture_group="adversarial",
+        adversarial_category="stale_company_evidence",
+        tender_evidence=(tender_recent_reference,),
+        company_evidence=(company_old_reference,),
+        expected=GoldenExpectedOutcome(
+            verdict=Verdict.CONDITIONAL_BID,
+            missing_info=(
+                "Comparable public-sector reference inside the three-year window "
+                "is missing.",
+            ),
+            recommended_actions=(
+                "Replace the 2021 reference with a qualifying recent reference "
+                "or route for human review.",
+            ),
+            required_evidence_refs=(
+                _ref(tender_recent_reference),
+                _ref(company_old_reference),
+            ),
+            decision_rules=(
+                "stale_company_evidence_requires_refresh",
+                "conditional_bid_requires_next_actions",
+            ),
+            rationale=(
+                "CONDITIONAL_BID because "
+                "GOLDEN-STALE-COMPANY-EVIDENCE-TENDER-RECENT-REFERENCE "
+                "requires recent proof, while "
+                "GOLDEN-STALE-COMPANY-EVIDENCE-COMPANY-OLD-REFERENCE is "
+                "comparable but stale."
+            ),
+        ),
+    )
+
+
+def _conflicting_deadlines_case() -> GoldenDemoCase:
+    tender_portal_deadline = _tender_evidence(
+        case_id="conflicting_deadlines",
+        key="TENDER-PORTAL-DEADLINE",
+        excerpt="Notice section IV: tenders must be submitted by 2026-05-01 12:00.",
+        normalized_meaning=(
+            "The procurement notice states a 2026-05-01 12:00 submission deadline."
+        ),
+        category="submission_deadline",
+        requirement_type=RequirementType.SUBMISSION_DOCUMENT,
+    )
+    tender_appendix_deadline = _tender_evidence(
+        case_id="conflicting_deadlines",
+        key="TENDER-APPENDIX-DEADLINE",
+        excerpt=(
+            "Appendix timetable: final tenders are due in the portal by "
+            "2026-05-03 16:00."
+        ),
+        normalized_meaning=(
+            "An appendix states a later 2026-05-03 16:00 submission deadline."
+        ),
+        category="submission_deadline",
+        requirement_type=RequirementType.SUBMISSION_DOCUMENT,
+    )
+
+    return GoldenDemoCase(
+        case_id="conflicting_deadlines",
+        title="Adversarial conflicting deadlines",
+        fixture_group="adversarial",
+        adversarial_category="conflicting_deadlines",
+        tender_evidence=(tender_portal_deadline, tender_appendix_deadline),
+        expected=GoldenExpectedOutcome(
+            verdict=Verdict.NEEDS_HUMAN_REVIEW,
+            missing_info=(
+                "Tender submission deadline conflicts between notice and appendix.",
+            ),
+            recommended_actions=(
+                "Ask an operator to confirm the controlling submission deadline "
+                "before proceeding.",
+            ),
+            required_evidence_refs=(
+                _ref(tender_portal_deadline),
+                _ref(tender_appendix_deadline),
+            ),
+            decision_rules=("conflicting_deadlines_routes_human_review",),
+            rationale=(
+                "NEEDS_HUMAN_REVIEW because "
+                "GOLDEN-CONFLICTING-DEADLINES-TENDER-PORTAL-DEADLINE and "
+                "GOLDEN-CONFLICTING-DEADLINES-TENDER-APPENDIX-DEADLINE give "
+                "different final tender deadlines."
+            ),
+        ),
+    )
+
+
+def _weak_margin_case() -> GoldenDemoCase:
+    tender_rate_cap = _tender_evidence(
+        case_id="weak_margin",
+        key="TENDER-RATE-CAP",
+        excerpt=(
+            "Framework consultants may be invoiced at a maximum of SEK 8,000 "
+            "per day including all delivery management overhead."
+        ),
+        normalized_meaning=(
+            "The tender caps daily consultant revenue at SEK 8,000 including "
+            "delivery overhead."
+        ),
+        category="commercial_term",
+        requirement_type=RequirementType.CONTRACT_OBLIGATION,
+    )
+    company_cost = _company_evidence(
+        case_id="weak_margin",
+        key="COMPANY-COST-BASELINE",
+        excerpt=(
+            "Senior consultant delivery cost baseline is SEK 7,850 per day "
+            "before delivery-management overhead."
+        ),
+        normalized_meaning=(
+            "The company cost baseline leaves little margin before the tender's "
+            "required overhead."
+        ),
+        category="commercial_profile",
+        field_path="commercial.rate_cards.senior_consultant.cost_baseline",
+    )
+
+    return GoldenDemoCase(
+        case_id="weak_margin",
+        title="Adversarial weak margin",
+        fixture_group="adversarial",
+        adversarial_category="weak_margin",
+        tender_evidence=(tender_rate_cap,),
+        company_evidence=(company_cost,),
+        expected=GoldenExpectedOutcome(
+            verdict=Verdict.CONDITIONAL_BID,
+            missing_info=("Commercial approval for weak delivery margin is missing.",),
+            recommended_actions=(
+                "Have Delivery/CFO approve the margin or identify lower-cost "
+                "staffing before bid submission.",
+            ),
+            required_evidence_refs=(_ref(tender_rate_cap), _ref(company_cost)),
+            decision_rules=(
+                "weak_margin_requires_commercial_action",
+                "conditional_bid_requires_next_actions",
+            ),
+            rationale=(
+                "CONDITIONAL_BID because "
+                "GOLDEN-WEAK-MARGIN-TENDER-RATE-CAP caps revenue, while "
+                "GOLDEN-WEAK-MARGIN-COMPANY-COST-BASELINE shows the delivery "
+                "cost baseline leaves weak margin before overhead."
+            ),
+        ),
+    )
+
+
+def _red_team_blocker_challenge_case() -> GoldenDemoCase:
+    tender_environment = _tender_evidence(
+        case_id="red_team_blocker_challenge",
+        key="TENDER-ENVIRONMENT-SHOULD",
+        excerpt=(
+            "Suppliers should describe environmental routines. Strong routines "
+            "may improve quality scoring."
+        ),
+        normalized_meaning=(
+            "The tender treats environmental routines as quality-scored material, "
+            "not as a formal exclusion or qualification blocker."
+        ),
+        category="award_criterion",
+        requirement_type=None,
+    )
+    company_environment = _company_evidence(
+        case_id="red_team_blocker_challenge",
+        key="COMPANY-NO-ISO-14001",
+        excerpt=(
+            "Environmental routines exist in the company handbook; ISO 14001 is "
+            "not listed as a current certification."
+        ),
+        normalized_meaning=(
+            "The company has environmental routines but not ISO 14001 evidence."
+        ),
+        category="quality_profile",
+        field_path="quality.environmental_routines",
+    )
+
+    return GoldenDemoCase(
+        case_id="red_team_blocker_challenge",
+        title="Adversarial Red Team blocker challenge",
+        fixture_group="adversarial",
+        adversarial_category="red_team_blocker_challenge",
+        tender_evidence=(tender_environment,),
+        company_evidence=(company_environment,),
+        expected=GoldenExpectedOutcome(
+            verdict=Verdict.CONDITIONAL_BID,
+            blockers=(),
+            missing_info=(
+                "ISO 14001 certification is not evidenced, but not required.",
+            ),
+            recommended_actions=(
+                "Prepare an environmental routines description for quality scoring.",
+            ),
+            required_evidence_refs=(
+                _ref(tender_environment),
+                _ref(company_environment),
+            ),
+            unsupported_claims_rejected=(
+                "Missing ISO 14001 is a formal exclusion blocker.",
+            ),
+            validation_errors=("unsupported_blocker",),
+            decision_rules=(
+                "red_team_blockers_require_formal_evidence",
+                "conditional_bid_requires_next_actions",
+            ),
+            rationale=(
+                "CONDITIONAL_BID because "
+                "GOLDEN-RED-TEAM-BLOCKER-CHALLENGE-TENDER-ENVIRONMENT-SHOULD "
+                "is quality-scored, not a formal blocker, and "
+                "GOLDEN-RED-TEAM-BLOCKER-CHALLENGE-COMPANY-NO-ISO-14001 "
+                "shows only that ISO 14001 is not evidenced."
+            ),
+        ),
+    )
+
+
 def _tender_evidence(
     *,
     case_id: str,
@@ -527,11 +930,20 @@ def _fixture_uuid(case_id: str, *parts: object) -> UUID:
     return uuid5(_FIXTURE_NAMESPACE, joined)
 
 
-_GOLDEN_DEMO_CASES = (
+_GOLDEN_CORE_CASES = (
     _obvious_bid_case(),
     _hard_compliance_no_bid_case(),
     _conditional_bid_next_actions_case(),
     _conflicting_evidence_needs_review_case(),
     _missing_company_evidence_case(),
     _unsupported_agent_claim_rejection_case(),
+)
+
+_GOLDEN_ADVERSARIAL_CASES = (
+    _near_miss_certification_case(),
+    _hidden_shall_requirement_case(),
+    _stale_company_evidence_case(),
+    _conflicting_deadlines_case(),
+    _weak_margin_case(),
+    _red_team_blocker_challenge_case(),
 )

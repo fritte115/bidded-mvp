@@ -8,7 +8,11 @@ from pathlib import Path
 from pydantic import Field
 
 from bidded.evals.decision_diff import NormalizedDecision
-from bidded.fixtures.golden_cases import GoldenDemoCase, golden_demo_cases
+from bidded.fixtures.golden_cases import (
+    GoldenDemoCase,
+    GoldenFixtureSelection,
+    golden_demo_cases,
+)
 from bidded.orchestration.state import (
     EvidenceItemState,
     EvidenceRef,
@@ -182,11 +186,12 @@ GoldenOutcomeProvider = Callable[[GoldenDemoCase], GoldenActualOutcome]
 def run_golden_evals(
     *,
     case_id: str | None = None,
+    fixture_group: GoldenFixtureSelection = "core",
     outcome_provider: GoldenOutcomeProvider | None = None,
 ) -> GoldenEvalReport:
     """Run deterministic golden evals over all cases or one selected case."""
 
-    cases = _select_cases(case_id)
+    cases = _select_cases(case_id, fixture_group=fixture_group)
     provider = outcome_provider or recorded_golden_outcome
     version_metadata = default_version_metadata(
         eval_fixture_version=GOLDEN_EVAL_FIXTURE_VERSION
@@ -539,14 +544,24 @@ def _ordered_source_types(
     )
 
 
-def _select_cases(case_id: str | None) -> tuple[GoldenDemoCase, ...]:
-    cases = golden_demo_cases()
+def _select_cases(
+    case_id: str | None,
+    *,
+    fixture_group: GoldenFixtureSelection,
+) -> tuple[GoldenDemoCase, ...]:
+    try:
+        cases = golden_demo_cases(fixture_group=fixture_group)
+    except ValueError as exc:
+        raise GoldenEvalError(str(exc)) from exc
+
     if case_id is None:
         return cases
 
     selected = tuple(case for case in cases if case.case_id == case_id)
     if not selected:
-        raise GoldenEvalError(f"Unknown golden case ID: {case_id}")
+        raise GoldenEvalError(
+            f"Unknown golden case ID: {case_id} for fixture group {fixture_group}"
+        )
     return selected
 
 
