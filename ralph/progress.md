@@ -240,3 +240,8 @@ No Ralph story sessions have completed yet.
 - **Files**: docs/demo-runbook.md, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
 - **Key learnings**: Keep demo operations CLI-first and document live smoke as manual opt-in while deterministic gates stay mocked.
 ---
+## 2026-04-19 04:00 CEST - US-042
+- **Implemented**: Added typed deterministic golden demo cases covering core verdict paths, missing evidence handling, conflicting evidence review, and unsupported-claim rejection.
+- **Files**: src/bidded/fixtures/golden_cases.py, src/bidded/fixtures/__init__.py, tests/test_golden_demo_cases.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
+- **Key learnings**: Keep golden eval fixtures typed as evidence-board cases so future eval runners can validate verdicts and evidence refs without live services.
+---

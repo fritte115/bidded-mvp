@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-042",
-  "storyTitle": "Define golden demo cases",
+  "currentStory": "US-043",
+  "storyTitle": "Add eval runner CLI",
   "nextAction": "implement",
-  "progressTokens": 3630,
+  "progressTokens": 3705,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

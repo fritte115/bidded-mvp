@@ -36,6 +36,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Operator run controls | `bidded run-status`, `bidded retry-run`, `bidded reset-stale-runs` och `bidded export-decision` visar auditstatus, demo trace, skapar lineage-kopplade retries, failar stale `running` runs och exporterar beslut med evidens. |
 | Demo doctor | `bidded doctor` kontrollerar demo-miljövariabler, Supabase-tabeller, Storage-bucket och optional Anthropic-connectivity utan att skriva ut secrets. |
 | Demo smoke | `bidded demo-smoke` kör ett opt-in smoke-flöde över seed, PDF-registrering, ingestion, evidence, pending run, worker och decision readback; default är mockade agenthandlers, medan `--live-llm` använder Claude. |
+| Golden demo cases | `bidded.fixtures.golden_cases` exponerar sex deterministiska, evidence-backed regression cases för `bid`, `no_bid`, `conditional_bid`, `needs_human_review`, saknad bolagsevidens och unsupported-claim rejection. |
 | Frontend | Ingen frontend i repot. Lovable är fortsatt tänkt som tunn demo-UI ovanpå Supabase, men de närmaste stories prioriterar demo-hardening innan en ny handoff-story. |
 
 README:n beskriver därför både nuläget och den stack som PRD:n definierar att vi bygger mot. När stories implementeras ska planerade delar flyttas till faktiskt levererade delar.

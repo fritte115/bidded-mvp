@@ -643,8 +643,8 @@
         "Tests validate fixture schema, unique case IDs, expected verdict values, and presence of required evidence references; pytest and ruff check pass."
       ],
       "priority": 42,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added typed golden demo fixtures covering six core verdict/evidence behaviors with deterministic schema tests and README status. Complete."
     },
     {
       "id": "US-043",
