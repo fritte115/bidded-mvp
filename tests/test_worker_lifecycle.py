@@ -226,7 +226,7 @@ def test_worker_runs_specified_pending_run_and_persists_audit_rows() -> None:
     assert bid_decision["evidence_ids"] == [str(EVIDENCE_ID)]
 
 
-def test_worker_loads_legacy_evidence_schema_without_requirement_type() -> None:
+def test_worker_infers_legacy_evidence_requirement_type_from_category() -> None:
     client = RecordingWorkerClient()
     client.fail_requirement_type_select_once = True
 
@@ -236,7 +236,26 @@ def test_worker_loads_legacy_evidence_schema_without_requirement_type() -> None:
     )
 
     assert len(state.evidence_board) == 1
-    assert state.evidence_board[0].requirement_type is None
+    assert state.evidence_board[0].requirement_type is (
+        RequirementType.SHALL_REQUIREMENT
+    )
+
+
+def test_worker_infers_legacy_formal_blocker_requirement_type() -> None:
+    client = RecordingWorkerClient()
+    client.fail_requirement_type_select_once = True
+    client.rows["evidence_items"] = [
+        _tender_evidence_item(category="qualification_requirement")
+    ]
+
+    state = build_bid_run_state_from_supabase(
+        client,
+        run_row=client.rows["agent_runs"][0],
+    )
+
+    assert state.evidence_board[0].requirement_type is (
+        RequirementType.QUALIFICATION_REQUIREMENT
+    )
 
 
 def test_worker_persists_version_metadata_for_mocked_runs() -> None:

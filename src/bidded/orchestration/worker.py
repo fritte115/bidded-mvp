@@ -28,9 +28,22 @@ from bidded.orchestration.state import (
     RuntimeErrorState,
     Verdict,
 )
+from bidded.requirements import RequirementType
 from bidded.versioning import normalize_version_metadata, version_metadata_dict
 
 DEFAULT_WORKER_NAME = "bidded_cli_worker"
+_REQUIREMENT_TYPE_BY_LEGACY_CATEGORY: dict[str, RequirementType] = {
+    "mandatory_requirement": RequirementType.SHALL_REQUIREMENT,
+    "shall_requirement": RequirementType.SHALL_REQUIREMENT,
+    "qualification_criterion": RequirementType.QUALIFICATION_REQUIREMENT,
+    "qualification_requirement": RequirementType.QUALIFICATION_REQUIREMENT,
+    "exclusion_ground": RequirementType.EXCLUSION_GROUND,
+    "financial_standing": RequirementType.FINANCIAL_STANDING,
+    "legal_or_regulatory_reference": RequirementType.LEGAL_OR_REGULATORY_REFERENCE,
+    "quality_management": RequirementType.QUALITY_MANAGEMENT,
+    "submission_document": RequirementType.SUBMISSION_DOCUMENT,
+    "contract_obligation": RequirementType.CONTRACT_OBLIGATION,
+}
 
 
 class WorkerLifecycleError(RuntimeError):
@@ -842,7 +855,9 @@ def _fetch_tenant_rows(
         .eq("tenant_key", tenant_key)
         .execute()
     )
-    return [dict(row, requirement_type=None) for row in rows]
+    return [
+        dict(row, requirement_type=_infer_legacy_requirement_type(row)) for row in rows
+    ]
 
 
 def _document_ids_from_run(
@@ -890,7 +905,8 @@ def _evidence_state_from_row(row: Mapping[str, Any]) -> EvidenceItemState:
         excerpt=str(row.get("excerpt") or ""),
         normalized_meaning=str(row.get("normalized_meaning") or ""),
         category=str(row.get("category") or ""),
-        requirement_type=row.get("requirement_type"),
+        requirement_type=row.get("requirement_type")
+        or _infer_legacy_requirement_type(row),
         confidence=float(row.get("confidence") or 0),
         source_metadata=dict(_mapping(row.get("source_metadata"))),
         metadata=dict(_mapping(row.get("metadata"))),
@@ -903,6 +919,34 @@ def _evidence_state_from_row(row: Mapping[str, Any]) -> EvidenceItemState:
             str(row.get("field_path")) if row.get("field_path") is not None else None
         ),
     )
+
+
+def _infer_legacy_requirement_type(
+    row: Mapping[str, Any],
+) -> RequirementType | None:
+    for value in (
+        _mapping(row.get("metadata")).get("requirement_type"),
+        _mapping(row.get("source_metadata")).get("requirement_type"),
+        row.get("category"),
+    ):
+        requirement_type = _coerce_requirement_type(value)
+        if requirement_type is not None:
+            return requirement_type
+    return None
+
+
+def _coerce_requirement_type(value: Any) -> RequirementType | None:
+    if value is None:
+        return None
+    if isinstance(value, RequirementType):
+        return value
+    text = str(value).strip().casefold()
+    if not text:
+        return None
+    try:
+        return RequirementType(text)
+    except ValueError:
+        return _REQUIREMENT_TYPE_BY_LEGACY_CATEGORY.get(text)
 
 
 def _evidence_belongs_to_run(

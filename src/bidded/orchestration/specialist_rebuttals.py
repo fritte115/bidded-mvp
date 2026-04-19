@@ -11,6 +11,7 @@ from bidded.agents.schemas import (
     EvidenceReference,
     Round2Rebuttal,
 )
+from bidded.orchestration.evidence_refs import resolve_evidence_ref_dict_against_board
 from bidded.orchestration.graph import (
     GraphRouteNode,
     InvalidGraphOutput,
@@ -110,23 +111,7 @@ def _resolve_ref_against_board(
     ref_dict: dict[str, Any],
     board: Sequence[EvidenceItemState],
 ) -> dict[str, Any]:
-    out = dict(ref_dict)
-    key = str(out.get("evidence_key") or "")
-    source_type = str(out.get("source_type") or "")
-    ev_id_raw = out.get("evidence_id")
-    needs_resolve = ev_id_raw is None or str(ev_id_raw).strip() in ("", "null", "None")
-    if needs_resolve:
-        item = next(
-            (
-                i
-                for i in board
-                if i.evidence_key == key and i.source_type.value == source_type
-            ),
-            None,
-        )
-        if item is not None and item.evidence_id is not None:
-            out["evidence_id"] = str(item.evidence_id)
-    return out
+    return resolve_evidence_ref_dict_against_board(ref_dict, board)
 
 
 def _coerce_refs_list(

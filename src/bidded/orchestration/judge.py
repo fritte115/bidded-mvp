@@ -23,6 +23,7 @@ from bidded.orchestration.evidence_recall import (
     EvidenceRecallWarning,
     audit_evidence_recall,
 )
+from bidded.orchestration.evidence_refs import resolve_evidence_ref_dict_against_board
 from bidded.orchestration.graph import (
     GraphRouteNode,
     InvalidGraphOutput,
@@ -136,29 +137,7 @@ def _resolve_ref_against_board(
     ref_dict: dict[str, Any],
     board: Sequence[EvidenceItemState],
 ) -> dict[str, Any]:
-    out = dict(ref_dict)
-    key = str(out.get("evidence_key") or "")
-    source_type = str(out.get("source_type") or "")
-    evidence_id = out.get("evidence_id")
-    needs_resolve = evidence_id is None or str(evidence_id).strip() in {
-        "",
-        "null",
-        "None",
-    }
-    if not needs_resolve:
-        return out
-    item = next(
-        (
-            board_item
-            for board_item in board
-            if board_item.evidence_key == key
-            and board_item.source_type.value == source_type
-        ),
-        None,
-    )
-    if item is not None and item.evidence_id is not None:
-        out["evidence_id"] = str(item.evidence_id)
-    return out
+    return resolve_evidence_ref_dict_against_board(ref_dict, board)
 
 
 def _coerce_refs_list(

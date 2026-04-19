@@ -119,6 +119,22 @@ class FinancialProofFormalBlockerModel(RecordingRound1Model):
         return payload
 
 
+class MutatedEvidenceKeyModel(RecordingRound1Model):
+    def draft_motion(self, request: Round1SpecialistRequest) -> dict[str, Any]:
+        payload = super().draft_motion(request)
+        for field in (
+            "top_findings",
+            "role_specific_risks",
+            "formal_blockers",
+            "potential_blockers",
+        ):
+            for claim in payload.get(field, []):
+                for ref in claim.get("evidence_refs", []):
+                    if ref.get("evidence_id") == str(TENDER_EVIDENCE_ID):
+                        ref["evidence_key"] = "TENDER-SHALL-MUTATED-BY-CLAUDE"
+        return payload
+
+
 def _ready_state() -> BidRunState:
     return BidRunState(
         run_id=RUN_ID,
@@ -411,6 +427,36 @@ def test_financial_proof_gap_cannot_be_compliance_formal_blocker() -> None:
     assert "exclusion_ground or qualification_requirement" in (
         result.state.validation_errors[-1].message
     )
+
+
+def test_round_1_canonicalizes_evidence_key_from_matching_id() -> None:
+    handlers = replace(
+        default_graph_node_handlers(),
+        round_1_specialist=build_round_1_specialist_handler(MutatedEvidenceKeyModel()),
+    )
+
+    result = run_bidded_graph_shell(_ready_state(), handlers=handlers)
+
+    assert result.state.status is AgentRunStatus.SUCCEEDED
+    motion_rows = [
+        output
+        for output in result.state.agent_outputs
+        if output.round_name == "round_1_motion"
+    ]
+    assert motion_rows
+    assert {
+        ref.evidence_key
+        for output in motion_rows
+        for ref in output.evidence_refs
+        if ref.evidence_id == TENDER_EVIDENCE_ID
+    } == {"TENDER-SHALL-001"}
+    assert {
+        ref["evidence_key"]
+        for output in motion_rows
+        for claim in output.payload["top_findings"]
+        for ref in claim["evidence_refs"]
+        if ref["evidence_id"] == str(TENDER_EVIDENCE_ID)
+    } == {"TENDER-SHALL-001"}
 
 
 def _financial_ref() -> dict[str, str]:
