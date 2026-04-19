@@ -47,10 +47,12 @@ class RecordingWorkerQuery:
         self.order_column: str | None = None
         self.descending = False
         self.row_limit: int | None = None
+        self.selected_columns: str | None = None
         self.update_payload: dict[str, Any] | None = None
         self.insert_payload: dict[str, Any] | list[dict[str, Any]] | None = None
 
-    def select(self, _columns: str) -> RecordingWorkerQuery:
+    def select(self, columns: str) -> RecordingWorkerQuery:
+        self.selected_columns = columns
         return self
 
     def eq(self, column: str, value: object) -> RecordingWorkerQuery:
@@ -78,6 +80,15 @@ class RecordingWorkerQuery:
         return self
 
     def execute(self) -> object:
+        if (
+            self.table_name == "evidence_items"
+            and self.client.fail_requirement_type_select_once
+            and self.selected_columns is not None
+            and "requirement_type" in self.selected_columns
+        ):
+            self.client.fail_requirement_type_select_once = False
+            raise RuntimeError("column evidence_items.requirement_type does not exist")
+
         if self.update_payload is not None:
             if (
                 self.table_name == "agent_runs"
@@ -147,6 +158,7 @@ class RecordingWorkerClient:
         self.updates: dict[str, list[tuple[dict[str, Any], list[tuple[str, str]]]]] = {}
         self.table_names: list[str] = []
         self.skip_next_agent_run_update = False
+        self.fail_requirement_type_select_once = False
 
     def table(self, table_name: str) -> RecordingWorkerQuery:
         self.table_names.append(table_name)
@@ -212,6 +224,19 @@ def test_worker_runs_specified_pending_run_and_persists_audit_rows() -> None:
     assert bid_decision["agent_run_id"] == str(RUN_ID)
     assert bid_decision["verdict"] == "conditional_bid"
     assert bid_decision["evidence_ids"] == [str(EVIDENCE_ID)]
+
+
+def test_worker_loads_legacy_evidence_schema_without_requirement_type() -> None:
+    client = RecordingWorkerClient()
+    client.fail_requirement_type_select_once = True
+
+    state = build_bid_run_state_from_supabase(
+        client,
+        run_row=client.rows["agent_runs"][0],
+    )
+
+    assert len(state.evidence_board) == 1
+    assert state.evidence_board[0].requirement_type is None
 
 
 def test_worker_persists_version_metadata_for_mocked_runs() -> None:

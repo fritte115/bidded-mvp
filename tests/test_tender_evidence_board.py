@@ -781,6 +781,14 @@ class RecordingEvidenceQuery:
 
     def execute(self) -> object:
         if self.upsert_payload is not None:
+            if self.client.fail_requirement_type_once and any(
+                "requirement_type" in row for row in self.upsert_payload
+            ):
+                self.client.fail_requirement_type_once = False
+                raise RuntimeError(
+                    "Could not find the 'requirement_type' column of "
+                    "'evidence_items' in the schema cache"
+                )
             self.client.upserts.append((self.upsert_payload, self.on_conflict))
             self.client.rows[self.table_name] = list(self.upsert_payload)
             return type("Response", (), {"data": self.upsert_payload})()
@@ -803,6 +811,7 @@ class RecordingSupabaseClient:
         self.upserts: list[tuple[list[dict[str, object]], str | None]] = []
         self.selects: list[tuple[str, str | None, list[tuple[str, str]]]] = []
         self.table_names: list[str] = []
+        self.fail_requirement_type_once = False
 
     def table(self, table_name: str) -> RecordingEvidenceQuery:
         self.table_names.append(table_name)
@@ -841,3 +850,26 @@ def test_orchestrator_persists_tender_evidence_and_looks_up_by_key() -> None:
         ("source_type", "tender_document"),
         ("evidence_key", evidence_key),
     ]
+
+
+def test_tender_evidence_upsert_falls_back_without_requirement_type() -> None:
+    client = RecordingSupabaseClient()
+    client.fail_requirement_type_once = True
+    candidate = TenderEvidenceCandidate(
+        document_id=DOCUMENT_ID,
+        chunk_id=CHUNK_ID,
+        page_start=7,
+        page_end=7,
+        excerpt="Submission must include a signed data processing agreement.",
+        source_label="Tender.pdf",
+        category="submission_document",
+        normalized_meaning=(
+            "The tender requires a signed data processing agreement in submission."
+        ),
+    )
+
+    result = upsert_tender_evidence_items(client, [candidate])
+
+    assert result.evidence_count == 1
+    assert len(client.upserts) == 1
+    assert "requirement_type" not in client.upserts[0][0][0]

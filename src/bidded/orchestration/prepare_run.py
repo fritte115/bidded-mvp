@@ -8,6 +8,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from bidded.db.schema_compat import (
+    is_missing_requirement_type_column,
+    select_without_requirement_type,
+)
 from bidded.documents import ChunkEmbeddingAdapter, PdfIngestionError
 from bidded.documents.pdf_ingestion import (
     DEFAULT_MAX_CHUNK_CHARS,
@@ -676,16 +680,29 @@ def _fetch_evidence_rows_by_keys(
     if not expected_keys:
         return ()
 
-    rows = _response_rows(
-        client.table("evidence_items")
-        .select(
-            "id,tenant_key,evidence_key,source_type,document_id,company_id,"
-            "chunk_id,page_start,page_end,field_path,requirement_type"
-        )
-        .eq("tenant_key", DEMO_TENANT_KEY)
-        .eq("source_type", source_type)
-        .execute()
+    columns = (
+        "id,tenant_key,evidence_key,source_type,document_id,company_id,"
+        "chunk_id,page_start,page_end,field_path,requirement_type"
     )
+    try:
+        rows = _response_rows(
+            client.table("evidence_items")
+            .select(columns)
+            .eq("tenant_key", DEMO_TENANT_KEY)
+            .eq("source_type", source_type)
+            .execute()
+        )
+    except Exception as exc:
+        if not is_missing_requirement_type_column(exc):
+            raise
+        rows = _response_rows(
+            client.table("evidence_items")
+            .select(select_without_requirement_type(columns))
+            .eq("tenant_key", DEMO_TENANT_KEY)
+            .eq("source_type", source_type)
+            .execute()
+        )
+        rows = [dict(row, requirement_type=None) for row in rows]
     return tuple(
         sorted(
             (

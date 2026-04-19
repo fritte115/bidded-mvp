@@ -9,6 +9,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from bidded.db.schema_compat import is_missing_requirement_type_column
 from bidded.evidence.contract_clause_classifier import (
     DEFAULT_MIN_CLASSIFIER_CONFIDENCE,
     ContractClauseClassificationOutput,
@@ -578,11 +579,30 @@ def upsert_tender_evidence_items(
             rows_returned=0,
         )
 
-    response = (
-        client.table("evidence_items")
-        .upsert(evidence_items, on_conflict="tenant_key,evidence_key")
-        .execute()
-    )
+    try:
+        response = (
+            client.table("evidence_items")
+            .upsert(evidence_items, on_conflict="tenant_key,evidence_key")
+            .execute()
+        )
+    except Exception as exc:
+        if not is_missing_requirement_type_column(exc):
+            raise
+        response = (
+            client.table("evidence_items")
+            .upsert(
+                [
+                    {
+                        key: value
+                        for key, value in evidence_item.items()
+                        if key != "requirement_type"
+                    }
+                    for evidence_item in evidence_items
+                ],
+                on_conflict="tenant_key,evidence_key",
+            )
+            .execute()
+        )
     data = getattr(response, "data", [])
     rows_returned = len(data) if isinstance(data, list) else 0
 

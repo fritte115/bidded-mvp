@@ -6,6 +6,10 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 from uuid import UUID
 
+from bidded.db.schema_compat import (
+    is_missing_requirement_type_column,
+    select_without_requirement_type,
+)
 from bidded.orchestration.graph import (
     GraphNodeHandlers,
     GraphRunResult,
@@ -818,10 +822,27 @@ def _fetch_tenant_rows(
     *,
     tenant_key: str,
 ) -> list[dict[str, Any]]:
+    try:
+        rows = _response_rows(
+            client.table(table_name)
+            .select(columns)
+            .eq("tenant_key", tenant_key)
+            .execute()
+        )
+        return [dict(row) for row in rows]
+    except Exception as exc:
+        if table_name != "evidence_items" or not is_missing_requirement_type_column(
+            exc
+        ):
+            raise
+
     rows = _response_rows(
-        client.table(table_name).select(columns).eq("tenant_key", tenant_key).execute()
+        client.table(table_name)
+        .select(select_without_requirement_type(columns))
+        .eq("tenant_key", tenant_key)
+        .execute()
     )
-    return [dict(row) for row in rows]
+    return [dict(row, requirement_type=None) for row in rows]
 
 
 def _document_ids_from_run(
