@@ -441,6 +441,55 @@ def test_tender_evidence_items_include_regulatory_glossary_metadata() -> None:
     ]
 
 
+def test_tender_evidence_items_include_contract_clause_tag_metadata() -> None:
+    candidate = TenderEvidenceCandidate(
+        document_id=DOCUMENT_ID,
+        chunk_id=CHUNK_ID,
+        page_start=7,
+        page_end=7,
+        excerpt=(
+            "Supplier accepts liquidated damages while liability cap remains "
+            "limited to annual fees."
+        ),
+        source_label="Tender.pdf",
+        category="contract_obligation",
+        requirement_type=RequirementType.CONTRACT_OBLIGATION,
+        normalized_meaning=(
+            "The tender includes penalties and liability-cap contract terms."
+        ),
+    )
+
+    item = build_tender_evidence_items([candidate])[0]
+
+    assert item["requirement_type"] == "contract_obligation"
+    assert item["metadata"]["contract_clause_ids"] == [
+        "penalties_liquidated_damages",
+        "liability_caps",
+    ]
+    assert item["metadata"]["contract_clause_matches"][0] == {
+        "id": "penalties_liquidated_damages",
+        "display_label": "Penalties and liquidated damages",
+        "matched_patterns": ["liquidated damages"],
+        "risk_lens": (
+            "Check whether monetary sanctions are capped and operationally fair."
+        ),
+        "suggested_proof_action": (
+            "Model likely service-credit exposure and confirm delivery controls."
+        ),
+        "blocker_review_hint": (
+            "Escalate uncapped or disproportionate penalties for review."
+        ),
+    }
+    assert set(item["metadata"]["contract_clause_matches"][1]) == {
+        "id",
+        "display_label",
+        "matched_patterns",
+        "risk_lens",
+        "suggested_proof_action",
+        "blocker_review_hint",
+    }
+
+
 def test_tender_evidence_items_omit_regulatory_glossary_metadata_for_no_match() -> None:
     candidate = TenderEvidenceCandidate(
         document_id=DOCUMENT_ID,

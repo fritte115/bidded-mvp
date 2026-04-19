@@ -5,6 +5,12 @@ from bidded.evidence.company_profile import (
     build_company_profile_evidence_items,
     upsert_company_profile_evidence,
 )
+from bidded.evidence.contract_clause_tags import (
+    CONTRACT_CLAUSE_TAGS,
+    ContractClauseTag,
+    ContractClauseTagMatch,
+    match_contract_clause_tags,
+)
 from bidded.evidence.regulatory_glossary import (
     REGULATORY_GLOSSARY,
     RegulatoryGlossaryEntry,
@@ -24,7 +30,10 @@ from bidded.evidence.tender_document import (
 
 __all__ = [
     "CompanyProfileEvidenceUpsertResult",
+    "CONTRACT_CLAUSE_TAGS",
     "REGULATORY_GLOSSARY",
+    "ContractClauseTag",
+    "ContractClauseTagMatch",
     "RegulatoryGlossaryEntry",
     "RegulatoryGlossaryMatch",
     "TenderClauseSegment",
@@ -35,6 +44,7 @@ __all__ = [
     "build_tender_evidence_candidates",
     "build_tender_evidence_items",
     "get_tender_evidence_item_by_key",
+    "match_contract_clause_tags",
     "match_regulatory_glossary",
     "upsert_company_profile_evidence",
     "upsert_tender_evidence_items",

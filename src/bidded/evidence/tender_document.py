@@ -9,6 +9,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from bidded.evidence.contract_clause_tags import (
+    ContractClauseTagMatch,
+    match_contract_clause_tags,
+)
 from bidded.evidence.regulatory_glossary import (
     RegulatoryGlossaryMatch,
     match_regulatory_glossary,
@@ -601,6 +605,16 @@ def _metadata_for_candidate(candidate: TenderEvidenceCandidate) -> dict[str, Any
         metadata["clause_section"] = _clause_section_metadata(
             candidate.clause_section
         )
+    contract_clause_tag_matches = match_contract_clause_tags(candidate.excerpt)
+    if contract_clause_tag_matches:
+        metadata["contract_clause_ids"] = [
+            match.tag_id for match in contract_clause_tag_matches
+        ]
+        metadata["contract_clause_matches"] = [
+            _contract_clause_tag_match_metadata(match)
+            for match in contract_clause_tag_matches
+        ]
+
     glossary_matches = match_regulatory_glossary(candidate.excerpt)
     if not glossary_matches:
         return metadata
@@ -622,6 +636,19 @@ def _clause_section_metadata(segment: TenderClauseSegment) -> dict[str, Any]:
         "page_end": segment.page_end,
         "chunk_ids": [str(chunk_id) for chunk_id in segment.chunk_ids],
         "body_text": segment.body_text,
+    }
+
+
+def _contract_clause_tag_match_metadata(
+    match: ContractClauseTagMatch,
+) -> dict[str, Any]:
+    return {
+        "id": match.tag_id,
+        "display_label": match.display_label,
+        "matched_patterns": list(match.matched_patterns),
+        "risk_lens": match.risk_lens,
+        "suggested_proof_action": match.suggested_proof_action,
+        "blocker_review_hint": match.blocker_review_hint,
     }
 
 

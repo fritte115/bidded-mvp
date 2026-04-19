@@ -793,8 +793,8 @@
         "Tests cover known Swedish/English matches, no-match behavior, multiple matches, precedence, and metadata shape; pytest and ruff check pass."
       ],
       "priority": 52,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added fixed contract clause tags, deterministic matching, and evidence metadata without widening RequirementType. Complete."
     },
     {
       "id": "US-053",
