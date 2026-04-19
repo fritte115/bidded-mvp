@@ -778,8 +778,8 @@
         "Tests cover numbered headings, heading-only sections, wrapped multiline clauses, multi-sentence clause bodies, and no-heading fallback; pytest and ruff check pass."
       ],
       "priority": 51,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added deterministic clause segments from retrieved chunks and clause_section evidence metadata while keeping source_metadata unchanged. Complete."
     },
     {
       "id": "US-052",

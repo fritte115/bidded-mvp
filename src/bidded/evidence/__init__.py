@@ -12,8 +12,10 @@ from bidded.evidence.regulatory_glossary import (
     match_regulatory_glossary,
 )
 from bidded.evidence.tender_document import (
+    TenderClauseSegment,
     TenderEvidenceCandidate,
     TenderEvidenceUpsertResult,
+    build_tender_clause_segments,
     build_tender_evidence_candidates,
     build_tender_evidence_items,
     get_tender_evidence_item_by_key,
@@ -25,9 +27,11 @@ __all__ = [
     "REGULATORY_GLOSSARY",
     "RegulatoryGlossaryEntry",
     "RegulatoryGlossaryMatch",
+    "TenderClauseSegment",
     "TenderEvidenceCandidate",
     "TenderEvidenceUpsertResult",
     "build_company_profile_evidence_items",
+    "build_tender_clause_segments",
     "build_tender_evidence_candidates",
     "build_tender_evidence_items",
     "get_tender_evidence_item_by_key",

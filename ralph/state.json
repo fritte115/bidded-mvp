@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-051",
-  "storyTitle": "Add clause-aware tender segmentation",
+  "currentStory": "US-052",
+  "storyTitle": "Add contract clause tag taxonomy",
   "nextAction": "implement",
-  "progressTokens": 4320,
+  "progressTokens": 4395,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

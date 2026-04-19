@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from bidded.agents import RequirementType
 from bidded.evidence.tender_document import (
     TenderEvidenceCandidate,
+    build_tender_clause_segments,
     build_tender_evidence_candidates,
     build_tender_evidence_items,
     get_tender_evidence_item_by_key,
@@ -23,16 +24,134 @@ def _retrieved_chunk(
     text: str,
     *,
     source_label: str = "Tender.pdf",
+    chunk_id: UUID = CHUNK_ID,
+    page_start: int = 3,
+    page_end: int | None = None,
+    chunk_index: int = 0,
 ) -> RetrievedDocumentChunk:
     return RetrievedDocumentChunk(
-        chunk_id=str(CHUNK_ID),
+        chunk_id=str(chunk_id),
         document_id=DOCUMENT_ID,
-        page_start=3,
-        page_end=3,
-        chunk_index=0,
+        page_start=page_start,
+        page_end=page_end if page_end is not None else page_start,
+        chunk_index=chunk_index,
         text=text,
         metadata={"source_label": source_label},
     )
+
+
+def test_clause_segmentation_detects_numbered_headings_and_wrapped_text() -> None:
+    second_chunk_id = UUID("77777777-7777-4777-8777-777777777777")
+    chunks = [
+        _retrieved_chunk(
+            "1. General conditions\n"
+            "Supplier shall attend the kickoff meeting.",
+            page_start=1,
+            chunk_index=0,
+        ),
+        _retrieved_chunk(
+            "2.1 Ansvarsbegränsning\n"
+            "Leverantörens ansvar ska vara begränsat.\n\n"
+            "3. Limitation of\n"
+            "liability\n"
+            "Supplier shall maintain\n"
+            "professional liability insurance.",
+            chunk_id=second_chunk_id,
+            page_start=2,
+            chunk_index=1,
+        ),
+    ]
+
+    segments = build_tender_clause_segments(chunks)
+
+    assert [segment.section_number for segment in segments] == [
+        "1",
+        "2.1",
+        "3",
+    ]
+    assert [segment.heading for segment in segments] == [
+        "General conditions",
+        "Ansvarsbegränsning",
+        "Limitation of liability",
+    ]
+    assert segments[0].page_start == 1
+    assert segments[0].page_end == 1
+    assert segments[0].chunk_ids == (CHUNK_ID,)
+    assert segments[1].page_start == 2
+    assert segments[2].page_end == 2
+    assert segments[2].chunk_ids == (second_chunk_id,)
+    assert segments[2].body_text == (
+        "Supplier shall maintain professional liability insurance."
+    )
+
+
+def test_clause_segmentation_detects_heading_only_sections() -> None:
+    chunks = [
+        _retrieved_chunk(
+            "Confidentiality\n"
+            "Supplier must protect confidential information. "
+            "The obligation shall survive termination.\n\n"
+            "Underleverantörer\n"
+            "Leverantören ska ansvara för underleverantörer.",
+            page_start=4,
+        )
+    ]
+
+    segments = build_tender_clause_segments(chunks)
+
+    assert [segment.section_number for segment in segments] == [None, None]
+    assert [segment.heading for segment in segments] == [
+        "Confidentiality",
+        "Underleverantörer",
+    ]
+    assert segments[0].body_text == (
+        "Supplier must protect confidential information. "
+        "The obligation shall survive termination."
+    )
+    assert segments[1].body_text == (
+        "Leverantören ska ansvara för underleverantörer."
+    )
+
+
+def test_tender_evidence_items_include_clause_section_metadata() -> None:
+    chunks = [
+        _retrieved_chunk(
+            "4. Insurance\n"
+            "Supplier shall maintain\n"
+            "professional liability insurance.",
+            page_start=6,
+        )
+    ]
+
+    candidates = build_tender_evidence_candidates(chunks)
+    items = build_tender_evidence_items(candidates)
+
+    assert len(items) == 1
+    item = items[0]
+    assert item["source_metadata"] == {"source_label": "Tender.pdf"}
+    assert item["excerpt"] == (
+        "Supplier shall maintain professional liability insurance."
+    )
+    assert item["metadata"]["clause_section"] == {
+        "section_number": "4",
+        "heading": "Insurance",
+        "page_start": 6,
+        "page_end": 6,
+        "chunk_ids": [str(CHUNK_ID)],
+        "body_text": "Supplier shall maintain professional liability insurance.",
+    }
+
+
+def test_tender_evidence_extraction_uses_sentence_fallback_without_headings() -> None:
+    chunks = [_retrieved_chunk("Supplier must provide ISO 27001 certification.")]
+
+    segments = build_tender_clause_segments(chunks)
+    candidates = build_tender_evidence_candidates(chunks)
+    item = build_tender_evidence_items(candidates)[0]
+
+    assert segments == []
+    assert candidates[0].excerpt == "Supplier must provide ISO 27001 certification."
+    assert "clause_section" not in item["metadata"]
 
 
 def test_retrieved_chunks_propose_tender_evidence_candidates() -> None:

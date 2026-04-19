@@ -174,6 +174,79 @@ _REQUIREMENT_TYPE_KEYWORDS: tuple[tuple[RequirementType, tuple[str, ...]], ...] 
     ),
 )
 
+_NUMBERED_HEADING_RE = re.compile(
+    r"^(?P<section>\d+(?:\.\d+)*)(?:[.)])?\s+(?P<heading>.+?)\s*$"
+)
+_SECTION_LABEL_HEADING_RE = re.compile(
+    r"^(?:section|clause|avsnitt|kapitel)\s+"
+    r"(?P<section>\d+(?:\.\d+)*)(?:[.:)\-\s]+)(?P<heading>.+?)\s*$",
+    re.IGNORECASE,
+)
+_SWEDISH_SECTION_HEADING_RE = re.compile(
+    r"^§\s*(?P<section>\d+(?:\.\d+)*)(?:[.:)\-\s]+)(?P<heading>.+?)\s*$"
+)
+_HEADING_CONTINUATION_ENDINGS = frozenset(
+    {
+        "and",
+        "for",
+        "of",
+        "on",
+        "or",
+        "regarding",
+        "with",
+        "av",
+        "för",
+        "gällande",
+        "gallande",
+        "med",
+        "och",
+        "om",
+        "samt",
+    }
+)
+_UNNUMBERED_CLAUSE_HEADINGS = frozenset(
+    {
+        "ansvar",
+        "ansvarsbegränsning",
+        "ansvarsbegransning",
+        "confidentiality",
+        "data protection",
+        "dataskydd",
+        "försäkring",
+        "forsakring",
+        "gdpr",
+        "insurance",
+        "liability",
+        "limitation of liability",
+        "personuppgifter",
+        "penalties",
+        "penalty",
+        "sekretess",
+        "subcontracting",
+        "subcontractors",
+        "underleverantörer",
+        "underleverantorer",
+        "vite",
+    }
+)
+_UNNUMBERED_CLAUSE_HEADING_KEYWORDS = (
+    "ansvar",
+    "confidential",
+    "data protection",
+    "dataskydd",
+    "forsakring",
+    "försäkring",
+    "gdpr",
+    "insurance",
+    "liability",
+    "penalt",
+    "personuppgift",
+    "sekretess",
+    "subcontract",
+    "underleverant",
+    "vite",
+)
+
 
 class SupabaseTenderEvidenceQuery(Protocol):
     def select(self, columns: str) -> SupabaseTenderEvidenceQuery: ...
@@ -201,6 +274,37 @@ class TenderEvidenceUpsertResult:
     rows_returned: int
 
 
+@dataclass(frozen=True)
+class _TenderClauseLine:
+    chunk: RetrievedDocumentChunk
+    text: str
+
+
+@dataclass(frozen=True)
+class _DetectedTenderHeading:
+    section_number: str | None
+    heading: str
+    consumed_line_count: int
+
+
+class TenderClauseSegment(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    document_id: UUID
+    section_number: str | None = None
+    heading: str = Field(min_length=1)
+    page_start: int = Field(gt=0)
+    page_end: int = Field(gt=0)
+    chunk_ids: tuple[UUID, ...] = Field(min_length=1)
+    body_text: str = ""
+
+    @model_validator(mode="after")
+    def validate_clause_segment(self) -> TenderClauseSegment:
+        if self.page_end < self.page_start:
+            raise ValueError("page_end must be greater than or equal to page_start")
+        return self
+
+
 class TenderEvidenceCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -215,6 +319,7 @@ class TenderEvidenceCandidate(BaseModel):
     requirement_type: RequirementType | None = None
     normalized_meaning: str = Field(min_length=1)
     confidence: float = Field(default=0.8, ge=0, le=1)
+    clause_section: TenderClauseSegment | None = None
 
     @model_validator(mode="after")
     def validate_page_range(self) -> TenderEvidenceCandidate:
@@ -223,10 +328,102 @@ class TenderEvidenceCandidate(BaseModel):
         return self
 
 
+def build_tender_clause_segments(
+    chunks: list[RetrievedDocumentChunk],
+) -> list[TenderClauseSegment]:
+    """Group parsed tender chunks into deterministic numbered clause sections."""
+
+    lines = _tender_clause_lines(chunks)
+    segments: list[TenderClauseSegment] = []
+    current_document_id: UUID | None = None
+    current_section_number: str | None = None
+    current_heading: str | None = None
+    current_page_start: int | None = None
+    current_page_end: int | None = None
+    current_chunk_ids: list[UUID] = []
+    current_body_lines: list[str] = []
+
+    def add_provenance(line: _TenderClauseLine) -> None:
+        nonlocal current_page_start, current_page_end
+        chunk_id = UUID(line.chunk.chunk_id)
+        if chunk_id not in current_chunk_ids:
+            current_chunk_ids.append(chunk_id)
+        if current_page_start is None or line.chunk.page_start < current_page_start:
+            current_page_start = line.chunk.page_start
+        if current_page_end is None or line.chunk.page_end > current_page_end:
+            current_page_end = line.chunk.page_end
+
+    def finalize_current() -> None:
+        nonlocal current_document_id, current_section_number, current_heading
+        nonlocal current_page_start, current_page_end, current_chunk_ids
+        nonlocal current_body_lines
+        if (
+            current_document_id is None
+            or current_heading is None
+            or current_page_start is None
+            or current_page_end is None
+            or not current_chunk_ids
+        ):
+            return
+
+        segments.append(
+            TenderClauseSegment(
+                document_id=current_document_id,
+                section_number=current_section_number,
+                heading=current_heading,
+                page_start=current_page_start,
+                page_end=current_page_end,
+                chunk_ids=tuple(current_chunk_ids),
+                body_text=_inline_text(" ".join(current_body_lines)),
+            )
+        )
+        current_document_id = None
+        current_section_number = None
+        current_heading = None
+        current_page_start = None
+        current_page_end = None
+        current_chunk_ids = []
+        current_body_lines = []
+
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if (
+            current_document_id is not None
+            and line.chunk.document_id != current_document_id
+        ):
+            finalize_current()
+
+        detected_heading = _detect_clause_heading(lines, index)
+        if detected_heading is not None:
+            finalize_current()
+            current_document_id = line.chunk.document_id
+            current_section_number = detected_heading.section_number
+            current_heading = detected_heading.heading
+            for consumed_line in lines[
+                index : index + detected_heading.consumed_line_count
+            ]:
+                add_provenance(consumed_line)
+            index += detected_heading.consumed_line_count
+            continue
+
+        if current_heading is not None:
+            current_body_lines.append(line.text)
+            add_provenance(line)
+        index += 1
+
+    finalize_current()
+    return segments
+
+
 def build_tender_evidence_candidates(
     chunks: list[RetrievedDocumentChunk],
 ) -> list[TenderEvidenceCandidate]:
     """Propose excerpt-level tender evidence from retrieved document chunks."""
+
+    clause_segments = build_tender_clause_segments(chunks)
+    if clause_segments:
+        return _build_clause_scoped_evidence_candidates(chunks, clause_segments)
 
     candidates: list[TenderEvidenceCandidate] = []
     for chunk in chunks:
@@ -247,6 +444,45 @@ def build_tender_evidence_candidates(
                     category=category,
                     requirement_type=_requirement_type_for_sentence(sentence),
                     normalized_meaning=f"Tender states: {sentence}",
+                )
+            )
+
+    return candidates
+
+
+def _build_clause_scoped_evidence_candidates(
+    chunks: list[RetrievedDocumentChunk],
+    clause_segments: list[TenderClauseSegment],
+) -> list[TenderEvidenceCandidate]:
+    candidates: list[TenderEvidenceCandidate] = []
+    chunks_by_id = {UUID(chunk.chunk_id): chunk for chunk in chunks}
+    for segment in clause_segments:
+        if not segment.body_text:
+            continue
+        for sentence in _sentences(segment.body_text):
+            category = _category_for_sentence(sentence)
+            if category is None:
+                continue
+            chunk = _chunk_for_clause_sentence(
+                sentence,
+                segment=segment,
+                chunks_by_id=chunks_by_id,
+            )
+            source_label = str(
+                chunk.metadata.get("source_label") or "tender document"
+            )
+            candidates.append(
+                TenderEvidenceCandidate(
+                    document_id=segment.document_id,
+                    chunk_id=UUID(chunk.chunk_id),
+                    page_start=chunk.page_start,
+                    page_end=chunk.page_end,
+                    excerpt=sentence,
+                    source_label=source_label,
+                    category=category,
+                    requirement_type=_requirement_type_for_sentence(sentence),
+                    normalized_meaning=f"Tender states: {sentence}",
+                    clause_section=segment,
                 )
             )
 
@@ -361,6 +597,10 @@ def _evidence_key(candidate: TenderEvidenceCandidate) -> str:
 
 def _metadata_for_candidate(candidate: TenderEvidenceCandidate) -> dict[str, Any]:
     metadata: dict[str, Any] = {"source": "tender_evidence_board"}
+    if candidate.clause_section is not None:
+        metadata["clause_section"] = _clause_section_metadata(
+            candidate.clause_section
+        )
     glossary_matches = match_regulatory_glossary(candidate.excerpt)
     if not glossary_matches:
         return metadata
@@ -372,6 +612,17 @@ def _metadata_for_candidate(candidate: TenderEvidenceCandidate) -> dict[str, Any
         _glossary_match_metadata(match) for match in glossary_matches
     ]
     return metadata
+
+
+def _clause_section_metadata(segment: TenderClauseSegment) -> dict[str, Any]:
+    return {
+        "section_number": segment.section_number,
+        "heading": segment.heading,
+        "page_start": segment.page_start,
+        "page_end": segment.page_end,
+        "chunk_ids": [str(chunk_id) for chunk_id in segment.chunk_ids],
+        "body_text": segment.body_text,
+    }
 
 
 def _glossary_match_metadata(match: RegulatoryGlossaryMatch) -> dict[str, Any]:
@@ -386,12 +637,186 @@ def _glossary_match_metadata(match: RegulatoryGlossaryMatch) -> dict[str, Any]:
     }
 
 
+def _tender_clause_lines(
+    chunks: list[RetrievedDocumentChunk],
+) -> list[_TenderClauseLine]:
+    lines: list[_TenderClauseLine] = []
+    for chunk in sorted(chunks, key=_chunk_sort_key):
+        for raw_line in chunk.text.replace("\r\n", "\n").split("\n"):
+            line = raw_line.strip()
+            if line:
+                lines.append(_TenderClauseLine(chunk=chunk, text=line))
+    return lines
+
+
+def _chunk_sort_key(chunk: RetrievedDocumentChunk) -> tuple[str, int, int, str]:
+    return (
+        str(chunk.document_id),
+        chunk.chunk_index,
+        chunk.page_start,
+        chunk.chunk_id,
+    )
+
+
+def _detect_clause_heading(
+    lines: list[_TenderClauseLine],
+    index: int,
+) -> _DetectedTenderHeading | None:
+    line = lines[index]
+    numbered_heading = _numbered_clause_heading(line.text)
+    if numbered_heading is not None:
+        section_number, heading = numbered_heading
+        heading_parts = [heading]
+        consumed_line_count = _consume_heading_continuations(
+            lines,
+            index=index,
+            heading_parts=heading_parts,
+        )
+        return _DetectedTenderHeading(
+            section_number=section_number,
+            heading=_inline_text(" ".join(heading_parts)),
+            consumed_line_count=consumed_line_count,
+        )
+
+    if _is_unnumbered_clause_heading(line.text):
+        heading_parts = [_strip_heading_suffix(line.text)]
+        consumed_line_count = _consume_heading_continuations(
+            lines,
+            index=index,
+            heading_parts=heading_parts,
+        )
+        return _DetectedTenderHeading(
+            section_number=None,
+            heading=_inline_text(" ".join(heading_parts)),
+            consumed_line_count=consumed_line_count,
+        )
+
+    return None
+
+
+def _numbered_clause_heading(text: str) -> tuple[str, str] | None:
+    for pattern in (
+        _SECTION_LABEL_HEADING_RE,
+        _SWEDISH_SECTION_HEADING_RE,
+        _NUMBERED_HEADING_RE,
+    ):
+        match = pattern.match(text)
+        if match is None:
+            continue
+        heading = _strip_heading_suffix(match.group("heading"))
+        if _looks_like_heading_title(heading):
+            return match.group("section").rstrip("."), heading
+    return None
+
+
+def _looks_like_heading_title(text: str) -> bool:
+    title = _strip_heading_suffix(text)
+    if not title:
+        return False
+    if len(title) > 120:
+        return False
+    if len(title.split()) > 12:
+        return False
+    if title[-1] in ".!?;":
+        return False
+
+    lowered = f" {title.casefold()} "
+    body_markers = (
+        " must ",
+        " shall ",
+        " ska ",
+        " skall ",
+        " måste ",
+        " maste ",
+    )
+    return not any(marker in lowered for marker in body_markers)
+
+
+def _is_unnumbered_clause_heading(text: str) -> bool:
+    if not _looks_like_heading_title(text):
+        return False
+    heading_key = _normalized_heading_key(text)
+    return heading_key in _UNNUMBERED_CLAUSE_HEADINGS or any(
+        keyword in heading_key for keyword in _UNNUMBERED_CLAUSE_HEADING_KEYWORDS
+    )
+
+
+def _consume_heading_continuations(
+    lines: list[_TenderClauseLine],
+    *,
+    index: int,
+    heading_parts: list[str],
+) -> int:
+    consumed_line_count = 1
+    current_document_id = lines[index].chunk.document_id
+    cursor = index + 1
+    while cursor < len(lines):
+        next_line = lines[cursor]
+        if next_line.chunk.document_id != current_document_id:
+            break
+        if _numbered_clause_heading(next_line.text) is not None:
+            break
+        if not _is_heading_continuation(
+            next_line.text,
+            current_heading=_inline_text(" ".join(heading_parts)),
+        ):
+            break
+
+        heading_parts.append(_strip_heading_suffix(next_line.text))
+        consumed_line_count += 1
+        cursor += 1
+
+    return consumed_line_count
+
+
+def _is_heading_continuation(text: str, *, current_heading: str) -> bool:
+    continuation = _strip_heading_suffix(text)
+    if not _looks_like_heading_title(continuation):
+        return False
+    if len(continuation.split()) > 4:
+        return False
+
+    first_character = continuation[0]
+    last_current_word = current_heading.casefold().split()[-1]
+    return (
+        first_character.islower()
+        or continuation.isupper()
+        or last_current_word in _HEADING_CONTINUATION_ENDINGS
+    )
+
+
+def _strip_heading_suffix(text: str) -> str:
+    return text.strip().rstrip(":").strip()
+
+
+def _normalized_heading_key(text: str) -> str:
+    return re.sub(r"\s+", " ", _strip_heading_suffix(text).casefold())
+
+
+def _chunk_for_clause_sentence(
+    sentence: str,
+    *,
+    segment: TenderClauseSegment,
+    chunks_by_id: Mapping[UUID, RetrievedDocumentChunk],
+) -> RetrievedDocumentChunk:
+    sentence_text = _inline_text(sentence).casefold()
+    for chunk_id in segment.chunk_ids:
+        chunk = chunks_by_id[chunk_id]
+        if sentence_text in _inline_text(chunk.text).casefold():
+            return chunk
+    return chunks_by_id[segment.chunk_ids[0]]
+
+
 def _sentences(text: str) -> list[str]:
     return [
         sentence.strip()
-        for sentence in re.split(r"(?<=[.!?])\s+", text.strip())
+        for sentence in re.split(r"(?<=[.!?])\s+", _inline_text(text))
         if sentence.strip()
     ]
+
+
+def _inline_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _category_for_sentence(sentence: str) -> str | None:
@@ -430,7 +855,9 @@ def _slug(value: str) -> str:
 
 __all__ = [
     "TenderEvidenceUpsertResult",
+    "TenderClauseSegment",
     "TenderEvidenceCandidate",
+    "build_tender_clause_segments",
     "build_tender_evidence_candidates",
     "build_tender_evidence_items",
     "get_tender_evidence_item_by_key",

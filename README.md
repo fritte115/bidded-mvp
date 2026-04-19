@@ -12,7 +12,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 
 | Del | Status |
 | --- | --- |
-| `ralph/prd.json` | Komplett PRD med 50 user stories för Bidded Swarm Core. Ralph-state styr vilken story som är nästa. |
+| `ralph/prd.json` | Komplett PRD med 60 user stories för Bidded Swarm Core. Ralph-state styr vilken story som är nästa. |
 | `ralph/state.json` | Pekar på aktuell Ralph-story och nästa action. |
 | `plans/ralph-storie-plan.md` | Äldre plan/sammanfattning. Den behöver läsas som stödmaterial, inte som strikt source of truth. |
 | `Makefile` | Kör Ralph-loop med Codex CLI via `make ralph`. |
@@ -26,7 +26,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Seedat demo-bolag och demo-tender | `bidded seed-demo-company` upsertar en större syntetisk IT-konsultprofil, `bidded seed-demo-states` skapar replaybara fixture-runs för `pending`, `succeeded`, `failed` och `needs_human_review`, `bidded register-demo-tender` registrerar en lokal text-PDF, och `bidded.evidence` kan konvertera profilfakta till idempotenta `company_profile` evidence rows. |
 | PDF-ingestion | `bidded.documents` kan ladda ned registrerade tender-PDF:er från Storage, extrahera text med PyMuPDF, ersätta deterministiska sidrefererade `document_chunks`, optionalt generera och lagra chunk embeddings i Python, och uppdatera `documents.parse_status`. |
 | Retrieval | `bidded.retrieval` kan hämta top-K `document_chunks` med hybrid keyword-, regulatory glossary- och embedding/pgvector-ranking, deduplicerade chunk-resultat och deterministisk fallback utan live embeddings. |
-| Tender evidence board | `bidded.evidence` kan föreslå, klassificera, validera, deduplicera, upserta och slå upp `tender_document` evidence rows från retrieved chunks med stabila citation keys, deterministisk nullable `requirement_type` och regulatory-glossary metadata. |
+| Tender evidence board | `bidded.evidence` kan segmentera tenderchunks i klausuler, föreslå, klassificera, validera, deduplicera, upserta och slå upp `tender_document` evidence rows från retrieved chunks med stabila citation keys, deterministisk nullable `requirement_type`, regulatory-glossary metadata och clause-section metadata. |
 | Evidence Scout node | `bidded.orchestration.evidence_scout` skapar sex kategoribundna retrieval-frågor, validerar mockade Claude-output mot resolved evidence IDs och låter graphen append:a `evidence_scout`/`evidence` agent_outputs endast för giltiga scoutfakta. |
 | Specialist motion node | `bidded.orchestration.specialist_motions` bygger evidence-locked Round 1 requests utan peer motions eller privat context, skickar kravtypad glossary-context, validerar strict `Round1Motion` output och tillåter formella Compliance-blockers bara för exclusion/qualification-evidens. |
 | Focused rebuttal node | `bidded.orchestration.specialist_rebuttals` bygger Round 2 requests med shared evidence board, alla validerade Round 1-motions, fokuspunkter för oenighet/blockers/missing info och append:ar fyra `round_2_rebuttal` agent_outputs först efter validering. |
@@ -485,6 +485,16 @@ Roadmapen drivs av `ralph/prd.json`; Ralph-state pekar alltid på nästa ej klar
 | US-048 | Add adversarial fixtures |
 | US-049 | Export eval report |
 | US-050 | Compare live and mock evals |
+| US-051 | Add clause-aware tender segmentation |
+| US-052 | Add contract clause tag taxonomy |
+| US-053 | Extract structured contract terms |
+| US-054 | Annotate evidence board with clause metadata |
+| US-055 | Add bounded clause classifier adapter |
+| US-056 | Add contract clause coverage audit |
+| US-057 | Prepare uploaded procurement document set for run |
+| US-058 | Add preparation input audit |
+| US-059 | Add multi-PDF procurement fixture workflow |
+| US-060 | Support multi-document pending runs |
 
 ## Out Of Scope För Nuvarande PRD
 
