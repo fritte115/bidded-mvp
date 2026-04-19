@@ -12,6 +12,7 @@ import pytest
 import bidded.cli as cli
 from bidded.db.seed_demo_company import DEMO_COMPANY_NAME
 from bidded.db.seed_demo_states import DemoStatesSeedResult
+from bidded.evals.golden_runner import GoldenCaseEvalResult, GoldenEvalReport
 from bidded.orchestration import AgentRunStatus, Verdict
 from bidded.orchestration.run_controls import (
     DemoTraceEntry,
@@ -50,6 +51,7 @@ def test_cli_help_prints_without_external_services() -> None:
     assert "retry-run" in result.stdout
     assert "reset-stale-runs" in result.stdout
     assert "export-decision" in result.stdout
+    assert "eval-golden" in result.stdout
 
 
 def test_cli_seed_demo_company_help_prints_without_external_services() -> None:
@@ -225,6 +227,28 @@ def test_cli_export_decision_help_prints_without_external_services() -> None:
     assert "export-decision" in result.stdout
     assert "--run-id" in result.stdout
     assert "--markdown-path" in result.stdout
+    assert "--json-path" in result.stdout
+
+
+def test_cli_eval_golden_help_prints_without_external_services() -> None:
+    env = os.environ.copy()
+    env.pop("ANTHROPIC_API_KEY", None)
+    env.pop("SUPABASE_URL", None)
+    env.pop("SUPABASE_SERVICE_ROLE_KEY", None)
+    env["PYTHONPATH"] = str(PROJECT_ROOT / "src")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "bidded.cli", "eval-golden", "--help"],
+        cwd=PROJECT_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "eval-golden" in result.stdout
+    assert "--case-id" in result.stdout
     assert "--json-path" in result.stdout
 
 
@@ -962,3 +986,68 @@ def test_cli_reset_stale_runs_delegates_and_prints_count(
         "max_age_minutes": 45,
         "reason": "operator confirmed worker stopped",
     }
+
+
+def test_cli_eval_golden_runs_selected_case_and_writes_json(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    json_path = tmp_path / "golden-eval.json"
+
+    result = cli.main(
+        [
+            "eval-golden",
+            "--case-id",
+            "obvious_bid",
+            "--json-path",
+            str(json_path),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Golden evals: 1/1 passed" in captured.out
+    assert "PASS obvious_bid" in captured.out
+    assert "Wrote JSON" in captured.out
+    assert '"case_id": "obvious_bid"' in json_path.read_text(encoding="utf-8")
+
+
+def test_cli_eval_golden_returns_nonzero_for_failed_expectations(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    failed_report = GoldenEvalReport(
+        passed=False,
+        total_count=1,
+        passed_count=0,
+        failed_count=1,
+        results=(
+            GoldenCaseEvalResult(
+                case_id="hard_compliance_no_bid",
+                title="Hard compliance no-bid",
+                passed=False,
+                expected_verdict=Verdict.NO_BID,
+                actual_verdict=Verdict.BID,
+                missing_required_blockers=("Required blocker.",),
+                unexpected_hard_blockers=("Unexpected blocker.",),
+                unexpected_validation_errors=("schema_error",),
+                actual_validation_errors=("schema_error",),
+                evidence_reference_failures=("missing required evidence ref: E1",),
+            ),
+        ),
+    )
+    monkeypatch.setattr(cli, "run_golden_evals", lambda **_kwargs: failed_report)
+
+    result = cli.main(["eval-golden", "--case-id", "hard_compliance_no_bid"])
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert "Golden evals: 0/1 passed" in captured.out
+    assert "FAIL hard_compliance_no_bid" in captured.out
+    assert "Expected verdict: no_bid; actual: bid" in captured.out
+    assert "Missing required blockers: Required blocker." in captured.out
+    assert "Unexpected hard blockers: Unexpected blocker." in captured.out
+    assert "Validation errors: schema_error" in captured.out
+    assert "Evidence-reference failures: missing required evidence ref: E1" in (
+        captured.out
+    )

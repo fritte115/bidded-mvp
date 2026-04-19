@@ -21,6 +21,7 @@ Started: 2026-04-18
 - **Bidded Agent Output Schema Contract**: `src/bidded/agents/schemas.py` is the strict Pydantic surface for RequirementType, Evidence Scout output, motions, rebuttals, Judge decisions, typed Judge reasoning details, evidence refs, material claim evidence-ID validation, validation errors, and specialist role bounds.
 - **Bidded Evidence/Retrieval Contract**: `src/bidded/retrieval` returns deterministic hybrid scores; `src/bidded/evidence` builds nullable typed evidence; recall audit warnings compare chunk/glossary signals to evidence-board requirement coverage before agent requests.
 - **Bidded Operator Controls Contract**: `run_controls.py` owns status/demo-trace/retry/stale-reset controls; `decision_export.py` reads persisted decisions, agent outputs, and cited evidence into local Markdown/JSON without DB mutation.
+- **Bidded Golden Eval Contract**: `src/bidded/evals/golden_runner.py` compares recorded or injected golden outcomes against fixture expectations for verdicts, blockers, missing info/actions, unsupported-claim rejection, validation errors, and resolved evidence refs; `bidded eval-golden` is deterministic and live-service-free.
 
 ## Session Log
 
@@ -244,4 +245,9 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added typed deterministic golden demo cases covering core verdict paths, missing evidence handling, conflicting evidence review, and unsupported-claim rejection.
 - **Files**: src/bidded/fixtures/golden_cases.py, src/bidded/fixtures/__init__.py, tests/test_golden_demo_cases.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
 - **Key learnings**: Keep golden eval fixtures typed as evidence-board cases so future eval runners can validate verdicts and evidence refs without live services.
+---
+## 2026-04-19 04:10 CEST - US-043
+- **Implemented**: Added deterministic golden eval execution, mismatch reporting, stable JSON output, and the `eval-golden` CLI for all cases or one selected case.
+- **Files**: src/bidded/evals/, src/bidded/cli/__init__.py, tests/test_golden_eval_runner.py, tests/test_cli.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
+- **Key learnings**: Keep eval runners live-service-free by comparing recorded or injected outcomes against typed golden fixture expectations before later scorer/export stories deepen the metrics.
 ---

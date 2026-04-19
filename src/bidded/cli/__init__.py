@@ -17,6 +17,13 @@ from bidded.demo_smoke import (
 )
 from bidded.doctor import run_demo_environment_doctor
 from bidded.documents import TenderPdfRegistrationError, register_demo_tender_pdf
+from bidded.evals.golden_runner import (
+    GoldenCaseEvalResult,
+    GoldenEvalError,
+    GoldenEvalReport,
+    run_golden_evals,
+    write_golden_eval_json,
+)
 from bidded.orchestration import (
     AgentRunStatus,
     PendingRunContextError,
@@ -284,6 +291,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="Destination path for the stable JSON decision bundle.",
     )
     export_parser.set_defaults(handler=_run_export_decision_command)
+
+    eval_parser = subparsers.add_parser(
+        "eval-golden",
+        help="Run deterministic golden decision evals.",
+        description=(
+            "Run deterministic golden decision evals for all fixture cases or "
+            "one selected case ID without live Claude or live Supabase."
+        ),
+    )
+    eval_parser.add_argument(
+        "--case-id",
+        help="Optional golden case ID to run instead of the full fixture set.",
+    )
+    eval_parser.add_argument(
+        "--json-path",
+        type=Path,
+        help="Optional destination for a stable JSON eval report.",
+    )
+    eval_parser.set_defaults(handler=_run_eval_golden_command)
     return parser
 
 
@@ -556,6 +582,21 @@ def _run_export_decision_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_eval_golden_command(args: argparse.Namespace) -> int:
+    try:
+        result = run_golden_evals(case_id=args.case_id)
+        if args.json_path is not None:
+            write_golden_eval_json(result, args.json_path)
+    except (GoldenEvalError, OSError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    _print_golden_eval_report(result)
+    if args.json_path is not None:
+        print(f"Wrote JSON: {args.json_path}")
+    return 0 if result.passed else 1
+
+
 def _display_value(value: object | None) -> str:
     return str(value) if value is not None else "none"
 
@@ -616,6 +657,58 @@ def _print_demo_smoke_result(result: DemoSmokeResult) -> None:
     )
     print(f"Evidence count: {result.evidence_count}")
     print(f"Failure reason: {result.failure_reason or 'none'}")
+
+
+def _print_golden_eval_report(report: GoldenEvalReport) -> None:
+    print(f"Golden evals: {report.passed_count}/{report.total_count} passed.")
+    for result in report.results:
+        _print_golden_case_eval_result(result)
+
+
+def _print_golden_case_eval_result(result: GoldenCaseEvalResult) -> None:
+    status = "PASS" if result.passed else "FAIL"
+    print(f"{status} {result.case_id}: {result.title}")
+    if result.expected_verdict != result.actual_verdict or not result.passed:
+        print(
+            "  Expected verdict: "
+            f"{result.expected_verdict.value}; actual: {result.actual_verdict.value}"
+        )
+    _print_issue_tuple("Missing required blockers", result.missing_required_blockers)
+    _print_issue_tuple("Unexpected hard blockers", result.unexpected_hard_blockers)
+    _print_issue_tuple(
+        "Missing required missing info",
+        result.missing_required_missing_info,
+    )
+    _print_issue_tuple(
+        "Missing required recommended actions",
+        result.missing_required_recommended_actions,
+    )
+    _print_issue_tuple(
+        "Missing unsupported-claim rejections",
+        result.missing_expected_unsupported_claim_rejections,
+    )
+    _print_issue_tuple(
+        "Unexpected unsupported-claim rejections",
+        result.unexpected_unsupported_claim_rejections,
+    )
+    _print_issue_tuple("Validation errors", result.actual_validation_errors)
+    _print_issue_tuple(
+        "Missing expected validation errors",
+        result.missing_expected_validation_errors,
+    )
+    _print_issue_tuple(
+        "Unexpected validation errors",
+        result.unexpected_validation_errors,
+    )
+    _print_issue_tuple(
+        "Evidence-reference failures",
+        result.evidence_reference_failures,
+    )
+
+
+def _print_issue_tuple(label: str, values: tuple[str, ...]) -> None:
+    if values:
+        print(f"  {label}: {'; '.join(values)}")
 
 
 def _redact_known_secrets(message: str, settings: Any) -> str:

@@ -658,8 +658,8 @@
         "Tests cover all-cases execution, selected-case execution, pass result, fail result, and JSON output; pytest and ruff check pass."
       ],
       "priority": 43,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added deterministic eval runner service and eval-golden CLI with selected-case execution, non-zero failures, detailed mismatch reporting, stable JSON output, and tests. Complete."
     },
     {
       "id": "US-044",

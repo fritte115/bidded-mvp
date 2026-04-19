@@ -37,6 +37,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Demo doctor | `bidded doctor` kontrollerar demo-miljövariabler, Supabase-tabeller, Storage-bucket och optional Anthropic-connectivity utan att skriva ut secrets. |
 | Demo smoke | `bidded demo-smoke` kör ett opt-in smoke-flöde över seed, PDF-registrering, ingestion, evidence, pending run, worker och decision readback; default är mockade agenthandlers, medan `--live-llm` använder Claude. |
 | Golden demo cases | `bidded.fixtures.golden_cases` exponerar sex deterministiska, evidence-backed regression cases för `bid`, `no_bid`, `conditional_bid`, `needs_human_review`, saknad bolagsevidens och unsupported-claim rejection. |
+| Golden eval runner | `bidded eval-golden` kör de deterministiska golden cases, eller ett valt case ID, rapporterar verdict-/blocker-/validation-/evidence-ref-avvikelser och kan skriva stabil JSON utan live Claude eller Supabase. |
 | Frontend | Ingen frontend i repot. Lovable är fortsatt tänkt som tunn demo-UI ovanpå Supabase, men de närmaste stories prioriterar demo-hardening innan en ny handoff-story. |
 
 README:n beskriver därför både nuläget och den stack som PRD:n definierar att vi bygger mot. När stories implementeras ska planerade delar flyttas till faktiskt levererade delar.
@@ -253,6 +254,7 @@ PRD:n beskriver en lokal CLI/worker. Den kan nu:
 - skapa en ny `pending` retry-run kopplad till failed eller `needs_human_review` source-run utan att mutera immutable `agent_outputs`
 - resetta stale `running` runs till `failed` med explicit operator reason och status-guard
 - exportera en färdig decision bundle som Markdown och stabil JSON från `bid_decisions`, `agent_outputs` och citerade `evidence_items`
+- köra golden evals med `bidded eval-golden`, optionalt för ett valt case ID och med stabil JSON-output
 - uppdatera run-status till `running`, `succeeded`, `failed` eller `needs_human_review`
 - skriva normaliserade `agent_outputs` och `bid_decisions` utan raw full prompts som default audit artifact
 - logga tillräckligt lokalt för demooperation medan Supabase förblir source of truth
@@ -326,6 +328,12 @@ Pending run och worker-körning:
   --run-id "$AGENT_RUN_ID" \
   --markdown-path decision-bundle.md \
   --json-path decision-bundle.json
+
+.venv/bin/bidded eval-golden
+
+.venv/bin/bidded eval-golden \
+  --case-id hard_compliance_no_bid \
+  --json-path golden-eval.json
 ```
 
 En operatörsinriktad checklista för pre-demo setup, live smoke, worker-körning,
@@ -377,7 +385,7 @@ python3 -m venv .venv
 .venv/bin/ruff check .
 ```
 
-Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandon för bolag och replaybara demo-states, tenderregistreringen, PDF-ingestion med optional chunk embeddings, evidence builders, graph routing shell, worker lifecycle CLI, operator run controls, demo-smoke och mocked end-to-end coverage finns; övriga demo-kommandon byggs i senare stories.
+Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandon för bolag och replaybara demo-states, tenderregistreringen, PDF-ingestion med optional chunk embeddings, evidence builders, graph routing shell, worker lifecycle CLI, operator run controls, demo-smoke, golden eval runner och mocked end-to-end coverage finns; övriga demo-kommandon byggs i senare stories.
 
 ## Teststrategi
 
@@ -394,6 +402,7 @@ När appen byggs ska kvaliteten styras av:
 - graph routing- och retry/stop-tester för success, invalid output, missing inputs, empty evidence, `failed`, `needs_human_review` och END
 - en mocked end-to-end-test som seeder bolag, registrerar fixture-data, bygger evidence board, kör alla swarm-rundor och sparar ett slutbeslut
 - replaybara demo-state seedtester för idempotence, fixture-scoping, schema-valida payloads och evidence IDs
+- golden eval-runner-tester för all-cases, selected-case, pass/fail-resultat och stabil JSON-output
 
 Live Claude, live embeddings och live Supabase kan användas för demo-smoke, men ska inte vara krav för story-completion.
 

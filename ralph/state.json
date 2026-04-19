@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-043",
-  "storyTitle": "Add eval runner CLI",
+  "currentStory": "US-044",
+  "storyTitle": "Score evidence coverage",
   "nextAction": "implement",
-  "progressTokens": 3705,
+  "progressTokens": 3795,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"
