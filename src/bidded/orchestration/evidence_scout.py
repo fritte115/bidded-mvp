@@ -11,6 +11,10 @@ from bidded.agents.schemas import (
     EvidenceScoutOutput,
     ScoutCategory,
 )
+from bidded.orchestration.contract_clause_audit import (
+    ContractClauseCoverageWarning,
+    audit_contract_clause_coverage,
+)
 from bidded.orchestration.evidence_recall import (
     EvidenceRecallWarning,
     audit_evidence_recall,
@@ -91,6 +95,7 @@ class EvidenceScoutRequest(BaseModel):
     retrieved_chunks: tuple[EvidenceScoutRetrievedChunk, ...]
     evidence_board: tuple[EvidenceItemState, ...]
     evidence_recall_warnings: tuple[EvidenceRecallWarning, ...] = ()
+    contract_clause_audit_warnings: tuple[ContractClauseCoverageWarning, ...] = ()
 
 
 class EvidenceScoutModel(Protocol):
@@ -164,6 +169,10 @@ def build_evidence_scout_request(
         ),
         evidence_board=tuple(state.evidence_board),
         evidence_recall_warnings=audit_evidence_recall(
+            chunks=state.chunks,
+            evidence_board=state.evidence_board,
+        ),
+        contract_clause_audit_warnings=audit_contract_clause_coverage(
             chunks=state.chunks,
             evidence_board=state.evidence_board,
         ),

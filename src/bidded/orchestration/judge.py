@@ -15,6 +15,10 @@ from bidded.agents.schemas import (
     SupportedClaim,
     VoteSummary,
 )
+from bidded.orchestration.contract_clause_audit import (
+    ContractClauseCoverageWarning,
+    audit_contract_clause_coverage,
+)
 from bidded.orchestration.evidence_recall import (
     EvidenceRecallWarning,
     audit_evidence_recall,
@@ -73,6 +77,7 @@ class JudgeDecisionRequest(BaseModel):
     evidence_board: tuple[EvidenceItemState, ...]
     requirement_context: tuple[RequirementEvidenceContext, ...] = ()
     evidence_recall_warnings: tuple[EvidenceRecallWarning, ...] = ()
+    contract_clause_audit_warnings: tuple[ContractClauseCoverageWarning, ...] = ()
     scout_output: ScoutOutputState
     motions: dict[AgentRole, SpecialistMotionState]
     rebuttals: dict[AgentRole, RebuttalState]
@@ -188,6 +193,10 @@ def build_judge_decision_request(state: BidRunState) -> JudgeDecisionRequest:
         evidence_board=tuple(state.evidence_board),
         requirement_context=build_requirement_context(state.evidence_board),
         evidence_recall_warnings=audit_evidence_recall(
+            chunks=state.chunks,
+            evidence_board=state.evidence_board,
+        ),
+        contract_clause_audit_warnings=audit_contract_clause_coverage(
             chunks=state.chunks,
             evidence_board=state.evidence_board,
         ),

@@ -805,6 +805,7 @@ def _evidence_state_from_row(row: Mapping[str, Any]) -> EvidenceItemState:
         requirement_type=row.get("requirement_type"),
         confidence=float(row.get("confidence") or 0),
         source_metadata=dict(_mapping(row.get("source_metadata"))),
+        metadata=dict(_mapping(row.get("metadata"))),
         document_id=_optional_uuid(row.get("document_id")),
         chunk_id=_optional_uuid(row.get("chunk_id")),
         page_start=_optional_int(row.get("page_start")),

@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-056",
-  "storyTitle": "Add contract clause coverage audit",
+  "currentStory": "US-057",
+  "storyTitle": "Prepare uploaded procurement document set for run",
   "nextAction": "implement",
-  "progressTokens": 4695,
+  "progressTokens": 4770,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

@@ -111,6 +111,7 @@ class EvidenceItemState(StrictStateModel):
     requirement_type: RequirementType | None = None
     confidence: float = Field(ge=0, le=1)
     source_metadata: dict[str, Any]
+    metadata: dict[str, Any] = Field(default_factory=dict)
     evidence_id: UUID | None = None
     document_id: UUID | None = None
     chunk_id: UUID | None = None

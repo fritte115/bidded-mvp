@@ -7,6 +7,10 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from bidded.agents.schemas import AgentRole, EvidenceReference, Round1Motion
+from bidded.orchestration.contract_clause_audit import (
+    ContractClauseCoverageWarning,
+    audit_contract_clause_coverage,
+)
 from bidded.orchestration.evidence_recall import (
     EvidenceRecallWarning,
     audit_evidence_recall,
@@ -57,6 +61,7 @@ class Round1SpecialistRequest(BaseModel):
     evidence_board: tuple[EvidenceItemState, ...]
     requirement_context: tuple[RequirementEvidenceContext, ...] = ()
     evidence_recall_warnings: tuple[EvidenceRecallWarning, ...] = ()
+    contract_clause_audit_warnings: tuple[ContractClauseCoverageWarning, ...] = ()
     scout_output: ScoutOutputState
 
 
@@ -147,6 +152,10 @@ def build_round_1_specialist_request(
         evidence_board=tuple(state.evidence_board),
         requirement_context=build_requirement_context(state.evidence_board),
         evidence_recall_warnings=audit_evidence_recall(
+            chunks=state.chunks,
+            evidence_board=state.evidence_board,
+        ),
+        contract_clause_audit_warnings=audit_contract_clause_coverage(
             chunks=state.chunks,
             evidence_board=state.evidence_board,
         ),

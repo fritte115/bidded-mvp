@@ -1,5 +1,9 @@
 """LangGraph orchestration state and node boundaries."""
 
+from bidded.orchestration.contract_clause_audit import (
+    ContractClauseCoverageWarning,
+    audit_contract_clause_coverage,
+)
 from bidded.orchestration.decision_export import (
     DecisionExportError,
     DecisionExportResult,
@@ -113,6 +117,7 @@ __all__ = [
     "DecisionExportError",
     "DecisionExportResult",
     "DocumentChunkState",
+    "ContractClauseCoverageWarning",
     "EvidenceRecallWarning",
     "EvidenceItemState",
     "EvidenceRef",
@@ -168,6 +173,7 @@ __all__ = [
     "build_bid_run_state_from_supabase",
     "build_decision_persistence_handler",
     "audit_evidence_recall",
+    "audit_contract_clause_coverage",
     "build_judge_decision_request",
     "build_judge_handler",
     "build_pending_run_config",

@@ -853,8 +853,8 @@
         "Tests cover headings with missing body text, known signals with no evidence, missing extracted terms, provided Swedish contract snippet, and no false hard blocker behavior; pytest and ruff check pass."
       ],
       "priority": 56,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added deterministic contract-clause coverage warnings for missed headings/signals and missing extracted terms, wired into Scout/Round 1/Judge requests. Complete."
     },
     {
       "id": "US-057",

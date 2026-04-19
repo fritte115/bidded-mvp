@@ -357,7 +357,11 @@ def test_worker_returns_no_run_when_no_pending_run_exists() -> None:
 
 def test_worker_loads_typed_and_legacy_requirement_type_evidence() -> None:
     client = RecordingWorkerClient()
-    typed_row = {**_tender_evidence_item(), "requirement_type": "shall_requirement"}
+    typed_row = {
+        **_tender_evidence_item(),
+        "requirement_type": "shall_requirement",
+        "metadata": {"contract_clause_ids": ["insurance"]},
+    }
     legacy_row = {
         **_tender_evidence_item(),
         "id": str(SECOND_EVIDENCE_ID),
@@ -381,6 +385,9 @@ def test_worker_loads_typed_and_legacy_requirement_type_evidence() -> None:
         "shall_requirement",
         "contract_risk",
     ]
+    assert state.evidence_board[0].metadata == {
+        "contract_clause_ids": ["insurance"]
+    }
 
 
 def test_worker_picks_oldest_pending_demo_run_when_run_id_is_omitted() -> None:
