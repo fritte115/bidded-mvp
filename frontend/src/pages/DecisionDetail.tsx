@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { VerdictBadge } from "@/components/VerdictBadge";
 import { ConfidenceBar } from "@/components/ConfidenceBar";
 import { EvidenceBadge } from "@/components/EvidenceBadge";
+import { JudgeMemo } from "@/components/JudgeVerdictSummary";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -80,7 +81,7 @@ export default function DecisionDetail() {
         <Card className="lg:col-span-2">
           <CardContent className="space-y-4 p-5">
             <Section title="Judge Memo">
-              <p className="text-sm leading-relaxed">{j.citedMemo}</p>
+              <JudgeMemo memo={j.citedMemo} verdict={j.verdict} />
             </Section>
             <Section title="Disagreement">
               <p className="text-sm text-muted-foreground">{j.disagreement}</p>

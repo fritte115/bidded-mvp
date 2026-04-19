@@ -22,10 +22,9 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { VerdictBadge } from "@/components/VerdictBadge";
-import { ConfidenceBar } from "@/components/ConfidenceBar";
 import { EvidenceBadge } from "@/components/EvidenceBadge";
 import { AgentMotionCard } from "@/components/AgentMotionCard";
+import { JudgeVerdictSummary } from "@/components/JudgeVerdictSummary";
 import { PipelineStep, type StepState } from "@/components/PipelineStep";
 import { fetchRunDetail } from "@/lib/api";
 import type { EvidenceCategory } from "@/data/mock";
@@ -249,7 +248,7 @@ export default function RunDetail() {
                 </Accordion>
               </CardContent>
             </Card>
-          </PipelineStep>
+        </PipelineStep>
 
           <PipelineStep index={2} title="Round 1 — Specialist Motions" state={stepStates[2]}>
             {run.round1.length === 0 ? (
@@ -281,30 +280,12 @@ export default function RunDetail() {
             ) : (
               <Card>
                 <CardContent className="space-y-5 p-5">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-center gap-3">
-                      <VerdictBadge verdict={run.judge.verdict} size="lg" />
-                      <div>
-                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                          Confidence
-                        </p>
-                        <p className="font-mono text-lg tabular-nums">
-                          {run.judge.confidence}%
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex gap-1.5">
-                      <VoteChip label="BID" count={run.judge.voteSummary.BID} tone="success" />
-                      <VoteChip label="NO BID" count={run.judge.voteSummary.NO_BID} tone="danger" />
-                      <VoteChip label="COND." count={run.judge.voteSummary.CONDITIONAL_BID} tone="warning" />
-                    </div>
-                  </div>
-
-                  <ConfidenceBar value={run.judge.confidence} showLabel={false} />
-
-                  <div className="rounded-md border border-border bg-secondary/40 p-3 text-sm leading-relaxed">
-                    {run.judge.citedMemo}
-                  </div>
+                  <JudgeVerdictSummary
+                    verdict={run.judge.verdict}
+                    confidence={run.judge.confidence}
+                    citedMemo={run.judge.citedMemo}
+                    voteSummary={run.judge.voteSummary}
+                  />
 
                   {run.judge.disagreement && (
                     <div className="rounded-md border border-warning/30 bg-warning/5 p-3 text-sm">
@@ -432,29 +413,6 @@ export default function RunDetail() {
           </PipelineStep>
       </div>
     </>
-  );
-}
-
-function VoteChip({
-  label,
-  count,
-  tone,
-}: {
-  label: string;
-  count: number;
-  tone: "success" | "danger" | "warning";
-}) {
-  const t =
-    tone === "success"
-      ? "border-success/30 bg-success/10 text-success"
-      : tone === "danger"
-      ? "border-danger/30 bg-danger/10 text-danger"
-      : "border-warning/30 bg-warning/10 text-warning";
-  return (
-    <div className={cn("flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-semibold", t)}>
-      <span className="font-mono tabular-nums">{count}</span>
-      <span className="uppercase tracking-wide">{label}</span>
-    </div>
   );
 }
 
