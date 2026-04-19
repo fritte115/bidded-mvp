@@ -36,6 +36,16 @@ class SupabaseRunControlClient(Protocol):
 
 
 @dataclass(frozen=True)
+class DemoTraceEntry:
+    step: str
+    status: str
+    started_at: str | None
+    completed_at: str | None
+    duration_ms: int | None
+    error_code: str | None = None
+
+
+@dataclass(frozen=True)
 class RunStatusSnapshot:
     run_id: UUID
     status: AgentRunStatus
@@ -46,6 +56,7 @@ class RunStatusSnapshot:
     agent_output_count: int
     decision_present: bool
     last_recorded_step: str | None
+    demo_trace: tuple[DemoTraceEntry, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -96,6 +107,7 @@ def get_run_status(
     )
     error_details = run_row.get("error_details")
     metadata = _mapping(run_row.get("metadata"))
+    demo_trace = _demo_trace_entries(metadata)
 
     return RunStatusSnapshot(
         run_id=normalized_run_id,
@@ -108,7 +120,8 @@ def get_run_status(
         ),
         agent_output_count=len(output_rows),
         decision_present=bool(decision_rows),
-        last_recorded_step=_last_recorded_step(metadata),
+        last_recorded_step=_last_recorded_step(metadata, demo_trace),
+        demo_trace=demo_trace,
     )
 
 
@@ -270,13 +283,86 @@ def _require_run_row(
     return dict(rows[0])
 
 
-def _last_recorded_step(metadata: Mapping[str, Any]) -> str | None:
+def _last_recorded_step(
+    metadata: Mapping[str, Any],
+    demo_trace: Sequence[DemoTraceEntry],
+) -> str | None:
+    if demo_trace:
+        return demo_trace[-1].step
     worker = _mapping(metadata.get("worker"))
     visited_nodes = _sequence(worker.get("visited_nodes"))
     if visited_nodes:
         return str(visited_nodes[-1])
     last_status = worker.get("last_status")
     return str(last_status) if last_status is not None else None
+
+
+def _demo_trace_entries(metadata: Mapping[str, Any]) -> tuple[DemoTraceEntry, ...]:
+    entries: list[DemoTraceEntry] = []
+    for raw_entry in _sequence(metadata.get("demo_trace")):
+        if not isinstance(raw_entry, Mapping):
+            continue
+        step = _safe_trace_text(raw_entry.get("step"))
+        status = _safe_trace_status(raw_entry.get("status"))
+        if not step or status is None:
+            continue
+        entries.append(
+            DemoTraceEntry(
+                step=step,
+                status=status,
+                started_at=_safe_trace_timestamp(raw_entry.get("started_at")),
+                completed_at=_safe_trace_timestamp(raw_entry.get("completed_at")),
+                duration_ms=_safe_non_negative_int(raw_entry.get("duration_ms")),
+                error_code=_short_error_code(raw_entry.get("error_code")),
+            )
+        )
+    return tuple(entries)
+
+
+def _safe_trace_text(value: object) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    safe = "".join(
+        char if char.isalnum() or char in {"_", "-"} else "_"
+        for char in text.lower()
+    )
+    return safe[:64] or None
+
+
+def _safe_trace_status(value: object) -> str | None:
+    text = _safe_trace_text(value)
+    if text in {"running", "completed", "failed"}:
+        return text
+    return None
+
+
+def _safe_trace_timestamp(value: object) -> str | None:
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC).isoformat()
+
+
+def _safe_non_negative_int(value: object) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed < 0:
+        return None
+    return parsed
+
+
+def _short_error_code(value: object) -> str | None:
+    if value is None:
+        return None
+    return _safe_trace_text(value)
 
 
 def _operator_reset_metadata(
@@ -362,6 +448,7 @@ _AGENT_RUN_SELECT_COLUMNS = (
 
 
 __all__ = [
+    "DemoTraceEntry",
     "RetryRunResult",
     "RunControlError",
     "RunStatusSnapshot",

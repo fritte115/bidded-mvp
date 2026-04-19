@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-039",
-  "storyTitle": "Add demo step trace",
+  "currentStory": "US-040",
+  "storyTitle": "Export decision bundle",
   "nextAction": "implement",
-  "progressTokens": 3405,
+  "progressTokens": 3480,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

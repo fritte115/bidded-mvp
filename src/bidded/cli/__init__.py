@@ -25,6 +25,7 @@ from bidded.orchestration import (
     run_worker_once,
 )
 from bidded.orchestration.run_controls import (
+    DemoTraceEntry,
     RunControlError,
     get_run_status,
     reset_stale_runs,
@@ -208,6 +209,11 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     status_parser.add_argument("--run-id", required=True, help="agent_runs UUID.")
+    status_parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print the compact demo trace and highlight the latest problem step.",
+    )
     status_parser.set_defaults(handler=_run_status_command)
 
     retry_parser = subparsers.add_parser(
@@ -451,6 +457,8 @@ def _run_status_command(args: argparse.Namespace) -> int:
     print(f"Agent outputs: {result.agent_output_count}")
     print(f"Decision present: {'yes' if result.decision_present else 'no'}")
     print(f"Last recorded step: {_display_value(result.last_recorded_step)}")
+    if args.verbose:
+        _print_demo_trace(result.demo_trace)
     return 0
 
 
@@ -509,6 +517,37 @@ def _format_error_details(error_details: dict[str, Any] | None) -> str:
     source = _display_value(error_details.get("source"))
     message = _display_value(error_details.get("message"))
     return f"{code} from {source} - {message}"
+
+
+def _print_demo_trace(demo_trace: tuple[DemoTraceEntry, ...]) -> None:
+    if not demo_trace:
+        print("Demo trace: none")
+        return
+
+    print("Demo trace:")
+    highlighted_index = _latest_problem_trace_index(demo_trace)
+    for index, entry in enumerate(demo_trace):
+        prefix = "!" if index == highlighted_index else "OK"
+        line = (
+            f"{prefix} {entry.step} {entry.status} "
+            f"{_display_value(entry.started_at)} -> "
+            f"{_display_value(entry.completed_at)} "
+            f"duration_ms={_display_value(entry.duration_ms)}"
+        )
+        if entry.error_code is not None:
+            line = f"{line} error={entry.error_code}"
+        if index == highlighted_index:
+            line = f"{line} <-- latest failed/incomplete"
+        print(line)
+
+
+def _latest_problem_trace_index(
+    demo_trace: tuple[DemoTraceEntry, ...],
+) -> int | None:
+    for index in range(len(demo_trace) - 1, -1, -1):
+        if demo_trace[index].status != "completed":
+            return index
+    return None
 
 
 def _print_demo_smoke_result(result: DemoSmokeResult) -> None:

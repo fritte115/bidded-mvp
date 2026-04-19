@@ -598,8 +598,8 @@
         "Tests cover successful traces, failed traces, redaction, append-only behavior, and verbose status rendering; pytest and ruff check pass."
       ],
       "priority": 39,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added sanitized worker demo_trace metadata plus parsed verbose run-status rendering with failed/incomplete highlight. Complete."
     },
     {
       "id": "US-040",

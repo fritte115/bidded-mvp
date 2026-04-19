@@ -14,6 +14,7 @@ from bidded.db.seed_demo_company import DEMO_COMPANY_NAME
 from bidded.db.seed_demo_states import DemoStatesSeedResult
 from bidded.orchestration import AgentRunStatus, Verdict
 from bidded.orchestration.run_controls import (
+    DemoTraceEntry,
     RetryRunResult,
     RunStatusSnapshot,
     StaleResetResult,
@@ -748,6 +749,89 @@ def test_cli_run_status_prints_operator_snapshot(
     assert "Agent outputs: 10" in captured.out
     assert "Decision present: yes" in captured.out
     assert "Last recorded step: judge" in captured.out
+
+
+def test_cli_run_status_verbose_prints_demo_trace_with_latest_problem_step(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client = object()
+    monkeypatch.setattr(
+        cli,
+        "load_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {
+                "supabase_url": "https://example.supabase.co",
+                "supabase_service_role_key": "service-role",
+            },
+        )(),
+    )
+    monkeypatch.setattr(cli, "_create_supabase_client", lambda _settings: client)
+
+    def record_status(supabase_client: object, **kwargs: Any) -> RunStatusSnapshot:
+        assert supabase_client is client
+        assert kwargs == {
+            "run_id": "11111111-1111-4111-8111-111111111111"
+        }
+        return RunStatusSnapshot(
+            run_id="11111111-1111-4111-8111-111111111111",
+            status=AgentRunStatus.FAILED,
+            created_at="2026-04-18T17:00:00+00:00",
+            started_at="2026-04-18T17:30:00+00:00",
+            completed_at="2026-04-18T17:45:00+00:00",
+            error_details={
+                "code": "graph_failed",
+                "message": "Evidence board is empty.",
+                "source": "graph",
+            },
+            agent_output_count=10,
+            decision_present=False,
+            last_recorded_step="run_graph",
+            demo_trace=(
+                DemoTraceEntry(
+                    step="claim_run",
+                    status="completed",
+                    started_at="2026-04-18T17:30:00+00:00",
+                    completed_at="2026-04-18T17:30:00+00:00",
+                    duration_ms=0,
+                    error_code=None,
+                ),
+                DemoTraceEntry(
+                    step="run_graph",
+                    status="failed",
+                    started_at="2026-04-18T17:31:00+00:00",
+                    completed_at="2026-04-18T17:32:00+00:00",
+                    duration_ms=60_000,
+                    error_code="graph_failed",
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(cli, "get_run_status", record_status)
+
+    result = cli.main(
+        [
+            "run-status",
+            "--run-id",
+            "11111111-1111-4111-8111-111111111111",
+            "--verbose",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Demo trace:" in captured.out
+    assert (
+        "OK claim_run completed 2026-04-18T17:30:00+00:00 -> "
+        "2026-04-18T17:30:00+00:00 duration_ms=0"
+    ) in captured.out
+    assert (
+        "! run_graph failed 2026-04-18T17:31:00+00:00 -> "
+        "2026-04-18T17:32:00+00:00 duration_ms=60000 "
+        "error=graph_failed <-- latest failed/incomplete"
+    ) in captured.out
 
 
 def test_cli_retry_run_delegates_and_prints_lineage(

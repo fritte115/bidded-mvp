@@ -20,7 +20,7 @@ Started: 2026-04-18
 - **Bidded Agent Tool Policy Contract**: `src/bidded/agents/tool_policy.py` is the source of truth for LLM-agent denied tools, bounded retrieval, artifact access, and orchestrator-owned side effects.
 - **Bidded Agent Output Schema Contract**: `src/bidded/agents/schemas.py` is the strict Pydantic surface for RequirementType, Evidence Scout output, motions, rebuttals, Judge decisions, typed Judge reasoning details, evidence refs, material claim evidence-ID validation, validation errors, and specialist role bounds.
 - **Bidded Evidence/Retrieval Contract**: `src/bidded/retrieval` returns deterministic hybrid scores; `src/bidded/evidence` builds nullable typed evidence; recall audit warnings compare chunk/glossary signals to evidence-board requirement coverage before agent requests.
-- **Bidded Operator Controls Contract**: `src/bidded/orchestration/run_controls.py` owns local status/retry/stale-reset controls; retry inserts new pending runs with source lineage, and stale reset uses `status = running` guards plus operator reason metadata.
+- **Bidded Operator Controls Contract**: `src/bidded/orchestration/run_controls.py` owns local status/demo-trace/retry/stale-reset controls; retry inserts new pending runs with source lineage, and stale reset uses `status = running` guards plus operator reason metadata.
 
 ## Session Log
 
@@ -224,4 +224,9 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added an injectable `demo-smoke` flow and CLI covering seed, PDF fallback/registration, ingestion, evidence creation, pending run, worker execution, and decision readback with mocked-default/live-LLM flag handling.
 - **Files**: src/bidded/demo_smoke.py, src/bidded/cli/__init__.py, tests/test_demo_smoke.py, tests/test_cli.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
 - **Key learnings**: Keep smoke orchestration injectable and read verdicts back from `bid_decisions` instead of treating worker return values as persisted readback.
+---
+## 2026-04-19 03:35 CEST - US-039
+- **Implemented**: Added compact worker `demo_trace` metadata, parsed run-status trace snapshots, and verbose CLI rendering that highlights the latest failed or incomplete step.
+- **Files**: src/bidded/orchestration/worker.py, src/bidded/orchestration/run_controls.py, src/bidded/orchestration/__init__.py, src/bidded/cli/__init__.py, tests/test_worker_lifecycle.py, tests/test_operator_run_controls.py, tests/test_cli.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
+- **Key learnings**: Keep demo traces as compact top-level run metadata with sanitized step/status/timing/error-code fields, leaving raw prompts and private context out of operator diagnostics.
 ---

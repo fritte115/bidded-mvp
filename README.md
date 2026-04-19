@@ -33,7 +33,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Judge decision node | `bidded.orchestration.judge` bygger evidence-locked Judge requests med kravtypad glossary-context, validerar strict `JudgeDecision` output, gate:ar endast typade formella compliance blockers till `no_bid`, append:ar `final_decision` agent_output och skriver Supabase-kompatibla `bid_decisions` payloads med kravtyper i relevanta detaljer. |
 | Pending agent runs | `bidded create-pending-run` validerar vald demo tender, demo company och tender document innan en `pending` `agent_runs`-rad med evidence-locked run config skapas. |
 | Worker lifecycle CLI | `bidded worker` kör en specificerad pending run eller äldsta pending demo-run, uppdaterar `agent_runs`, kör graphen och persisterar normaliserade `agent_outputs` och `bid_decisions`. |
-| Operator run controls | `bidded run-status`, `bidded retry-run` och `bidded reset-stale-runs` visar auditstatus, skapar lineage-kopplade retries och failar stale `running` runs med operator reason. |
+| Operator run controls | `bidded run-status`, `bidded retry-run` och `bidded reset-stale-runs` visar auditstatus, demo trace, skapar lineage-kopplade retries och failar stale `running` runs med operator reason. |
 | Demo doctor | `bidded doctor` kontrollerar demo-miljövariabler, Supabase-tabeller, Storage-bucket och optional Anthropic-connectivity utan att skriva ut secrets. |
 | Demo smoke | `bidded demo-smoke` kör ett opt-in smoke-flöde över seed, PDF-registrering, ingestion, evidence, pending run, worker och decision readback; default är mockade agenthandlers, medan `--live-llm` använder Claude. |
 | Frontend | Ingen frontend i repot. Lovable är fortsatt tänkt som tunn demo-UI ovanpå Supabase, men de närmaste stories prioriterar demo-hardening innan en ny handoff-story. |
@@ -248,7 +248,7 @@ PRD:n beskriver en lokal CLI/worker. Den kan nu:
 - claim:a pending runs med `status = pending`-guard innan graphen startar, så dubbelkörningar stoppas
 - kontrollera demo-miljön med `bidded doctor` innan live demo
 - köra ett bounded `demo-smoke` som seeder demo-bolag, registrerar PDF, ingest:ar, skapar evidence, skapar pending run, kör worker och läser tillbaka beslut
-- visa run-status med timestamps, errors, agent-output count, decision presence och senaste graphsteg
+- visa run-status med timestamps, errors, agent-output count, decision presence, senaste graphsteg och kompakt `demo_trace`
 - skapa en ny `pending` retry-run kopplad till failed eller `needs_human_review` source-run utan att mutera immutable `agent_outputs`
 - resetta stale `running` runs till `failed` med explicit operator reason och status-guard
 - uppdatera run-status till `running`, `succeeded`, `failed` eller `needs_human_review`
@@ -309,6 +309,8 @@ Pending run och worker-körning:
 .venv/bin/bidded worker
 
 .venv/bin/bidded run-status --run-id "$AGENT_RUN_ID"
+
+.venv/bin/bidded run-status --run-id "$AGENT_RUN_ID" --verbose
 
 .venv/bin/bidded retry-run \
   --run-id "$FAILED_OR_REVIEW_RUN_ID" \

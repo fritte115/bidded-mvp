@@ -169,6 +169,28 @@ def test_worker_runs_specified_pending_run_and_persists_audit_rows() -> None:
     assert run_updates[-1][0]["status"] == "succeeded"
     assert run_updates[-1][0]["completed_at"] == "2026-04-18T18:00:00+00:00"
     assert client.rows["agent_runs"][0]["status"] == "succeeded"
+    demo_trace = client.rows["agent_runs"][0]["metadata"]["demo_trace"]
+    assert [entry["step"] for entry in demo_trace] == [
+        "claim_run",
+        "load_run_context",
+        "run_graph",
+        "persist_agent_outputs",
+        "persist_final_decision",
+        "complete_run",
+    ]
+    assert all(entry["status"] == "completed" for entry in demo_trace)
+    assert all(
+        entry["started_at"] == "2026-04-18T18:00:00+00:00"
+        for entry in demo_trace
+    )
+    assert all(
+        entry["completed_at"] == "2026-04-18T18:00:00+00:00"
+        for entry in demo_trace
+    )
+    assert all(entry["duration_ms"] == 0 for entry in demo_trace)
+    assert "raw_prompt" not in repr(demo_trace)
+    assert "private_context" not in repr(demo_trace)
+    assert "full_pdf_text" not in repr(demo_trace)
 
     agent_outputs = client.inserts["agent_outputs"][0]
     assert isinstance(agent_outputs, list)
@@ -375,8 +397,82 @@ def test_worker_marks_run_failed_when_graph_preflight_fails() -> None:
     assert failed_update["status"] == "failed"
     assert failed_update["error_details"]["code"] == "graph_failed"
     assert "Evidence board is empty." in failed_update["error_details"]["message"]
+    demo_trace = client.rows["agent_runs"][0]["metadata"]["demo_trace"]
+    assert [entry["step"] for entry in demo_trace] == [
+        "claim_run",
+        "load_run_context",
+        "run_graph",
+        "complete_run",
+    ]
+    assert demo_trace[2]["status"] == "failed"
+    assert demo_trace[2]["error_code"] == "graph_failed"
+    assert demo_trace[2]["duration_ms"] == 0
+    assert demo_trace[-1]["status"] == "completed"
     assert "agent_outputs" not in client.inserts
     assert "bid_decisions" not in client.inserts
+
+
+def test_worker_trace_redacts_exception_context() -> None:
+    client = RecordingWorkerClient()
+
+    def failing_runner(_state: Any) -> GraphRunResult:
+        raise RuntimeError(
+            "raw_prompt sk-ant-secret full_pdf_text private_context supplier data"
+        )
+
+    result = run_worker_once(
+        client,
+        run_id=RUN_ID,
+        graph_runner=failing_runner,
+        now_factory=lambda: datetime(2026, 4, 18, 18, 0, tzinfo=UTC),
+    )
+
+    assert result.terminal_status is AgentRunStatus.FAILED
+    demo_trace = client.rows["agent_runs"][0]["metadata"]["demo_trace"]
+    assert demo_trace[2]["step"] == "run_graph"
+    assert demo_trace[2]["status"] == "failed"
+    assert demo_trace[2]["error_code"] == "worker_error"
+    trace_text = repr(demo_trace)
+    assert "raw_prompt" not in trace_text
+    assert "sk-ant-secret" not in trace_text
+    assert "full_pdf_text" not in trace_text
+    assert "private_context" not in trace_text
+
+
+def test_worker_appends_trace_entries_and_preserves_run_metadata() -> None:
+    client = RecordingWorkerClient()
+    existing_trace = {
+        "step": "register_demo_tender",
+        "status": "completed",
+        "started_at": "2026-04-18T17:50:00+00:00",
+        "completed_at": "2026-04-18T17:50:01+00:00",
+        "duration_ms": 1000,
+    }
+    client.rows["agent_runs"][0]["metadata"] = {
+        "created_via": "test",
+        "operator_note": "preserve this compact note",
+        "demo_trace": [existing_trace],
+    }
+
+    result = run_worker_once(
+        client,
+        run_id=RUN_ID,
+        now_factory=lambda: datetime(2026, 4, 18, 18, 0, tzinfo=UTC),
+    )
+
+    assert result.terminal_status is AgentRunStatus.SUCCEEDED
+    metadata = client.rows["agent_runs"][0]["metadata"]
+    assert metadata["created_via"] == "test"
+    assert metadata["operator_note"] == "preserve this compact note"
+    assert metadata["demo_trace"][0] == existing_trace
+    assert [entry["step"] for entry in metadata["demo_trace"][1:]] == [
+        "claim_run",
+        "load_run_context",
+        "run_graph",
+        "persist_agent_outputs",
+        "persist_final_decision",
+        "complete_run",
+    ]
 
 
 def test_worker_persists_needs_human_review_terminal_status() -> None:

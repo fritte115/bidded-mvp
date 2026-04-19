@@ -65,6 +65,12 @@ class WorkerRunResult:
     message: str
 
 
+@dataclass(frozen=True)
+class _TraceStepTiming:
+    step: str
+    started_at: str
+
+
 def run_worker_once(
     client: SupabaseWorkerClient,
     *,
@@ -111,7 +117,10 @@ def run_worker_once(
         )
 
     metadata = _mapping(selected_run.get("metadata"))
-    started_at = _timestamp(now)
+    demo_trace = _DemoTrace(metadata, now)
+    claim_step = demo_trace.start("claim_run")
+    started_at = claim_step.started_at
+    demo_trace.complete(claim_step)
     claimed_run = _claim_worker_run(
         client,
         selected_run=selected_run,
@@ -119,6 +128,7 @@ def run_worker_once(
         tenant_key=tenant_key,
         timestamp=started_at,
         metadata=metadata,
+        demo_trace=demo_trace.entries,
     )
     if claimed_run is None:
         message = "No pending demo agent run found."
@@ -135,12 +145,17 @@ def run_worker_once(
     metadata = _mapping(selected_run.get("metadata"))
     _log(log, f"Starting agent run {normalized_run_id}.")
 
+    active_step: _TraceStepTiming | None = None
     try:
+        active_step = demo_trace.start("load_run_context")
         state = build_bid_run_state_from_supabase(
             client,
             run_row=selected_run,
             tenant_key=tenant_key,
         )
+        demo_trace.complete(active_step)
+        active_step = None
+        active_step = demo_trace.start("run_graph")
         graph_result = graph_runner(state)
         terminal_state = graph_result.state
         visited_nodes = tuple(node.value for node in graph_result.visited_nodes)
@@ -148,6 +163,10 @@ def run_worker_once(
         if terminal_state.status is AgentRunStatus.FAILED:
             completed_at = _timestamp(now)
             error_details = _graph_error_details(terminal_state.last_error)
+            demo_trace.fail(active_step, error_code=error_details["code"])
+            active_step = None
+            complete_step = demo_trace.start("complete_run")
+            demo_trace.complete(complete_step)
             _update_run_status(
                 client,
                 run_id=normalized_run_id,
@@ -158,6 +177,8 @@ def run_worker_once(
                     metadata,
                     terminal_state=terminal_state,
                     visited_nodes=visited_nodes,
+                    timestamp=completed_at,
+                    demo_trace=demo_trace.entries,
                 ),
                 error_details=error_details,
             )
@@ -175,17 +196,28 @@ def run_worker_once(
                 message=message,
             )
 
+        demo_trace.complete(active_step)
+        active_step = None
+        active_step = demo_trace.start("persist_agent_outputs")
         output_count = persist_agent_outputs(
             client,
             terminal_state.agent_outputs,
             run_id=normalized_run_id,
             tenant_key=tenant_key,
         )
+        demo_trace.complete(active_step)
+        active_step = None
         if terminal_state.final_decision is None:
             raise WorkerLifecycleError("Graph completed without a final decision.")
+        active_step = demo_trace.start("persist_final_decision")
         persist_final_decision(client, terminal_state, tenant_key=tenant_key)
+        demo_trace.complete(active_step)
+        active_step = None
 
         completed_at = _timestamp(now)
+        active_step = demo_trace.start("complete_run")
+        demo_trace.complete(active_step)
+        active_step = None
         metadata = _update_run_status(
             client,
             run_id=normalized_run_id,
@@ -196,6 +228,8 @@ def run_worker_once(
                 metadata,
                 terminal_state=terminal_state,
                 visited_nodes=visited_nodes,
+                timestamp=completed_at,
+                demo_trace=demo_trace.entries,
             ),
             error_details=None,
         )
@@ -215,6 +249,14 @@ def run_worker_once(
         )
     except Exception as exc:
         completed_at = _timestamp(now)
+        if active_step is not None:
+            demo_trace.fail(active_step, error_code="worker_error")
+            active_step = None
+        else:
+            failure_step = demo_trace.start("worker_error")
+            demo_trace.fail(failure_step, error_code="worker_error")
+        complete_step = demo_trace.start("complete_run")
+        demo_trace.complete(complete_step)
         error_details = {
             "code": "worker_error",
             "message": str(exc),
@@ -231,6 +273,7 @@ def run_worker_once(
                 status=AgentRunStatus.FAILED,
                 timestamp=completed_at,
                 details={"error_code": error_details["code"]},
+                demo_trace=demo_trace.entries,
             ),
             error_details=error_details,
         )
@@ -444,11 +487,13 @@ def _claim_worker_run(
     tenant_key: str,
     timestamp: str,
     metadata: Mapping[str, Any],
+    demo_trace: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any] | None:
     next_metadata = _worker_metadata(
         metadata,
         status=AgentRunStatus.RUNNING,
         timestamp=timestamp,
+        demo_trace=demo_trace,
     )
     payload: dict[str, Any] = {
         "status": AgentRunStatus.RUNNING.value,
@@ -475,6 +520,8 @@ def _terminal_metadata(
     *,
     terminal_state: BidRunState,
     visited_nodes: Sequence[str],
+    timestamp: str,
+    demo_trace: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     details: dict[str, Any] = {
         "visited_nodes": list(visited_nodes),
@@ -485,8 +532,9 @@ def _terminal_metadata(
     return _worker_metadata(
         metadata,
         status=terminal_state.status,
-        timestamp=_utc_now().isoformat(),
+        timestamp=timestamp,
         details=details,
+        demo_trace=demo_trace,
     )
 
 
@@ -496,8 +544,11 @@ def _worker_metadata(
     status: AgentRunStatus,
     timestamp: str,
     details: Mapping[str, Any] | None = None,
+    demo_trace: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     merged = dict(metadata)
+    if demo_trace is not None:
+        merged["demo_trace"] = _sanitize_demo_trace_entries(demo_trace)
     worker = dict(_mapping(merged.get("worker")))
     worker.update(
         {
@@ -510,6 +561,138 @@ def _worker_metadata(
         worker.update(dict(details))
     merged["worker"] = worker
     return merged
+
+
+class _DemoTrace:
+    def __init__(self, metadata: Mapping[str, Any], now: NowFactory) -> None:
+        self._now = now
+        self._entries = _sanitize_demo_trace_entries(
+            _sequence(metadata.get("demo_trace"))
+        )
+
+    @property
+    def entries(self) -> tuple[dict[str, Any], ...]:
+        return tuple(dict(entry) for entry in self._entries)
+
+    def start(self, step: str) -> _TraceStepTiming:
+        return _TraceStepTiming(step=step, started_at=_timestamp(self._now))
+
+    def complete(self, timing: _TraceStepTiming) -> None:
+        self._append(timing, status="completed", completed_at=_timestamp(self._now))
+
+    def fail(self, timing: _TraceStepTiming, *, error_code: str) -> None:
+        self._append(
+            timing,
+            status="failed",
+            completed_at=_timestamp(self._now),
+            error_code=error_code,
+        )
+
+    def _append(
+        self,
+        timing: _TraceStepTiming,
+        *,
+        status: str,
+        completed_at: str,
+        error_code: str | None = None,
+    ) -> None:
+        entry: dict[str, Any] = {
+            "step": _safe_trace_text(timing.step),
+            "status": status,
+            "started_at": timing.started_at,
+            "completed_at": completed_at,
+            "duration_ms": _duration_ms(timing.started_at, completed_at),
+        }
+        if error_code is not None:
+            entry["error_code"] = _short_error_code(error_code)
+        self._entries.append(entry)
+
+
+def _sanitize_demo_trace_entries(
+    entries: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    sanitized: list[dict[str, Any]] = []
+    for raw_entry in entries:
+        if not isinstance(raw_entry, Mapping):
+            continue
+        step = _safe_trace_text(raw_entry.get("step"))
+        status = _safe_trace_status(raw_entry.get("status"))
+        if not step or status is None:
+            continue
+        entry: dict[str, Any] = {"step": step, "status": status}
+        started_at = _safe_trace_timestamp(raw_entry.get("started_at"))
+        completed_at = _safe_trace_timestamp(raw_entry.get("completed_at"))
+        if started_at is not None:
+            entry["started_at"] = started_at
+        if completed_at is not None:
+            entry["completed_at"] = completed_at
+        duration_ms = _safe_non_negative_int(raw_entry.get("duration_ms"))
+        if duration_ms is not None:
+            entry["duration_ms"] = duration_ms
+        error_code = _short_error_code(raw_entry.get("error_code"))
+        if error_code is not None:
+            entry["error_code"] = error_code
+        sanitized.append(entry)
+    return sanitized
+
+
+def _safe_trace_text(value: object) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    safe = "".join(
+        char if char.isalnum() or char in {"_", "-"} else "_"
+        for char in text.lower()
+    )
+    return safe[:64] or None
+
+
+def _safe_trace_status(value: object) -> str | None:
+    text = _safe_trace_text(value)
+    if text in {"running", "completed", "failed"}:
+        return text
+    return None
+
+
+def _safe_trace_timestamp(value: object) -> str | None:
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC).isoformat()
+
+
+def _safe_non_negative_int(value: object) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed < 0:
+        return None
+    return parsed
+
+
+def _short_error_code(value: object) -> str | None:
+    if value is None:
+        return None
+    return _safe_trace_text(value)
+
+
+def _duration_ms(started_at: str, completed_at: str) -> int:
+    try:
+        started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+        completed = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
+    except ValueError:
+        return 0
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=UTC)
+    if completed.tzinfo is None:
+        completed = completed.replace(tzinfo=UTC)
+    return max(0, int((completed - started).total_seconds() * 1000))
 
 
 def _graph_error_details(last_error: RuntimeErrorState | None) -> dict[str, Any]:

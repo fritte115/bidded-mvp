@@ -40,6 +40,7 @@ from bidded.orchestration.pending_run import (
     create_pending_run_context,
 )
 from bidded.orchestration.run_controls import (
+    DemoTraceEntry,
     RetryRunResult,
     RunControlError,
     RunStatusSnapshot,
@@ -117,6 +118,7 @@ __all__ = [
     "GraphRunResult",
     "InvalidGraphOutput",
     "DecisionPersistenceResult",
+    "DemoTraceEntry",
     "JudgeDecisionDrafter",
     "JudgeDecisionModel",
     "JudgeDecisionPersistenceError",

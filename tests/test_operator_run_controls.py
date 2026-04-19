@@ -8,6 +8,7 @@ import pytest
 
 from bidded.orchestration import AgentRunStatus
 from bidded.orchestration.run_controls import (
+    DemoTraceEntry,
     RunControlError,
     get_run_status,
     reset_stale_runs,
@@ -160,6 +161,52 @@ def test_run_status_reports_lifecycle_audit_snapshot() -> None:
     assert status.decision_present is True
     assert status.last_recorded_step == "judge"
     assert client.table_names == ["agent_runs", "agent_outputs", "bid_decisions"]
+
+
+def test_run_status_reports_compact_demo_trace_entries() -> None:
+    client = RecordingRunControlClient()
+    client.rows["agent_runs"][0]["metadata"]["demo_trace"] = [
+        {
+            "step": "claim_run",
+            "status": "completed",
+            "started_at": "2026-04-18T17:30:00+00:00",
+            "completed_at": "2026-04-18T17:30:00+00:00",
+            "duration_ms": 0,
+            "raw_prompt": "must not be surfaced",
+        },
+        {
+            "step": "run_graph",
+            "status": "failed",
+            "started_at": "2026-04-18T17:31:00+00:00",
+            "completed_at": "2026-04-18T17:32:00+00:00",
+            "duration_ms": 60_000,
+            "error_code": "graph_failed",
+            "private_context": "must not be surfaced",
+        },
+    ]
+
+    status = get_run_status(client, run_id=RUN_ID)
+
+    assert status.demo_trace == (
+        DemoTraceEntry(
+            step="claim_run",
+            status="completed",
+            started_at="2026-04-18T17:30:00+00:00",
+            completed_at="2026-04-18T17:30:00+00:00",
+            duration_ms=0,
+            error_code=None,
+        ),
+        DemoTraceEntry(
+            step="run_graph",
+            status="failed",
+            started_at="2026-04-18T17:31:00+00:00",
+            completed_at="2026-04-18T17:32:00+00:00",
+            duration_ms=60_000,
+            error_code="graph_failed",
+        ),
+    )
+    assert "raw_prompt" not in repr(status.demo_trace)
+    assert "private_context" not in repr(status.demo_trace)
 
 
 def test_retry_creates_new_pending_run_with_source_lineage() -> None:
