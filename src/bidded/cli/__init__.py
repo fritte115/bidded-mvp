@@ -135,7 +135,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Create a pending Supabase-backed agent run.",
         description=(
             "Create a pending Supabase-backed agent run for an existing "
-            "demo tender, demo company, and registered tender document."
+            "demo tender, demo company, and registered tender document set."
         ),
     )
     pending_run_parser.add_argument(
@@ -150,8 +150,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pending_run_parser.add_argument(
         "--document-id",
+        action="append",
         required=True,
-        help="Existing registered tender document UUID.",
+        help=(
+            "Existing parsed tender document UUID. Repeat for multi-document "
+            "procurement sets."
+        ),
     )
     pending_run_parser.set_defaults(handler=_run_create_pending_run_command)
 
@@ -554,11 +558,17 @@ def _run_create_pending_run_command(args: argparse.Namespace) -> int:
     settings = load_settings()
     try:
         client = _create_supabase_client(settings)
+        document_ids = list(args.document_id)
+        document_kwargs = (
+            {"document_id": document_ids[0]}
+            if len(document_ids) == 1
+            else {"document_ids": document_ids}
+        )
         result = create_pending_run_context(
             client,
             tender_id=args.tender_id,
             company_id=args.company_id,
-            document_id=args.document_id,
+            **document_kwargs,
         )
     except (RuntimeError, PendingRunContextError) as exc:
         print(str(exc), file=sys.stderr)

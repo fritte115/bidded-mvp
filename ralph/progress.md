@@ -331,3 +331,8 @@ No Ralph story sessions have completed yet.
 - **Files**: src/bidded/orchestration/procurement_manifest.py, src/bidded/documents/tender_registration.py, src/bidded/cli/__init__.py, src/bidded/orchestration/__init__.py, tests/test_procurement_manifest_workflow.py, tests/test_tender_pdf_registration.py, tests/test_cli.py, README.md, ralph/progress.md, ralph/prd.json, ralph/state.json
 - **Key learnings**: Keep procurement-specific attachment roles in document metadata so `document_role` remains the stable `tender_document` source-type contract.
 ---
+## 2026-04-19 07:22 CEST - US-060
+- **Implemented**: Completed multi-document pending-run support with parsed-document validation, repeated CLI document IDs, and worker evidence-board scoping coverage.
+- **Files**: src/bidded/orchestration/pending_run.py, src/bidded/cli/__init__.py, tests/test_pending_run_context.py, tests/test_cli.py, tests/test_worker_lifecycle.py, ralph/prd.json, ralph/state.json, ralph/progress.md
+- **Key learnings**: Keep `create_pending_run_context` as the direct guard for parsed tender-document sets so worker runs receive only evidence-ready document IDs.
+---

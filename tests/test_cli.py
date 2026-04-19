@@ -594,6 +594,66 @@ def test_cli_create_pending_run_delegates_to_service(
     }
 
 
+def test_cli_create_pending_run_accepts_multiple_document_ids(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client = object()
+    captured_run: dict[str, Any] = {}
+    monkeypatch.setattr(
+        cli,
+        "load_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {
+                "supabase_url": "https://example.supabase.co",
+                "supabase_service_role_key": "service-role",
+            },
+        )(),
+    )
+    monkeypatch.setattr(cli, "_create_supabase_client", lambda _settings: client)
+
+    def record_pending_run(
+        supabase_client: object,
+        **kwargs: Any,
+    ) -> SimpleNamespace:
+        captured_run["client"] = supabase_client
+        captured_run.update(kwargs)
+        return SimpleNamespace(run_id="11111111-1111-4111-8111-111111111111")
+
+    monkeypatch.setattr(cli, "create_pending_run_context", record_pending_run)
+
+    result = cli.main(
+        [
+            "create-pending-run",
+            "--tender-id",
+            "33333333-3333-4333-8333-333333333333",
+            "--company-id",
+            "22222222-2222-4222-8222-222222222222",
+            "--document-id",
+            "44444444-4444-4444-8444-444444444441",
+            "--document-id",
+            "44444444-4444-4444-8444-444444444442",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Created pending agent run 11111111-1111-4111-8111-111111111111" in (
+        captured.out
+    )
+    assert captured_run == {
+        "client": client,
+        "tender_id": "33333333-3333-4333-8333-333333333333",
+        "company_id": "22222222-2222-4222-8222-222222222222",
+        "document_ids": [
+            "44444444-4444-4444-8444-444444444441",
+            "44444444-4444-4444-8444-444444444442",
+        ],
+    }
+
+
 def test_cli_prepare_run_delegates_to_service(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

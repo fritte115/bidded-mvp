@@ -83,10 +83,10 @@ def create_pending_run_context(
         missing_message=f"Demo tender does not exist: {normalized_tender_id}",
     )
     for normalized_document_id in normalized_document_ids:
-        _require_row(
+        document_row = _require_row(
             client,
             table_name="documents",
-            columns="id",
+            columns="id,parse_status",
             filters={
                 "id": str(normalized_document_id),
                 "tenant_key": DEMO_TENANT_KEY,
@@ -98,6 +98,7 @@ def create_pending_run_context(
                 f"{normalized_tender_id}: {normalized_document_id}"
             ),
         )
+        _require_parsed_document(document_row, normalized_document_id)
 
     run_config = build_pending_run_config(document_ids=normalized_document_ids)
     run_metadata: dict[str, Any] = {
@@ -189,6 +190,19 @@ def _first_returned_id(response: Any, table_name: str) -> UUID:
     raise PendingRunContextError(
         f"Supabase {table_name} insert did not return a row id."
     )
+
+
+def _require_parsed_document(
+    row: Mapping[str, Any],
+    document_id: UUID,
+) -> None:
+    parse_status = str(row.get("parse_status") or "")
+    if parse_status != "parsed":
+        raise PendingRunContextError(
+            "Tender procurement document must be a parsed tender document before "
+            f"creating a pending run: {document_id} has parse_status "
+            f"{parse_status!r}."
+        )
 
 
 def _normalize_uuid(value: UUID | str, field_name: str) -> UUID:

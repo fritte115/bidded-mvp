@@ -10,6 +10,7 @@ from bidded.orchestration import PendingRunContextError, create_pending_run_cont
 RUN_ID = UUID("11111111-1111-4111-8111-111111111111")
 COMPANY_ID = UUID("22222222-2222-4222-8222-222222222222")
 TENDER_ID = UUID("33333333-3333-4333-8333-333333333333")
+OTHER_TENDER_ID = UUID("33333333-3333-4333-8333-333333333334")
 DOCUMENT_ID = UUID("44444444-4444-4444-8444-444444444444")
 SECOND_DOCUMENT_ID = UUID("55555555-5555-4555-8555-555555555555")
 
@@ -63,6 +64,7 @@ class RecordingSupabaseClient:
                     "tenant_key": "demo",
                     "tender_id": str(TENDER_ID),
                     "document_role": "tender_document",
+                    "parse_status": "parsed",
                 }
             ],
         }
@@ -137,6 +139,7 @@ def test_create_pending_run_context_records_multiple_documents() -> None:
             "tenant_key": "demo",
             "tender_id": str(TENDER_ID),
             "document_role": "tender_document",
+            "parse_status": "parsed",
         }
     )
 
@@ -193,6 +196,42 @@ def test_create_pending_run_context_requires_tender_document_linkage() -> None:
     with pytest.raises(
         PendingRunContextError,
         match="Tender procurement document does not exist",
+    ):
+        create_pending_run_context(
+            client,
+            tender_id=TENDER_ID,
+            company_id=COMPANY_ID,
+            document_id=DOCUMENT_ID,
+        )
+
+    assert "agent_runs" not in client.inserts
+
+
+def test_create_pending_run_context_rejects_documents_from_other_tenders() -> None:
+    client = RecordingSupabaseClient()
+    client.rows["documents"][0]["tender_id"] = str(OTHER_TENDER_ID)
+
+    with pytest.raises(
+        PendingRunContextError,
+        match="Tender procurement document does not exist",
+    ):
+        create_pending_run_context(
+            client,
+            tender_id=TENDER_ID,
+            company_id=COMPANY_ID,
+            document_id=DOCUMENT_ID,
+        )
+
+    assert "agent_runs" not in client.inserts
+
+
+def test_create_pending_run_context_requires_parsed_tender_documents() -> None:
+    client = RecordingSupabaseClient()
+    client.rows["documents"][0]["parse_status"] = "pending"
+
+    with pytest.raises(
+        PendingRunContextError,
+        match="parsed tender document",
     ):
         create_pending_run_context(
             client,

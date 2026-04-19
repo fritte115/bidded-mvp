@@ -915,8 +915,8 @@
         "Tests cover multiple documents, backwards-compatible single document creation, missing document rejection, unparsed document rejection, and evidence board scoping."
       ],
       "priority": 60,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added parsed multi-document pending-run validation, repeated create-pending-run document IDs, worker evidence scoping coverage, and deterministic tests. Complete."
     }
   ]
 }

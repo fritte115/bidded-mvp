@@ -29,9 +29,14 @@ OLDER_RUN_ID = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
 COMPANY_ID = UUID("22222222-2222-4222-8222-222222222222")
 TENDER_ID = UUID("33333333-3333-4333-8333-333333333333")
 DOCUMENT_ID = UUID("44444444-4444-4444-8444-444444444444")
+SECOND_DOCUMENT_ID = UUID("88888888-8888-4888-8888-888888888888")
+UNSELECTED_DOCUMENT_ID = UUID("99999999-9999-4999-8999-999999999998")
 CHUNK_ID = UUID("55555555-5555-4555-8555-555555555555")
+SECOND_CHUNK_ID = UUID("99999999-9999-4999-8999-999999999999")
+UNSELECTED_CHUNK_ID = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab")
 EVIDENCE_ID = UUID("66666666-6666-4666-8666-666666666666")
 SECOND_EVIDENCE_ID = UUID("77777777-7777-4777-8777-777777777777")
+UNSELECTED_EVIDENCE_ID = UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
 
 
 class RecordingWorkerQuery:
@@ -419,6 +424,93 @@ def test_worker_passes_preparation_audit_into_graph_context() -> None:
     assert state.run_context["metadata"]["preparation_audit"] == preparation_audit
 
 
+def test_worker_loads_all_configured_document_chunks_and_scopes_evidence() -> None:
+    client = RecordingWorkerClient()
+    client.rows["agent_runs"][0]["run_config"] = {
+        "document_ids": [str(DOCUMENT_ID), str(SECOND_DOCUMENT_ID)]
+    }
+    client.rows["documents"] = [
+        _parsed_document(document_id=DOCUMENT_ID, source_label="Tender.pdf"),
+        _parsed_document(
+            document_id=SECOND_DOCUMENT_ID,
+            source_label="Appendix.pdf",
+        ),
+        _parsed_document(
+            document_id=UNSELECTED_DOCUMENT_ID,
+            source_label="Unselected.pdf",
+        ),
+    ]
+    client.rows["document_chunks"] = [
+        _document_chunk(
+            document_id=DOCUMENT_ID,
+            chunk_id=CHUNK_ID,
+            text="The supplier must provide ISO 27001 certification.",
+            source_label="Tender.pdf",
+        ),
+        _document_chunk(
+            document_id=SECOND_DOCUMENT_ID,
+            chunk_id=SECOND_CHUNK_ID,
+            text="The supplier must provide a transition plan.",
+            source_label="Appendix.pdf",
+        ),
+        _document_chunk(
+            document_id=UNSELECTED_DOCUMENT_ID,
+            chunk_id=UNSELECTED_CHUNK_ID,
+            text="The supplier must cover an unselected scope.",
+            source_label="Unselected.pdf",
+        ),
+    ]
+    client.rows["evidence_items"] = [
+        _tender_evidence_item(
+            evidence_id=EVIDENCE_ID,
+            evidence_key="TENDER-REQ-001",
+            document_id=DOCUMENT_ID,
+            chunk_id=CHUNK_ID,
+            source_label="Tender.pdf page 1",
+        ),
+        _tender_evidence_item(
+            evidence_id=SECOND_EVIDENCE_ID,
+            evidence_key="TENDER-REQ-002",
+            document_id=SECOND_DOCUMENT_ID,
+            chunk_id=SECOND_CHUNK_ID,
+            excerpt="The supplier must provide a transition plan.",
+            normalized_meaning="A transition plan is mandatory.",
+            source_label="Appendix.pdf page 1",
+        ),
+        _tender_evidence_item(
+            evidence_id=UNSELECTED_EVIDENCE_ID,
+            evidence_key="TENDER-UNSELECTED-001",
+            document_id=UNSELECTED_DOCUMENT_ID,
+            chunk_id=UNSELECTED_CHUNK_ID,
+            excerpt="The supplier must cover an unselected scope.",
+            normalized_meaning="Unselected scope should not enter this run.",
+            source_label="Unselected.pdf page 1",
+        ),
+    ]
+
+    state = build_bid_run_state_from_supabase(
+        client,
+        run_row=client.rows["agent_runs"][0],
+    )
+
+    assert state.document_ids == [DOCUMENT_ID, SECOND_DOCUMENT_ID]
+    assert {chunk.document_id for chunk in state.chunks} == {
+        DOCUMENT_ID,
+        SECOND_DOCUMENT_ID,
+    }
+    assert {item.evidence_key for item in state.evidence_board} == {
+        "TENDER-REQ-001",
+        "TENDER-REQ-002",
+    }
+    assert state.run_context["document_parse_statuses"] == {
+        str(DOCUMENT_ID): "parsed",
+        str(SECOND_DOCUMENT_ID): "parsed",
+    }
+    assert [
+        document["original_filename"] for document in state.run_context["documents"]
+    ] == ["Tender.pdf", "Appendix.pdf"]
+
+
 def test_worker_picks_oldest_pending_demo_run_when_run_id_is_omitted() -> None:
     client = RecordingWorkerClient()
     client.rows["agent_runs"] = [
@@ -617,45 +709,66 @@ def _pending_agent_run(**overrides: Any) -> dict[str, Any]:
     return row
 
 
-def _parsed_document() -> dict[str, Any]:
+def _parsed_document(
+    *,
+    document_id: UUID = DOCUMENT_ID,
+    tender_id: UUID = TENDER_ID,
+    source_label: str = "Tender.pdf",
+) -> dict[str, Any]:
     return {
-        "id": str(DOCUMENT_ID),
+        "id": str(document_id),
         "tenant_key": "demo",
-        "tender_id": str(TENDER_ID),
+        "tender_id": str(tender_id),
         "company_id": None,
         "document_role": "tender_document",
         "parse_status": "parsed",
-        "original_filename": "Tender.pdf",
-        "metadata": {"source_label": "Tender.pdf"},
+        "original_filename": source_label,
+        "metadata": {"source_label": source_label},
     }
 
 
-def _document_chunk() -> dict[str, Any]:
+def _document_chunk(
+    *,
+    document_id: UUID = DOCUMENT_ID,
+    chunk_id: UUID = CHUNK_ID,
+    text: str = "The supplier must provide ISO 27001 certification.",
+    source_label: str = "Tender.pdf",
+) -> dict[str, Any]:
     return {
-        "id": str(CHUNK_ID),
+        "id": str(chunk_id),
         "tenant_key": "demo",
-        "document_id": str(DOCUMENT_ID),
+        "document_id": str(document_id),
         "page_start": 1,
         "page_end": 1,
         "chunk_index": 0,
-        "text": "The supplier must provide ISO 27001 certification.",
-        "metadata": {"source_label": "Tender.pdf"},
+        "text": text,
+        "metadata": {"source_label": source_label},
     }
 
 
-def _tender_evidence_item() -> dict[str, Any]:
+def _tender_evidence_item(
+    *,
+    evidence_id: UUID = EVIDENCE_ID,
+    evidence_key: str = "TENDER-REQ-001",
+    document_id: UUID = DOCUMENT_ID,
+    chunk_id: UUID = CHUNK_ID,
+    excerpt: str = "The supplier must provide ISO 27001 certification.",
+    normalized_meaning: str = "ISO 27001 certification is mandatory.",
+    category: str = "shall_requirement",
+    source_label: str = "Tender page 1",
+) -> dict[str, Any]:
     return {
-        "id": str(EVIDENCE_ID),
+        "id": str(evidence_id),
         "tenant_key": "demo",
-        "evidence_key": "TENDER-REQ-001",
+        "evidence_key": evidence_key,
         "source_type": "tender_document",
-        "excerpt": "The supplier must provide ISO 27001 certification.",
-        "normalized_meaning": "ISO 27001 certification is mandatory.",
-        "category": "shall_requirement",
+        "excerpt": excerpt,
+        "normalized_meaning": normalized_meaning,
+        "category": category,
         "confidence": 0.94,
-        "source_metadata": {"source_label": "Tender page 1"},
-        "document_id": str(DOCUMENT_ID),
-        "chunk_id": str(CHUNK_ID),
+        "source_metadata": {"source_label": source_label},
+        "document_id": str(document_id),
+        "chunk_id": str(chunk_id),
         "page_start": 1,
         "page_end": 1,
         "company_id": None,
