@@ -131,6 +131,14 @@ _FORMAL_BLOCKER_REQUIREMENT_TYPES = frozenset(
         RequirementType.QUALIFICATION_REQUIREMENT,
     }
 )
+_CITED_MEMO_ALIAS_FIELDS = (
+    "rationale",
+    "decision_rationale",
+    "final_rationale",
+    "summary",
+    "memo",
+    "reasoning",
+)
 
 
 def _resolve_ref_against_board(
@@ -266,7 +274,82 @@ def _coerce_judge_decision_mapping(
         out["validation_errors"] = [
             _coerce_validation_error_item(error) for error in validation_errors
         ]
+    _coerce_cited_memo(out)
+    _coerce_evidence_ids(out)
     return out
+
+
+def _coerce_cited_memo(out: dict[str, Any]) -> None:
+    cited_memo = str(out.get("cited_memo") or "").strip()
+    if cited_memo:
+        out["cited_memo"] = cited_memo
+        _drop_cited_memo_aliases(out)
+        return
+
+    for field in _CITED_MEMO_ALIAS_FIELDS:
+        value = str(out.get(field) or "").strip()
+        if value:
+            out["cited_memo"] = value
+            _drop_cited_memo_aliases(out)
+            return
+
+    disagreement_summary = str(out.get("disagreement_summary") or "").strip()
+    verdict = str(out.get("verdict") or "").strip()
+    if disagreement_summary:
+        out["cited_memo"] = disagreement_summary
+    elif verdict:
+        out["cited_memo"] = f"Judge verdict: {verdict}."
+    _drop_cited_memo_aliases(out)
+
+
+def _drop_cited_memo_aliases(out: dict[str, Any]) -> None:
+    for field in _CITED_MEMO_ALIAS_FIELDS:
+        out.pop(field, None)
+
+
+def _coerce_evidence_ids(out: dict[str, Any]) -> None:
+    if _has_non_empty_sequence(out.get("evidence_ids")):
+        return
+
+    evidence_ids = _dedupe_evidence_ids_from_ref_dicts(_iter_evidence_ref_dicts(out))
+    if evidence_ids:
+        out["evidence_ids"] = evidence_ids
+
+
+def _has_non_empty_sequence(value: Any) -> bool:
+    return isinstance(value, list | tuple) and len(value) > 0
+
+
+def _iter_evidence_ref_dicts(value: Any) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    if isinstance(value, dict):
+        maybe_ref = {
+            key: value.get(key)
+            for key in ("evidence_key", "source_type", "evidence_id")
+            if key in value
+        }
+        if {"evidence_key", "source_type", "evidence_id"} <= set(maybe_ref):
+            refs.append(maybe_ref)
+        for nested_value in value.values():
+            refs.extend(_iter_evidence_ref_dicts(nested_value))
+    elif isinstance(value, list | tuple):
+        for item in value:
+            refs.extend(_iter_evidence_ref_dicts(item))
+    return refs
+
+
+def _dedupe_evidence_ids_from_ref_dicts(
+    refs: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for ref in refs:
+        evidence_id = str(ref.get("evidence_id") or "").strip()
+        if not evidence_id or evidence_id in seen:
+            continue
+        seen.add(evidence_id)
+        deduped.append(evidence_id)
+    return deduped
 
 
 def build_judge_handler(model: JudgeDecisionDrafter) -> JudgeHandler:

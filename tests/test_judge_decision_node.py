@@ -6,7 +6,7 @@ from uuid import UUID
 
 import pytest
 
-from bidded.agents import AgentRole
+from bidded.agents import AgentRole, VoteSummary
 from bidded.orchestration import (
     AgentRunStatus,
     BidRunState,
@@ -22,7 +22,10 @@ from bidded.orchestration import (
     default_graph_node_handlers,
     run_bidded_graph_shell,
 )
-from bidded.orchestration.judge import JudgeDecisionRequest
+from bidded.orchestration.judge import (
+    JudgeDecisionRequest,
+    validate_judge_decision_output,
+)
 from bidded.requirements import RequirementType
 
 RUN_ID = UUID("11111111-1111-4111-8111-111111111111")
@@ -588,6 +591,30 @@ def test_potential_blocker_does_not_auto_gate_conditional_bid() -> None:
             "requirement_type": "submission_document",
             "evidence_refs": [_submission_ref()],
         }
+    ]
+
+
+def test_judge_coerces_missing_cited_memo_and_evidence_ids() -> None:
+    raw = _judge_payload(
+        verdict="bid",
+        vote_summary={"bid": 1, "no_bid": 0, "conditional_bid": 0},
+    )
+    raw.pop("cited_memo")
+    raw.pop("evidence_ids")
+    raw["rationale"] = "Judge rationale supplied under a Claude-friendly alias."
+
+    output = validate_judge_decision_output(
+        raw,
+        evidence_board=_ready_state().evidence_board,
+        expected_vote_summary=VoteSummary.model_validate(raw["vote_summary"]),
+    )
+
+    assert output.cited_memo == (
+        "Judge rationale supplied under a Claude-friendly alias."
+    )
+    assert output.evidence_ids == [
+        TENDER_EVIDENCE_ID,
+        COMPANY_EVIDENCE_ID,
     ]
 
 
