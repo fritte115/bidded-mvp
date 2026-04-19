@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-040",
-  "storyTitle": "Export decision bundle",
+  "currentStory": "US-041",
+  "storyTitle": "Write demo runbook",
   "nextAction": "implement",
-  "progressTokens": 3480,
+  "progressTokens": 3555,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

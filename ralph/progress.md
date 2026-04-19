@@ -20,7 +20,7 @@ Started: 2026-04-18
 - **Bidded Agent Tool Policy Contract**: `src/bidded/agents/tool_policy.py` is the source of truth for LLM-agent denied tools, bounded retrieval, artifact access, and orchestrator-owned side effects.
 - **Bidded Agent Output Schema Contract**: `src/bidded/agents/schemas.py` is the strict Pydantic surface for RequirementType, Evidence Scout output, motions, rebuttals, Judge decisions, typed Judge reasoning details, evidence refs, material claim evidence-ID validation, validation errors, and specialist role bounds.
 - **Bidded Evidence/Retrieval Contract**: `src/bidded/retrieval` returns deterministic hybrid scores; `src/bidded/evidence` builds nullable typed evidence; recall audit warnings compare chunk/glossary signals to evidence-board requirement coverage before agent requests.
-- **Bidded Operator Controls Contract**: `src/bidded/orchestration/run_controls.py` owns local status/demo-trace/retry/stale-reset controls; retry inserts new pending runs with source lineage, and stale reset uses `status = running` guards plus operator reason metadata.
+- **Bidded Operator Controls Contract**: `run_controls.py` owns status/demo-trace/retry/stale-reset controls; `decision_export.py` reads persisted decisions, agent outputs, and cited evidence into local Markdown/JSON without DB mutation.
 
 ## Session Log
 
@@ -229,4 +229,9 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added compact worker `demo_trace` metadata, parsed run-status trace snapshots, and verbose CLI rendering that highlights the latest failed or incomplete step.
 - **Files**: src/bidded/orchestration/worker.py, src/bidded/orchestration/run_controls.py, src/bidded/orchestration/__init__.py, src/bidded/cli/__init__.py, tests/test_worker_lifecycle.py, tests/test_operator_run_controls.py, tests/test_cli.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
 - **Key learnings**: Keep demo traces as compact top-level run metadata with sanitized step/status/timing/error-code fields, leaving raw prompts and private context out of operator diagnostics.
+---
+## 2026-04-19 03:46 CEST - US-040
+- **Implemented**: Added `export-decision` to write persisted final decisions as readable Markdown and stable JSON with cited evidence and audit-output summaries.
+- **Files**: src/bidded/orchestration/decision_export.py, src/bidded/orchestration/__init__.py, src/bidded/cli/__init__.py, tests/test_decision_export.py, tests/test_cli.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
+- **Key learnings**: Keep decision exports read-only over `bid_decisions`, `agent_outputs`, and `evidence_items`, with local files as the only side effect.
 ---

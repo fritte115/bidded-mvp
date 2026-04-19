@@ -24,6 +24,10 @@ from bidded.orchestration import (
     create_pending_run_context,
     run_worker_once,
 )
+from bidded.orchestration.decision_export import (
+    DecisionExportError,
+    export_decision_bundle,
+)
 from bidded.orchestration.run_controls import (
     DemoTraceEntry,
     RunControlError,
@@ -257,6 +261,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Operator reason recorded on every stale reset.",
     )
     reset_parser.set_defaults(handler=_run_reset_stale_command)
+
+    export_parser = subparsers.add_parser(
+        "export-decision",
+        help="Export a persisted final decision bundle.",
+        description=(
+            "Export a selected agent run as Markdown and JSON using persisted "
+            "bid_decisions, agent_outputs, and evidence_items rows."
+        ),
+    )
+    export_parser.add_argument("--run-id", required=True, help="agent_runs UUID.")
+    export_parser.add_argument(
+        "--markdown-path",
+        required=True,
+        type=Path,
+        help="Destination path for the readable Markdown decision bundle.",
+    )
+    export_parser.add_argument(
+        "--json-path",
+        required=True,
+        type=Path,
+        help="Destination path for the stable JSON decision bundle.",
+    )
+    export_parser.set_defaults(handler=_run_export_decision_command)
     return parser
 
 
@@ -503,6 +530,29 @@ def _run_reset_stale_command(args: argparse.Namespace) -> int:
             "Reset run IDs: "
             f"{', '.join(str(run_id) for run_id in result.reset_run_ids)}."
         )
+    return 0
+
+
+def _run_export_decision_command(args: argparse.Namespace) -> int:
+    settings = load_settings()
+    try:
+        client = _create_supabase_client(settings)
+        result = export_decision_bundle(
+            client,
+            run_id=args.run_id,
+            markdown_path=args.markdown_path,
+            json_path=args.json_path,
+        )
+    except (RuntimeError, DecisionExportError, OSError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    print(
+        f"Exported decision bundle for {result.run_id} ({result.verdict}) "
+        f"to {result.markdown_path} and {result.json_path}. "
+        f"Evidence items: {result.evidence_count}; "
+        f"agent outputs: {result.agent_output_count}."
+    )
     return 0
 
 

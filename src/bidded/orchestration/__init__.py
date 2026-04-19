@@ -1,5 +1,11 @@
 """LangGraph orchestration state and node boundaries."""
 
+from bidded.orchestration.decision_export import (
+    DecisionExportError,
+    DecisionExportResult,
+    SupabaseDecisionExportClient,
+    export_decision_bundle,
+)
 from bidded.orchestration.evidence_recall import (
     EvidenceRecallWarning,
     audit_evidence_recall,
@@ -104,6 +110,8 @@ __all__ = [
     "AgentOutputState",
     "AgentRunStatus",
     "BidRunState",
+    "DecisionExportError",
+    "DecisionExportResult",
     "DocumentChunkState",
     "EvidenceRecallWarning",
     "EvidenceItemState",
@@ -150,6 +158,7 @@ __all__ = [
     "SpecialistRole",
     "StateOwnershipError",
     "StaleResetResult",
+    "SupabaseDecisionExportClient",
     "SupabaseDecisionPersistenceClient",
     "ValidationIssueState",
     "Verdict",
@@ -168,6 +177,7 @@ __all__ = [
     "build_round_2_rebuttal_request",
     "create_pending_run_context",
     "default_graph_node_handlers",
+    "export_decision_bundle",
     "graph_routing_edge_table",
     "get_run_status",
     "judge_decision_result_from_agent_output",

@@ -49,6 +49,7 @@ def test_cli_help_prints_without_external_services() -> None:
     assert "run-status" in result.stdout
     assert "retry-run" in result.stdout
     assert "reset-stale-runs" in result.stdout
+    assert "export-decision" in result.stdout
 
 
 def test_cli_seed_demo_company_help_prints_without_external_services() -> None:
@@ -202,6 +203,29 @@ def test_cli_demo_smoke_help_prints_without_external_services() -> None:
     assert "demo-smoke" in result.stdout
     assert "--pdf-path" in result.stdout
     assert "--live-llm" in result.stdout
+
+
+def test_cli_export_decision_help_prints_without_external_services() -> None:
+    env = os.environ.copy()
+    env.pop("ANTHROPIC_API_KEY", None)
+    env.pop("SUPABASE_URL", None)
+    env.pop("SUPABASE_SERVICE_ROLE_KEY", None)
+    env["PYTHONPATH"] = str(PROJECT_ROOT / "src")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "bidded.cli", "export-decision", "--help"],
+        cwd=PROJECT_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "export-decision" in result.stdout
+    assert "--run-id" in result.stdout
+    assert "--markdown-path" in result.stdout
+    assert "--json-path" in result.stdout
 
 
 class RecordingCompanyTable:

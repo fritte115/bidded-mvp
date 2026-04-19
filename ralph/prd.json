@@ -613,8 +613,8 @@
         "Tests cover succeeded export, needs_human_review export, missing-decision failure, evidence citation rendering, and deterministic output ordering; pytest and ruff check pass."
       ],
       "priority": 40,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added export-decision CLI plus deterministic Markdown/JSON decision bundles from persisted decisions, agent outputs, and cited evidence. Complete."
     },
     {
       "id": "US-041",
