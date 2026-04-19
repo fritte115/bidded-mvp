@@ -52,6 +52,10 @@ def test_golden_demo_cases_keep_missing_company_evidence_non_gating() -> None:
     case = _case("missing_company_evidence")
 
     assert case.expected.verdict is Verdict.CONDITIONAL_BID
+    assert case.expected.allowed_verdicts == (
+        Verdict.CONDITIONAL_BID,
+        Verdict.NEEDS_HUMAN_REVIEW,
+    )
     assert case.expected.blockers == ()
     assert case.company_evidence == ()
     assert case.expected.missing_info
@@ -60,6 +64,18 @@ def test_golden_demo_cases_keep_missing_company_evidence_non_gating() -> None:
         evidence_ref.source_type
         for evidence_ref in case.expected.required_evidence_refs
     } == {EvidenceSourceType.TENDER_DOCUMENT}
+
+
+def test_golden_demo_cases_define_verdict_regression_expectations() -> None:
+    hard_blocker = _case("hard_compliance_no_bid")
+
+    for case in golden_demo_cases():
+        assert case.expected.verdict in case.expected.allowed_verdicts
+
+    assert hard_blocker.expected.allowed_verdicts == (Verdict.NO_BID,)
+    assert hard_blocker.expected.blockers == (
+        "Confirmed insolvency exclusion ground blocks submission.",
+    )
 
 
 def test_golden_demo_cases_document_decision_rules_not_domain_guesswork() -> None:

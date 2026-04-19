@@ -37,7 +37,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Demo doctor | `bidded doctor` kontrollerar demo-miljövariabler, Supabase-tabeller, Storage-bucket och optional Anthropic-connectivity utan att skriva ut secrets. |
 | Demo smoke | `bidded demo-smoke` kör ett opt-in smoke-flöde över seed, PDF-registrering, ingestion, evidence, pending run, worker och decision readback; default är mockade agenthandlers, medan `--live-llm` använder Claude. |
 | Golden demo cases | `bidded.fixtures.golden_cases` exponerar sex deterministiska, evidence-backed regression cases för `bid`, `no_bid`, `conditional_bid`, `needs_human_review`, saknad bolagsevidens och unsupported-claim rejection. |
-| Golden eval runner | `bidded eval-golden` kör de deterministiska golden cases, eller ett valt case ID, rapporterar verdict-/blocker-/validation-/evidence-ref-/coverage-avvikelser och kan skriva stabil JSON utan live Claude eller Supabase. |
+| Golden eval runner | `bidded eval-golden` kör de deterministiska golden cases, eller ett valt case ID, rapporterar allowed-verdict-/blocker-/validation-/evidence-ref-/coverage-avvikelser och kan skriva stabil JSON utan live Claude eller Supabase. |
 | Frontend | Ingen frontend i repot. Lovable är fortsatt tänkt som tunn demo-UI ovanpå Supabase, men de närmaste stories prioriterar demo-hardening innan en ny handoff-story. |
 
 README:n beskriver därför både nuläget och den stack som PRD:n definierar att vi bygger mot. När stories implementeras ska planerade delar flyttas till faktiskt levererade delar.
@@ -402,7 +402,7 @@ När appen byggs ska kvaliteten styras av:
 - graph routing- och retry/stop-tester för success, invalid output, missing inputs, empty evidence, `failed`, `needs_human_review` och END
 - en mocked end-to-end-test som seeder bolag, registrerar fixture-data, bygger evidence board, kör alla swarm-rundor och sparar ett slutbeslut
 - replaybara demo-state seedtester för idempotence, fixture-scoping, schema-valida payloads och evidence IDs
-- golden eval-runner-tester för all-cases, selected-case, pass/fail-resultat, citation coverage och stabil JSON-output
+- golden eval-runner-tester för all-cases, selected-case, pass/fail-resultat, verdict regression, citation coverage och stabil JSON-output
 
 Live Claude, live embeddings och live Supabase kan användas för demo-smoke, men ska inte vara krav för story-completion.
 

@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-045",
-  "storyTitle": "Add verdict regression checks",
+  "currentStory": "US-046",
+  "storyTitle": "Track prompt schema versions",
   "nextAction": "implement",
-  "progressTokens": 3870,
+  "progressTokens": 3945,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

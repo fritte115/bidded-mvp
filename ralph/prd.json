@@ -688,8 +688,8 @@
         "Tests cover stable verdict pass, verdict drift failure, compliance blocker override, and missing-evidence non-gating behavior; pytest and ruff check pass."
       ],
       "priority": 45,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added allowed-verdict regression checks, formal blocker no-bid enforcement, missing-evidence non-gating tolerance, and CLI diagnostics. Complete."
     },
     {
       "id": "US-046",

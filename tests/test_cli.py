@@ -1033,7 +1033,11 @@ def test_cli_eval_golden_returns_nonzero_for_failed_expectations(
                 title="Hard compliance no-bid",
                 passed=False,
                 expected_verdict=Verdict.NO_BID,
+                allowed_verdicts=(Verdict.NO_BID,),
                 actual_verdict=Verdict.BID,
+                verdict_regression_failures=(
+                    "formal compliance blocker requires no_bid",
+                ),
                 missing_required_blockers=("Required blocker.",),
                 unexpected_hard_blockers=("Unexpected blocker.",),
                 unexpected_validation_errors=("schema_error",),
@@ -1071,7 +1075,11 @@ def test_cli_eval_golden_returns_nonzero_for_failed_expectations(
     assert result == 1
     assert "Golden evals: 0/1 passed" in captured.out
     assert "FAIL hard_compliance_no_bid" in captured.out
-    assert "Expected verdict: no_bid; actual: bid" in captured.out
+    assert "Allowed verdicts: no_bid; actual: bid" in captured.out
+    assert (
+        "Verdict regression failures: formal compliance blocker requires no_bid"
+        in captured.out
+    )
     assert "Missing required blockers: Required blocker." in captured.out
     assert "Unexpected hard blockers: Unexpected blocker." in captured.out
     assert "Validation errors: schema_error" in captured.out

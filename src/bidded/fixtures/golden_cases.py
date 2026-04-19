@@ -33,6 +33,7 @@ class GoldenExpectedOutcome(StrictStateModel):
     """Expected decision artifact summary for one golden demo case."""
 
     verdict: Verdict
+    allowed_verdicts: tuple[Verdict, ...] = ()
     blockers: tuple[str, ...] = ()
     missing_info: tuple[str, ...] = ()
     recommended_actions: tuple[str, ...] = ()
@@ -41,6 +42,14 @@ class GoldenExpectedOutcome(StrictStateModel):
     validation_errors: tuple[str, ...] = ()
     decision_rules: tuple[DecisionRule, ...] = Field(min_length=1)
     rationale: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_allowed_verdicts(self) -> GoldenExpectedOutcome:
+        if not self.allowed_verdicts:
+            self.allowed_verdicts = (self.verdict,)
+        if self.verdict not in self.allowed_verdicts:
+            raise ValueError("primary expected verdict must be allowed")
+        return self
 
 
 class GoldenDemoCase(StrictStateModel):
@@ -371,6 +380,10 @@ def _missing_company_evidence_case() -> GoldenDemoCase:
         company_evidence=(),
         expected=GoldenExpectedOutcome(
             verdict=Verdict.CONDITIONAL_BID,
+            allowed_verdicts=(
+                Verdict.CONDITIONAL_BID,
+                Verdict.NEEDS_HUMAN_REVIEW,
+            ),
             missing_info=(
                 "Current audited turnover evidence is missing from company profile.",
             ),

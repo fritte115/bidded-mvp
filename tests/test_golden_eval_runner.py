@@ -234,6 +234,77 @@ def test_golden_eval_runner_reports_failed_expectations() -> None:
     )
 
 
+def test_golden_eval_allows_missing_evidence_human_review_outcome() -> None:
+    def human_review_outcome(case: GoldenDemoCase) -> GoldenActualOutcome:
+        return GoldenActualOutcome(
+            verdict=Verdict.NEEDS_HUMAN_REVIEW,
+            missing_info=case.expected.missing_info,
+            recommended_actions=case.expected.recommended_actions,
+            evidence_refs=case.expected.required_evidence_refs,
+        )
+
+    report = run_golden_evals(
+        case_id="missing_company_evidence",
+        outcome_provider=human_review_outcome,
+    )
+
+    result = report.results[0]
+    assert report.passed
+    assert result.actual_verdict is Verdict.NEEDS_HUMAN_REVIEW
+    assert result.allowed_verdicts == (
+        Verdict.CONDITIONAL_BID,
+        Verdict.NEEDS_HUMAN_REVIEW,
+    )
+
+
+def test_golden_eval_fails_verdict_outside_allowed_set() -> None:
+    def no_bid_outcome(case: GoldenDemoCase) -> GoldenActualOutcome:
+        return GoldenActualOutcome(
+            verdict=Verdict.NO_BID,
+            missing_info=case.expected.missing_info,
+            recommended_actions=case.expected.recommended_actions,
+            evidence_refs=case.expected.required_evidence_refs,
+        )
+
+    report = run_golden_evals(
+        case_id="missing_company_evidence",
+        outcome_provider=no_bid_outcome,
+    )
+
+    result = report.results[0]
+    assert not report.passed
+    assert result.verdict_regression_failures == (
+        "actual verdict no_bid not in allowed set: "
+        "conditional_bid, needs_human_review",
+    )
+
+
+def test_golden_eval_requires_no_bid_for_hard_compliance_blocker() -> None:
+    def vote_drift_outcome(case: GoldenDemoCase) -> GoldenActualOutcome:
+        return GoldenActualOutcome(
+            verdict=Verdict.CONDITIONAL_BID,
+            specialist_votes=(
+                Verdict.BID,
+                Verdict.BID,
+                Verdict.CONDITIONAL_BID,
+            ),
+            blockers=case.expected.blockers,
+            evidence_refs=case.expected.required_evidence_refs,
+        )
+
+    report = run_golden_evals(
+        case_id="hard_compliance_no_bid",
+        outcome_provider=vote_drift_outcome,
+    )
+
+    result = report.results[0]
+    assert not report.passed
+    assert result.allowed_verdicts == (Verdict.NO_BID,)
+    assert result.verdict_regression_failures == (
+        "formal compliance blocker requires no_bid",
+    )
+
+
 def test_golden_eval_runner_requires_unsupported_claim_rejections() -> None:
     def incomplete_outcome(case: GoldenDemoCase) -> GoldenActualOutcome:
         return GoldenActualOutcome(

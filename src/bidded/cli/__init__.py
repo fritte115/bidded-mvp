@@ -668,11 +668,22 @@ def _print_golden_eval_report(report: GoldenEvalReport) -> None:
 def _print_golden_case_eval_result(result: GoldenCaseEvalResult) -> None:
     status = "PASS" if result.passed else "FAIL"
     print(f"{status} {result.case_id}: {result.title}")
-    if result.expected_verdict != result.actual_verdict or not result.passed:
+    if result.verdict_regression_failures:
+        allowed_verdicts = result.allowed_verdicts or (result.expected_verdict,)
+        print(
+            "  Allowed verdicts: "
+            f"{_verdict_values(allowed_verdicts)}; actual: "
+            f"{result.actual_verdict.value}"
+        )
+    elif result.expected_verdict != result.actual_verdict and not result.passed:
         print(
             "  Expected verdict: "
             f"{result.expected_verdict.value}; actual: {result.actual_verdict.value}"
         )
+    _print_issue_tuple(
+        "Verdict regression failures",
+        result.verdict_regression_failures,
+    )
     _print_issue_tuple("Missing required blockers", result.missing_required_blockers)
     _print_issue_tuple("Unexpected hard blockers", result.unexpected_hard_blockers)
     _print_issue_tuple(
@@ -733,6 +744,10 @@ def _print_issue_tuple(label: str, values: tuple[str, ...]) -> None:
 
 
 def _source_type_values(values: tuple[Any, ...]) -> str:
+    return ", ".join(value.value for value in values) or "none"
+
+
+def _verdict_values(values: tuple[Any, ...]) -> str:
     return ", ".join(value.value for value in values) or "none"
 
 

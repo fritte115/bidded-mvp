@@ -107,6 +107,7 @@ class GoldenActualOutcome(StrictStateModel):
     """Actual output produced for a golden case by a recorded or mocked runner."""
 
     verdict: Verdict
+    specialist_votes: tuple[Verdict, ...] = ()
     blockers: tuple[str, ...] = ()
     missing_info: tuple[str, ...] = ()
     recommended_actions: tuple[str, ...] = ()
@@ -123,7 +124,9 @@ class GoldenCaseEvalResult(StrictStateModel):
     title: str
     passed: bool
     expected_verdict: Verdict
+    allowed_verdicts: tuple[Verdict, ...] = ()
     actual_verdict: Verdict
+    verdict_regression_failures: tuple[str, ...] = ()
     missing_required_blockers: tuple[str, ...] = ()
     unexpected_hard_blockers: tuple[str, ...] = ()
     missing_required_missing_info: tuple[str, ...] = ()
@@ -206,6 +209,7 @@ def evaluate_golden_case(
         actual.coverage_claims,
         evidence_board=case.evidence_board,
     )
+    verdict_regression_failures = _verdict_regression_failures(case, actual)
     missing_required_blockers = _missing_required(
         case.expected.blockers,
         actual.blockers,
@@ -237,7 +241,7 @@ def evaluate_golden_case(
     )
     passed = not any(
         (
-            actual.verdict != case.expected.verdict,
+            verdict_regression_failures,
             missing_required_blockers,
             unexpected_hard_blockers,
             missing_required_missing_info,
@@ -256,7 +260,9 @@ def evaluate_golden_case(
         title=case.title,
         passed=passed,
         expected_verdict=case.expected.verdict,
+        allowed_verdicts=case.expected.allowed_verdicts,
         actual_verdict=actual.verdict,
+        verdict_regression_failures=verdict_regression_failures,
         missing_required_blockers=missing_required_blockers,
         unexpected_hard_blockers=unexpected_hard_blockers,
         missing_required_missing_info=missing_required_missing_info,
@@ -473,6 +479,27 @@ def _select_cases(case_id: str | None) -> tuple[GoldenDemoCase, ...]:
     return selected
 
 
+def _verdict_regression_failures(
+    case: GoldenDemoCase,
+    actual: GoldenActualOutcome,
+) -> tuple[str, ...]:
+    if (
+        "formal_blocker_gates_no_bid" in case.expected.decision_rules
+        and case.expected.blockers
+        and actual.verdict is not Verdict.NO_BID
+    ):
+        return ("formal compliance blocker requires no_bid",)
+
+    if actual.verdict in case.expected.allowed_verdicts:
+        return ()
+
+    return (
+        "actual verdict "
+        f"{actual.verdict.value} not in allowed set: "
+        f"{_verdict_values(case.expected.allowed_verdicts)}",
+    )
+
+
 def _missing_required(
     required_values: Sequence[str],
     actual_values: Sequence[str],
@@ -487,6 +514,10 @@ def _unexpected(
 ) -> tuple[str, ...]:
     expected = set(expected_values)
     return tuple(value for value in actual_values if value not in expected)
+
+
+def _verdict_values(verdicts: Sequence[Verdict]) -> str:
+    return ", ".join(verdict.value for verdict in verdicts)
 
 
 def _evidence_reference_failures(
