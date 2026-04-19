@@ -12,8 +12,14 @@ import pytest
 import bidded.cli as cli
 from bidded.db.seed_demo_company import DEMO_COMPANY_NAME
 from bidded.db.seed_demo_states import DemoStatesSeedResult
-from bidded.evals.golden_runner import GoldenCaseEvalResult, GoldenEvalReport
-from bidded.orchestration import AgentRunStatus, Verdict
+from bidded.evals.golden_runner import (
+    EvidenceCoverageClaimType,
+    EvidenceCoverageScore,
+    GoldenCaseEvalResult,
+    GoldenEvalReport,
+    MissingCitationDetail,
+)
+from bidded.orchestration import AgentRunStatus, EvidenceSourceType, Verdict
 from bidded.orchestration.run_controls import (
     DemoTraceEntry,
     RetryRunResult,
@@ -1033,6 +1039,27 @@ def test_cli_eval_golden_returns_nonzero_for_failed_expectations(
                 unexpected_validation_errors=("schema_error",),
                 actual_validation_errors=("schema_error",),
                 evidence_reference_failures=("missing required evidence ref: E1",),
+                evidence_coverage=EvidenceCoverageScore(
+                    score=0.0,
+                    threshold=1.0,
+                    passed=False,
+                    material_claim_count=1,
+                    covered_claim_count=0,
+                    unsupported_claim_count=1,
+                    missing_citation_details=(
+                        MissingCitationDetail(
+                            claim_type=EvidenceCoverageClaimType.BLOCKER,
+                            claim="Required blocker.",
+                            reason="missing_required_source_type",
+                            missing_source_types=(
+                                EvidenceSourceType.TENDER_DOCUMENT,
+                            ),
+                            present_source_types=(
+                                EvidenceSourceType.COMPANY_PROFILE,
+                            ),
+                        ),
+                    ),
+                ),
             ),
         ),
     )
@@ -1051,3 +1078,10 @@ def test_cli_eval_golden_returns_nonzero_for_failed_expectations(
     assert "Evidence-reference failures: missing required evidence ref: E1" in (
         captured.out
     )
+    assert "Evidence coverage: 0.00 below threshold 1.00" in captured.out
+    assert "Unsupported material claims: 1" in captured.out
+    assert (
+        "Missing citation: blocker - Required blocker. "
+        "reason=missing_required_source_type; missing=tender_document; "
+        "present=company_profile; unresolved=none"
+    ) in captured.out

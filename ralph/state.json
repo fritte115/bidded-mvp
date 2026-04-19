@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-044",
-  "storyTitle": "Score evidence coverage",
+  "currentStory": "US-045",
+  "storyTitle": "Add verdict regression checks",
   "nextAction": "implement",
-  "progressTokens": 3795,
+  "progressTokens": 3870,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

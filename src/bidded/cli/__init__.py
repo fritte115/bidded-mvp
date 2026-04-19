@@ -704,11 +704,36 @@ def _print_golden_case_eval_result(result: GoldenCaseEvalResult) -> None:
         "Evidence-reference failures",
         result.evidence_reference_failures,
     )
+    if not result.evidence_coverage.passed:
+        coverage = result.evidence_coverage
+        print(
+            "  Evidence coverage: "
+            f"{coverage.score:.2f} below threshold {coverage.threshold:.2f}"
+        )
+        if coverage.unsupported_claim_count:
+            print(
+                "  Unsupported material claims: "
+                f"{coverage.unsupported_claim_count}"
+            )
+        for detail in coverage.missing_citation_details:
+            missing = _source_type_values(detail.missing_source_types)
+            present = _source_type_values(detail.present_source_types)
+            unresolved = ", ".join(detail.unresolved_evidence_refs) or "none"
+            print(
+                "  Missing citation: "
+                f"{detail.claim_type.value} - {detail.claim} "
+                f"reason={detail.reason}; missing={missing}; "
+                f"present={present}; unresolved={unresolved}"
+            )
 
 
 def _print_issue_tuple(label: str, values: tuple[str, ...]) -> None:
     if values:
         print(f"  {label}: {'; '.join(values)}")
+
+
+def _source_type_values(values: tuple[Any, ...]) -> str:
+    return ", ".join(value.value for value in values) or "none"
 
 
 def _redact_known_secrets(message: str, settings: Any) -> str:

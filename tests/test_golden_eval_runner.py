@@ -6,13 +6,16 @@ from pathlib import Path
 import pytest
 
 from bidded.evals.golden_runner import (
+    EvidenceCitationRequirement,
+    EvidenceCoverageClaim,
+    EvidenceCoverageClaimType,
     GoldenActualOutcome,
     GoldenEvalError,
     run_golden_evals,
     write_golden_eval_json,
 )
 from bidded.fixtures.golden_cases import GoldenDemoCase
-from bidded.orchestration import Verdict
+from bidded.orchestration import EvidenceSourceType, Verdict
 
 
 def test_golden_eval_runner_passes_all_recorded_cases() -> None:
@@ -29,6 +32,159 @@ def test_golden_eval_runner_passes_all_recorded_cases() -> None:
         "missing_company_evidence",
         "unsupported_agent_claim_rejection",
     }
+    assert all(result.evidence_coverage.passed for result in report.results)
+
+
+def test_golden_eval_scores_full_evidence_coverage() -> None:
+    def covered_outcome(case: GoldenDemoCase) -> GoldenActualOutcome:
+        return _expected_outcome_with_claim(
+            case,
+            EvidenceCoverageClaim(
+                claim_type=EvidenceCoverageClaimType.JUDGE_DECISION,
+                claim="The tender requirement is matched by company proof.",
+                citation_requirement=(
+                    EvidenceCitationRequirement.TENDER_AND_COMPANY_WHEN_AVAILABLE
+                ),
+                evidence_refs=case.expected.required_evidence_refs,
+            ),
+            EvidenceCoverageClaim(
+                claim_type=EvidenceCoverageClaimType.RECOMMENDED_ACTION,
+                claim="Proceed with the bid using the cited matched proof.",
+                citation_requirement=(
+                    EvidenceCitationRequirement.TENDER_AND_COMPANY_WHEN_AVAILABLE
+                ),
+                evidence_refs=case.expected.required_evidence_refs,
+            ),
+        )
+
+    report = run_golden_evals(
+        case_id="obvious_bid",
+        outcome_provider=covered_outcome,
+    )
+
+    result = report.results[0]
+    assert report.passed
+    assert result.evidence_coverage.passed
+    assert result.evidence_coverage.score == 1.0
+    assert result.evidence_coverage.threshold == 1.0
+    assert result.evidence_coverage.material_claim_count == 2
+    assert result.evidence_coverage.covered_claim_count == 2
+    assert result.evidence_coverage.unsupported_claim_count == 0
+    assert result.evidence_coverage.missing_citation_details == ()
+
+
+def test_golden_eval_reports_missing_tender_citation() -> None:
+    def missing_tender_outcome(case: GoldenDemoCase) -> GoldenActualOutcome:
+        return _expected_outcome_with_claim(
+            case,
+            EvidenceCoverageClaim(
+                claim_type=EvidenceCoverageClaimType.MATERIAL_FINDING,
+                claim="Company certification satisfies a tender requirement.",
+                citation_requirement=EvidenceCitationRequirement.TENDER_DOCUMENT,
+                evidence_refs=(_first_ref(case, EvidenceSourceType.COMPANY_PROFILE),),
+            ),
+        )
+
+    report = run_golden_evals(
+        case_id="obvious_bid",
+        outcome_provider=missing_tender_outcome,
+    )
+
+    result = report.results[0]
+    detail = result.evidence_coverage.missing_citation_details[0]
+    assert not report.passed
+    assert result.evidence_coverage.score == 0.0
+    assert detail.missing_source_types == (EvidenceSourceType.TENDER_DOCUMENT,)
+    assert detail.present_source_types == (EvidenceSourceType.COMPANY_PROFILE,)
+
+
+def test_golden_eval_reports_missing_company_citation_for_comparison_claim() -> None:
+    def missing_company_outcome(case: GoldenDemoCase) -> GoldenActualOutcome:
+        return _expected_outcome_with_claim(
+            case,
+            EvidenceCoverageClaim(
+                claim_type=EvidenceCoverageClaimType.BLOCKER,
+                claim="The tender exclusion is confirmed by the company profile.",
+                citation_requirement=(
+                    EvidenceCitationRequirement.TENDER_AND_COMPANY_WHEN_AVAILABLE
+                ),
+                evidence_refs=(_first_ref(case, EvidenceSourceType.TENDER_DOCUMENT),),
+            ),
+        )
+
+    report = run_golden_evals(
+        case_id="hard_compliance_no_bid",
+        outcome_provider=missing_company_outcome,
+    )
+
+    result = report.results[0]
+    detail = result.evidence_coverage.missing_citation_details[0]
+    assert not report.passed
+    assert detail.missing_source_types == (EvidenceSourceType.COMPANY_PROFILE,)
+    assert detail.present_source_types == (EvidenceSourceType.TENDER_DOCUMENT,)
+
+
+def test_golden_eval_counts_unsupported_material_claims_separately() -> None:
+    def unsupported_outcome(case: GoldenDemoCase) -> GoldenActualOutcome:
+        return _expected_outcome_with_claim(
+            case,
+            EvidenceCoverageClaim(
+                claim_type=EvidenceCoverageClaimType.RISK_REGISTER_ENTRY,
+                claim="Subcontractor bench can cover delivery surge.",
+                citation_requirement=EvidenceCitationRequirement.ANY_EVIDENCE,
+                evidence_refs=(),
+            ),
+        )
+
+    report = run_golden_evals(
+        case_id="unsupported_agent_claim_rejection",
+        outcome_provider=unsupported_outcome,
+    )
+
+    result = report.results[0]
+    assert not report.passed
+    assert result.evidence_coverage.material_claim_count == 1
+    assert result.evidence_coverage.covered_claim_count == 0
+    assert result.evidence_coverage.unsupported_claim_count == 1
+    assert result.evidence_coverage.missing_citation_details[0].reason == (
+        "unsupported_material_claim"
+    )
+
+
+@pytest.mark.parametrize(
+    "claim_type",
+    [
+        EvidenceCoverageClaimType.ASSUMPTION,
+        EvidenceCoverageClaimType.MISSING_INFO,
+        EvidenceCoverageClaimType.POTENTIAL_EVIDENCE_GAP,
+    ],
+)
+def test_golden_eval_allows_uncited_gap_and_assumption_notes(
+    claim_type: EvidenceCoverageClaimType,
+) -> None:
+    def allowed_gap_outcome(case: GoldenDemoCase) -> GoldenActualOutcome:
+        return _expected_outcome_with_claim(
+            case,
+            EvidenceCoverageClaim(
+                claim_type=claim_type,
+                claim="Current audited turnover evidence is missing.",
+                citation_requirement=EvidenceCitationRequirement.ANY_EVIDENCE,
+                evidence_refs=(),
+            ),
+        )
+
+    report = run_golden_evals(
+        case_id="missing_company_evidence",
+        outcome_provider=allowed_gap_outcome,
+    )
+
+    result = report.results[0]
+    assert report.passed
+    assert result.evidence_coverage.passed
+    assert result.evidence_coverage.score == 1.0
+    assert result.evidence_coverage.material_claim_count == 0
+    assert result.evidence_coverage.unsupported_claim_count == 0
+    assert result.evidence_coverage.missing_citation_details == ()
 
 
 def test_golden_eval_runner_selects_one_case_by_id() -> None:
@@ -112,3 +268,31 @@ def test_golden_eval_runner_writes_stable_json(tmp_path: Path) -> None:
     assert payload["results"][0]["case_id"] == "obvious_bid"
     assert payload["results"][0]["expected_verdict"] == "bid"
     assert payload["results"][0]["actual_verdict"] == "bid"
+    assert payload["results"][0]["evidence_coverage"]["passed"] is True
+
+
+def _expected_outcome_with_claim(
+    case: GoldenDemoCase,
+    *claims: EvidenceCoverageClaim,
+) -> GoldenActualOutcome:
+    return GoldenActualOutcome(
+        verdict=case.expected.verdict,
+        blockers=case.expected.blockers,
+        missing_info=case.expected.missing_info,
+        recommended_actions=case.expected.recommended_actions,
+        unsupported_claims_rejected=case.expected.unsupported_claims_rejected,
+        validation_errors=case.expected.validation_errors,
+        evidence_refs=case.expected.required_evidence_refs,
+        coverage_claims=claims,
+    )
+
+
+def _first_ref(
+    case: GoldenDemoCase,
+    source_type: EvidenceSourceType,
+):
+    return next(
+        evidence_ref
+        for evidence_ref in case.expected.required_evidence_refs
+        if evidence_ref.source_type is source_type
+    )

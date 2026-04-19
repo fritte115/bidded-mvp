@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Sequence
+from enum import StrEnum
 from pathlib import Path
 
 from pydantic import Field
@@ -10,6 +11,7 @@ from bidded.fixtures.golden_cases import GoldenDemoCase, golden_demo_cases
 from bidded.orchestration.state import (
     EvidenceItemState,
     EvidenceRef,
+    EvidenceSourceType,
     StrictStateModel,
     Verdict,
 )
@@ -17,6 +19,88 @@ from bidded.orchestration.state import (
 
 class GoldenEvalError(ValueError):
     """Raised when a golden eval cannot be configured or selected."""
+
+
+class EvidenceCoverageClaimType(StrEnum):
+    """Claim buckets evaluated by the golden evidence coverage scorer."""
+
+    MATERIAL_FINDING = "material_finding"
+    BLOCKER = "blocker"
+    JUDGE_DECISION = "judge_decision"
+    RISK_REGISTER_ENTRY = "risk_register_entry"
+    RECOMMENDED_ACTION = "recommended_action"
+    ASSUMPTION = "assumption"
+    MISSING_INFO = "missing_info"
+    POTENTIAL_EVIDENCE_GAP = "potential_evidence_gap"
+
+
+class EvidenceCitationRequirement(StrEnum):
+    """Evidence source requirements for one material claim."""
+
+    ANY_EVIDENCE = "any_evidence"
+    TENDER_DOCUMENT = "tender_document"
+    COMPANY_PROFILE = "company_profile"
+    TENDER_AND_COMPANY_WHEN_AVAILABLE = "tender_and_company_when_available"
+
+
+class EvidenceCoverageClaim(StrictStateModel):
+    """One actual claim whose evidence citation coverage can be scored."""
+
+    claim_type: EvidenceCoverageClaimType
+    claim: str = Field(min_length=1)
+    citation_requirement: EvidenceCitationRequirement = (
+        EvidenceCitationRequirement.ANY_EVIDENCE
+    )
+    evidence_refs: tuple[EvidenceRef, ...] = ()
+
+
+class MissingCitationDetail(StrictStateModel):
+    """Deterministic explanation for one uncovered material claim."""
+
+    claim_type: EvidenceCoverageClaimType
+    claim: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    missing_source_types: tuple[EvidenceSourceType, ...] = ()
+    present_source_types: tuple[EvidenceSourceType, ...] = ()
+    unresolved_evidence_refs: tuple[str, ...] = ()
+
+
+class EvidenceCoverageScore(StrictStateModel):
+    """Per-case citation coverage score for material eval claims."""
+
+    score: float = Field(ge=0, le=1)
+    threshold: float = Field(ge=0, le=1)
+    passed: bool
+    material_claim_count: int = Field(ge=0)
+    covered_claim_count: int = Field(ge=0)
+    unsupported_claim_count: int = Field(ge=0)
+    missing_citation_details: tuple[MissingCitationDetail, ...] = ()
+
+
+_MATERIAL_CLAIM_TYPES = frozenset(
+    {
+        EvidenceCoverageClaimType.MATERIAL_FINDING,
+        EvidenceCoverageClaimType.BLOCKER,
+        EvidenceCoverageClaimType.JUDGE_DECISION,
+        EvidenceCoverageClaimType.RISK_REGISTER_ENTRY,
+        EvidenceCoverageClaimType.RECOMMENDED_ACTION,
+    }
+)
+_SOURCE_TYPE_ORDER = (
+    EvidenceSourceType.TENDER_DOCUMENT,
+    EvidenceSourceType.COMPANY_PROFILE,
+)
+
+
+def _default_evidence_coverage_score() -> EvidenceCoverageScore:
+    return EvidenceCoverageScore(
+        score=1.0,
+        threshold=1.0,
+        passed=True,
+        material_claim_count=0,
+        covered_claim_count=0,
+        unsupported_claim_count=0,
+    )
 
 
 class GoldenActualOutcome(StrictStateModel):
@@ -29,6 +113,7 @@ class GoldenActualOutcome(StrictStateModel):
     unsupported_claims_rejected: tuple[str, ...] = ()
     validation_errors: tuple[str, ...] = ()
     evidence_refs: tuple[EvidenceRef, ...] = Field(default_factory=tuple)
+    coverage_claims: tuple[EvidenceCoverageClaim, ...] = ()
 
 
 class GoldenCaseEvalResult(StrictStateModel):
@@ -49,6 +134,9 @@ class GoldenCaseEvalResult(StrictStateModel):
     unexpected_validation_errors: tuple[str, ...] = ()
     actual_validation_errors: tuple[str, ...] = ()
     evidence_reference_failures: tuple[str, ...] = ()
+    evidence_coverage: EvidenceCoverageScore = Field(
+        default_factory=_default_evidence_coverage_score
+    )
 
 
 class GoldenEvalReport(StrictStateModel):
@@ -98,6 +186,7 @@ def recorded_golden_outcome(case: GoldenDemoCase) -> GoldenActualOutcome:
         unsupported_claims_rejected=case.expected.unsupported_claims_rejected,
         validation_errors=case.expected.validation_errors,
         evidence_refs=case.expected.required_evidence_refs,
+        coverage_claims=_recorded_coverage_claims(case),
     )
 
 
@@ -111,6 +200,10 @@ def evaluate_golden_case(
     evidence_reference_failures = _evidence_reference_failures(
         actual.evidence_refs,
         required_refs=case.expected.required_evidence_refs,
+        evidence_board=case.evidence_board,
+    )
+    evidence_coverage = score_evidence_coverage(
+        actual.coverage_claims,
         evidence_board=case.evidence_board,
     )
     missing_required_blockers = _missing_required(
@@ -154,6 +247,7 @@ def evaluate_golden_case(
             missing_expected_validation_errors,
             unexpected_validation_errors,
             evidence_reference_failures,
+            not evidence_coverage.passed,
         )
     )
 
@@ -177,6 +271,97 @@ def evaluate_golden_case(
         unexpected_validation_errors=unexpected_validation_errors,
         actual_validation_errors=actual.validation_errors,
         evidence_reference_failures=evidence_reference_failures,
+        evidence_coverage=evidence_coverage,
+    )
+
+
+def score_evidence_coverage(
+    claims: Sequence[EvidenceCoverageClaim],
+    *,
+    evidence_board: Sequence[EvidenceItemState],
+    threshold: float = 1.0,
+) -> EvidenceCoverageScore:
+    """Score whether material eval claims cite the required evidence sources."""
+
+    board_by_key = {item.evidence_key: item for item in evidence_board}
+    available_source_types = frozenset(item.source_type for item in evidence_board)
+    material_claim_count = 0
+    covered_claim_count = 0
+    unsupported_claim_count = 0
+    missing_citation_details: list[MissingCitationDetail] = []
+
+    for claim in claims:
+        if claim.claim_type not in _MATERIAL_CLAIM_TYPES:
+            continue
+
+        material_claim_count += 1
+        required_source_types = _required_source_types(
+            claim.citation_requirement,
+            available_source_types=available_source_types,
+        )
+        present_source_types, unresolved_refs = _present_source_types(
+            claim.evidence_refs,
+            board_by_key=board_by_key,
+        )
+
+        if not claim.evidence_refs:
+            unsupported_claim_count += 1
+            missing_citation_details.append(
+                MissingCitationDetail(
+                    claim_type=claim.claim_type,
+                    claim=claim.claim,
+                    reason="unsupported_material_claim",
+                    missing_source_types=required_source_types,
+                    present_source_types=present_source_types,
+                )
+            )
+            continue
+
+        missing_source_types = tuple(
+            source_type
+            for source_type in required_source_types
+            if source_type not in present_source_types
+        )
+        if unresolved_refs:
+            missing_citation_details.append(
+                MissingCitationDetail(
+                    claim_type=claim.claim_type,
+                    claim=claim.claim,
+                    reason="unresolved_evidence_refs",
+                    missing_source_types=missing_source_types,
+                    present_source_types=present_source_types,
+                    unresolved_evidence_refs=unresolved_refs,
+                )
+            )
+            continue
+
+        if missing_source_types:
+            missing_citation_details.append(
+                MissingCitationDetail(
+                    claim_type=claim.claim_type,
+                    claim=claim.claim,
+                    reason="missing_required_source_type",
+                    missing_source_types=missing_source_types,
+                    present_source_types=present_source_types,
+                )
+            )
+            continue
+
+        covered_claim_count += 1
+
+    score = (
+        1.0
+        if material_claim_count == 0
+        else covered_claim_count / material_claim_count
+    )
+    return EvidenceCoverageScore(
+        score=score,
+        threshold=threshold,
+        passed=score >= threshold,
+        material_claim_count=material_claim_count,
+        covered_claim_count=covered_claim_count,
+        unsupported_claim_count=unsupported_claim_count,
+        missing_citation_details=tuple(missing_citation_details),
     )
 
 
@@ -188,6 +373,92 @@ def write_golden_eval_json(report: GoldenEvalReport, path: Path) -> None:
     path.write_text(
         json.dumps(payload, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
+    )
+
+
+def _recorded_coverage_claims(
+    case: GoldenDemoCase,
+) -> tuple[EvidenceCoverageClaim, ...]:
+    claims = [
+        EvidenceCoverageClaim(
+            claim_type=EvidenceCoverageClaimType.JUDGE_DECISION,
+            claim=case.expected.rationale,
+            citation_requirement=(
+                EvidenceCitationRequirement.TENDER_AND_COMPANY_WHEN_AVAILABLE
+            ),
+            evidence_refs=case.expected.required_evidence_refs,
+        )
+    ]
+    claims.extend(
+        EvidenceCoverageClaim(
+            claim_type=EvidenceCoverageClaimType.BLOCKER,
+            claim=blocker,
+            citation_requirement=(
+                EvidenceCitationRequirement.TENDER_AND_COMPANY_WHEN_AVAILABLE
+            ),
+            evidence_refs=case.expected.required_evidence_refs,
+        )
+        for blocker in case.expected.blockers
+    )
+    claims.extend(
+        EvidenceCoverageClaim(
+            claim_type=EvidenceCoverageClaimType.RECOMMENDED_ACTION,
+            claim=action,
+            citation_requirement=(
+                EvidenceCitationRequirement.TENDER_AND_COMPANY_WHEN_AVAILABLE
+            ),
+            evidence_refs=case.expected.required_evidence_refs,
+        )
+        for action in case.expected.recommended_actions
+    )
+    return tuple(claims)
+
+
+def _required_source_types(
+    citation_requirement: EvidenceCitationRequirement,
+    *,
+    available_source_types: frozenset[EvidenceSourceType],
+) -> tuple[EvidenceSourceType, ...]:
+    if citation_requirement is EvidenceCitationRequirement.ANY_EVIDENCE:
+        return ()
+    if citation_requirement is EvidenceCitationRequirement.TENDER_DOCUMENT:
+        return (EvidenceSourceType.TENDER_DOCUMENT,)
+    if citation_requirement is EvidenceCitationRequirement.COMPANY_PROFILE:
+        return (EvidenceSourceType.COMPANY_PROFILE,)
+
+    return _ordered_source_types(available_source_types)
+
+
+def _present_source_types(
+    evidence_refs: Sequence[EvidenceRef],
+    *,
+    board_by_key: dict[str, EvidenceItemState],
+) -> tuple[tuple[EvidenceSourceType, ...], tuple[str, ...]]:
+    source_types: list[EvidenceSourceType] = []
+    unresolved_refs: list[str] = []
+    for evidence_ref in evidence_refs:
+        board_item = board_by_key.get(evidence_ref.evidence_key)
+        if (
+            board_item is None
+            or board_item.source_type is not evidence_ref.source_type
+            or evidence_ref.evidence_id is None
+            or board_item.evidence_id != evidence_ref.evidence_id
+        ):
+            unresolved_refs.append(evidence_ref.evidence_key)
+            continue
+        source_types.append(board_item.source_type)
+
+    return _ordered_source_types(source_types), tuple(dict.fromkeys(unresolved_refs))
+
+
+def _ordered_source_types(
+    source_types: Sequence[EvidenceSourceType] | frozenset[EvidenceSourceType],
+) -> tuple[EvidenceSourceType, ...]:
+    source_type_set = set(source_types)
+    return tuple(
+        source_type
+        for source_type in _SOURCE_TYPE_ORDER
+        if source_type in source_type_set
     )
 
 

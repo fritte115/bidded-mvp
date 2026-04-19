@@ -673,8 +673,8 @@
         "Tests cover full coverage, missing tender citation, missing company citation, unsupported claim, and allowed missing_info; pytest and ruff check pass."
       ],
       "priority": 44,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added golden eval citation coverage scoring, source requirements, unsupported-claim counts, JSON/CLI output, and deterministic tests. Complete."
     },
     {
       "id": "US-045",

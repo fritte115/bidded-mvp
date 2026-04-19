@@ -21,7 +21,7 @@ Started: 2026-04-18
 - **Bidded Agent Output Schema Contract**: `src/bidded/agents/schemas.py` is the strict Pydantic surface for RequirementType, Evidence Scout output, motions, rebuttals, Judge decisions, typed Judge reasoning details, evidence refs, material claim evidence-ID validation, validation errors, and specialist role bounds.
 - **Bidded Evidence/Retrieval Contract**: `src/bidded/retrieval` returns deterministic hybrid scores; `src/bidded/evidence` builds nullable typed evidence; recall audit warnings compare chunk/glossary signals to evidence-board requirement coverage before agent requests.
 - **Bidded Operator Controls Contract**: `run_controls.py` owns status/demo-trace/retry/stale-reset controls; `decision_export.py` reads persisted decisions, agent outputs, and cited evidence into local Markdown/JSON without DB mutation.
-- **Bidded Golden Eval Contract**: `src/bidded/evals/golden_runner.py` compares recorded or injected golden outcomes against fixture expectations for verdicts, blockers, missing info/actions, unsupported-claim rejection, validation errors, and resolved evidence refs; `bidded eval-golden` is deterministic and live-service-free.
+- **Bidded Golden Eval Contract**: `src/bidded/evals/golden_runner.py` compares recorded or injected golden outcomes against fixture expectations for verdicts, blockers, missing info/actions, unsupported-claim rejection, validation errors, resolved evidence refs, and material-claim citation coverage; `bidded eval-golden` is deterministic and live-service-free.
 
 ## Session Log
 
@@ -250,4 +250,9 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added deterministic golden eval execution, mismatch reporting, stable JSON output, and the `eval-golden` CLI for all cases or one selected case.
 - **Files**: src/bidded/evals/, src/bidded/cli/__init__.py, tests/test_golden_eval_runner.py, tests/test_cli.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
 - **Key learnings**: Keep eval runners live-service-free by comparing recorded or injected outcomes against typed golden fixture expectations before later scorer/export stories deepen the metrics.
+---
+## 2026-04-19 04:21 CEST - US-044
+- **Implemented**: Added golden eval evidence coverage scoring for material claims, tender/company/comparison citation requirements, unsupported claim counts, JSON/CLI reporting, and deterministic tests.
+- **Files**: src/bidded/evals/golden_runner.py, src/bidded/evals/__init__.py, src/bidded/cli/__init__.py, tests/test_golden_eval_runner.py, tests/test_cli.py, README.md, ralph/progress.md, ralph/prd.json, ralph/state.json
+- **Key learnings**: Treat assumptions, missing_info, and potential_evidence_gaps as allowed uncited notes while material findings, blockers, Judge decisions, risks, and actions require scored citation coverage.
 ---
