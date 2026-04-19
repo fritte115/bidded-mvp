@@ -8,6 +8,7 @@ from typing import Any
 from bidded import __version__
 from bidded.config import load_settings
 from bidded.db.seed_demo_company import seed_demo_company
+from bidded.doctor import run_demo_environment_doctor
 from bidded.documents import TenderPdfRegistrationError, register_demo_tender_pdf
 from bidded.orchestration import (
     AgentRunStatus,
@@ -99,6 +100,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pending_run_parser.set_defaults(handler=_run_create_pending_run_command)
 
+    doctor_parser = subparsers.add_parser(
+        "doctor",
+        aliases=["demo-doctor"],
+        help="Check the local demo environment.",
+        description=(
+            "Check required demo environment variables, Supabase tables, "
+            "Supabase Storage, and optional Anthropic connectivity."
+        ),
+    )
+    doctor_parser.add_argument(
+        "--check-anthropic",
+        action="store_true",
+        help=(
+            "Require a live Anthropic connectivity check even when "
+            "ANTHROPIC_API_KEY is missing."
+        ),
+    )
+    doctor_parser.set_defaults(handler=_run_doctor_command)
+
     worker_parser = subparsers.add_parser(
         "worker",
         help="Run one pending agent run through the local worker.",
@@ -131,6 +151,27 @@ def _create_supabase_client(settings: Any | None = None) -> Any:
     from supabase import create_client
 
     return create_client(settings.supabase_url, settings.supabase_service_role_key)
+
+
+def _create_anthropic_client(api_key: str) -> Any:
+    from anthropic import Anthropic
+
+    return Anthropic(api_key=api_key)
+
+
+def _run_doctor_command(args: argparse.Namespace) -> int:
+    settings = load_settings()
+    result = run_demo_environment_doctor(
+        settings,
+        supabase_client_factory=_create_supabase_client,
+        anthropic_client_factory=_create_anthropic_client,
+        check_anthropic=args.check_anthropic,
+    )
+
+    print("Bidded demo environment doctor")
+    for check in result.checks:
+        print(f"{check.status.upper()} {check.name}: {check.message}")
+    return 0 if result.passed else 1
 
 
 def _run_seed_demo_company_command(_args: argparse.Namespace) -> int:

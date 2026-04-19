@@ -199,3 +199,8 @@ No Ralph story sessions have completed yet.
 - **Files**: src/bidded/orchestration/evidence_recall.py, src/bidded/orchestration/evidence_scout.py, src/bidded/orchestration/specialist_motions.py, src/bidded/orchestration/judge.py, src/bidded/orchestration/__init__.py, tests/test_evidence_recall_audit.py, tests/test_evidence_scout_node.py, tests/test_specialist_motion_node.py, tests/test_judge_decision_node.py, ralph/progress.md, ralph/CLAUDE.md, ralph/prd.json, ralph/state.json
 - **Key learnings**: Keep recall audit output as structured warning/missing_info context so missing evidence coverage informs agents without becoming an automatic hard blocker.
 ---
+## 2026-04-19 02:31 CEST - US-034
+- **Implemented**: Added a demo environment doctor command for env, Supabase table, Storage probe, Anthropic availability, and secret-redacted output.
+- **Files**: src/bidded/doctor.py, src/bidded/cli/__init__.py, tests/test_demo_environment_doctor.py, tests/test_cli.py, tests/test_project_scaffold.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
+- **Key learnings**: Keep demo-health checks injectable and output-only redacted so live readiness can be tested without constructing external clients during import or help.
+---

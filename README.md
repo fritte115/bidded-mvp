@@ -33,7 +33,8 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Judge decision node | `bidded.orchestration.judge` bygger evidence-locked Judge requests med kravtypad glossary-context, validerar strict `JudgeDecision` output, gate:ar endast typade formella compliance blockers till `no_bid`, append:ar `final_decision` agent_output och skriver Supabase-kompatibla `bid_decisions` payloads med kravtyper i relevanta detaljer. |
 | Pending agent runs | `bidded create-pending-run` validerar vald demo tender, demo company och tender document innan en `pending` `agent_runs`-rad med evidence-locked run config skapas. |
 | Worker lifecycle CLI | `bidded worker` kör en specificerad pending run eller äldsta pending demo-run, uppdaterar `agent_runs`, kör graphen och persisterar normaliserade `agent_outputs` och `bid_decisions`. |
-| Frontend | Ingen frontend i repot. Lovable är fortsatt tänkt som tunn demo-UI ovanpå Supabase, men `US-033` och framåt prioriterar kvalitetshöjande audits och demo-hardening innan en ny handoff-story. |
+| Demo doctor | `bidded doctor` kontrollerar demo-miljövariabler, Supabase-tabeller, Storage-bucket och optional Anthropic-connectivity utan att skriva ut secrets. |
+| Frontend | Ingen frontend i repot. Lovable är fortsatt tänkt som tunn demo-UI ovanpå Supabase, men de närmaste stories prioriterar demo-hardening innan en ny handoff-story. |
 
 README:n beskriver därför både nuläget och den stack som PRD:n definierar att vi bygger mot. När stories implementeras ska planerade delar flyttas till faktiskt levererade delar.
 
@@ -242,6 +243,7 @@ PRD:n beskriver en lokal CLI/worker. Den kan nu:
 - ladda upp PDF:en till Supabase Storage och spara dokumentrad med checksumma
 - skapa en `pending` agent run utan att köra LLM eller dokumentprocessing
 - köra en specificerad `agent_run` via ID eller plocka äldsta pending run för demo-bolaget
+- kontrollera demo-miljön med `bidded doctor` innan live demo
 - uppdatera run-status till `running`, `succeeded`, `failed` eller `needs_human_review`
 - skriva normaliserade `agent_outputs` och `bid_decisions` utan raw full prompts som default audit artifact
 - logga tillräckligt lokalt för demooperation medan Supabase förblir source of truth
@@ -273,6 +275,11 @@ gitignored: `data/demo/incoming/Bilaga Skakrav.pdf`.
 Pending run och worker-körning:
 
 ```bash
+.venv/bin/bidded doctor
+
+# Kräv Anthropic-kontroll även om ANTHROPIC_API_KEY saknas:
+.venv/bin/bidded doctor --check-anthropic
+
 .venv/bin/bidded create-pending-run \
   --tender-id "$TENDER_ID" \
   --company-id "$COMPANY_ID" \
@@ -290,7 +297,7 @@ Pending run och worker-körning:
 
 | Variabel | Används av | Kommentar |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | Ralph/Claude CLI via Makefile | Finns i `.env.example`. Behövs för `make ralph`. |
+| `ANTHROPIC_API_KEY` | Ralph/Claude CLI via Makefile, `bidded doctor` | Finns i `.env.example`. Behövs för `make ralph`; doctor kontrollerar live LLM-connectivity när nyckeln finns eller `--check-anthropic` används. |
 | `SUPABASE_URL` | Python CLI/worker | Hosted Supabase demo project. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Python CLI/worker | Server-side access för demo worker. Ska inte exponeras i frontend. |
 | `SUPABASE_STORAGE_BUCKET` | PDF registration/ingestion | Bucket för uppladdade upphandlingsdokument. |

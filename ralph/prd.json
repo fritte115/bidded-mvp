@@ -523,8 +523,8 @@
         "Tests mock external clients and cover success, missing env, missing table, missing bucket, and secret redaction; pytest and ruff check pass."
       ],
       "priority": 34,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added bidded doctor with env, Supabase table, Storage probe, Anthropic availability, redaction, CLI docs, and mocked tests. Complete."
     },
     {
       "id": "US-035",

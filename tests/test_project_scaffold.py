@@ -17,6 +17,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
         "bidded.config",
         "bidded.db",
         "bidded.documents",
+        "bidded.doctor",
         "bidded.embeddings",
         "bidded.evidence",
         "bidded.retrieval",

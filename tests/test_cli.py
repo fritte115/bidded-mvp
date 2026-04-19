@@ -36,6 +36,7 @@ def test_cli_help_prints_without_external_services() -> None:
     assert "Bidded" in result.stdout
     assert "usage:" in result.stdout.lower()
     assert "seed-demo-company" in result.stdout
+    assert "doctor" in result.stdout
 
 
 def test_cli_seed_demo_company_help_prints_without_external_services() -> None:
@@ -123,6 +124,27 @@ def test_cli_worker_help_prints_without_external_services() -> None:
     assert "worker" in result.stdout
     assert "--run-id" in result.stdout
     assert "--company-id" in result.stdout
+
+
+def test_cli_doctor_help_prints_without_external_services() -> None:
+    env = os.environ.copy()
+    env.pop("ANTHROPIC_API_KEY", None)
+    env.pop("SUPABASE_URL", None)
+    env.pop("SUPABASE_SERVICE_ROLE_KEY", None)
+    env["PYTHONPATH"] = str(PROJECT_ROOT / "src")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "bidded.cli", "doctor", "--help"],
+        cwd=PROJECT_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "doctor" in result.stdout
+    assert "--check-anthropic" in result.stdout
 
 
 class RecordingCompanyTable:
