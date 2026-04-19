@@ -21,7 +21,7 @@ Started: 2026-04-18
 - **Bidded Agent Output Schema Contract**: `src/bidded/agents/schemas.py` is the strict Pydantic surface for RequirementType, Evidence Scout output, motions, rebuttals, Judge decisions, typed Judge reasoning details, evidence refs, material claim evidence-ID validation, validation errors, and specialist role bounds.
 - **Bidded Evidence/Retrieval Contract**: `src/bidded/retrieval` returns deterministic hybrid scores; `src/bidded/evidence` builds nullable typed evidence; recall audit warnings compare chunk/glossary signals to evidence-board requirement coverage before agent requests.
 - **Bidded Operator Controls Contract**: `run_controls.py` owns status/demo-trace/retry/stale-reset controls; `decision_export.py` reads persisted decisions, agent outputs, and cited evidence into local Markdown/JSON without DB mutation.
-- **Bidded Golden Eval Contract**: `golden_demo_cases` exposes typed core/adversarial fixture groups selected by `bidded eval-golden --fixture-group`; `golden_runner.py` compares recorded/injected outcomes, emits normalized actual decisions, writes deterministic JSON/Markdown reports, and `decision_diff.py` compares material fields only.
+- **Bidded Golden Eval Contract**: `golden_demo_cases` exposes typed core/adversarial fixture groups selected by `bidded eval-golden --fixture-group`; `golden_runner.py` compares recorded/injected outcomes and writes deterministic reports; `live_comparison.py` adds opt-in `--compare-live --confirm-live`; `decision_diff.py` compares material fields only.
 
 ## Session Log
 
@@ -280,4 +280,9 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added deterministic golden eval JSON/Markdown report exports with aggregate summaries, failed-case details, CLI wiring, and regression coverage.
 - **Files**: src/bidded/evals/golden_runner.py, src/bidded/evals/__init__.py, src/bidded/cli/__init__.py, tests/test_golden_eval_runner.py, tests/test_cli.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
 - **Key learnings**: Keep eval report exports as pure render/write helpers over `GoldenEvalReport` so CLI and tests share deterministic report payloads.
+---
+## 2026-04-19 05:36 CEST - US-050
+- **Implemented**: Added opt-in live-vs-mock golden eval comparison with Anthropic adapter injection, unavailable-credential handling, JSON/Markdown reports, CLI flags, and deterministic tests.
+- **Files**: src/bidded/evals/live_comparison.py, src/bidded/evals/__init__.py, src/bidded/cli/__init__.py, tests/test_live_golden_eval_comparison.py, tests/test_cli.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
+- **Key learnings**: Keep live eval rehearsal behind explicit CLI confirmation and model it as a comparison report over the deterministic mock baseline so normal evals remain live-service-free.
 ---

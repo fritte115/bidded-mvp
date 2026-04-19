@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-050",
-  "storyTitle": "Compare live and mock evals",
+  "currentStory": "US-051",
+  "storyTitle": "Add clause-aware tender segmentation",
   "nextAction": "implement",
-  "progressTokens": 4260,
+  "progressTokens": 4320,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

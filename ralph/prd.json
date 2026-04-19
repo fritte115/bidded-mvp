@@ -763,8 +763,8 @@
         "Tests mock the live client and cover disabled-by-default behavior, missing credentials, successful comparison, validation failure comparison, and report output; pytest and ruff check pass."
       ],
       "priority": 50,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added opt-in live-vs-mock golden eval comparison with CLI confirmation, unavailable handling, reports, and mocked Anthropic tests. Complete."
     },
     {
       "id": "US-051",

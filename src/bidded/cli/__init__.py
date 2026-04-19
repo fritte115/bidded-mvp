@@ -33,6 +33,13 @@ from bidded.evals.golden_runner import (
     write_golden_eval_json,
     write_golden_eval_markdown,
 )
+from bidded.evals.live_comparison import (
+    AnthropicGoldenEvalOutcomeProvider,
+    LiveGoldenEvalComparisonReport,
+    run_live_golden_eval_comparison,
+    write_live_golden_eval_comparison_json,
+    write_live_golden_eval_comparison_markdown,
+)
 from bidded.orchestration import (
     AgentRunStatus,
     PendingRunContextError,
@@ -331,6 +338,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--markdown-path",
         type=Path,
         help="Optional destination for a readable Markdown eval report.",
+    )
+    eval_parser.add_argument(
+        "--compare-live",
+        action="store_true",
+        help=(
+            "Compare deterministic mock eval outputs with live Claude outputs. "
+            "Requires --confirm-live."
+        ),
+    )
+    eval_parser.add_argument(
+        "--confirm-live",
+        action="store_true",
+        help="Explicitly confirm live Claude calls for --compare-live.",
+    )
+    eval_parser.add_argument(
+        "--anthropic-model",
+        help=(
+            "Anthropic model for --compare-live. Defaults to "
+            f"{DEFAULT_ANTHROPIC_MODEL}."
+        ),
     )
     eval_parser.set_defaults(handler=_run_eval_golden_command)
 
@@ -644,6 +671,12 @@ def _run_export_decision_command(args: argparse.Namespace) -> int:
 
 
 def _run_eval_golden_command(args: argparse.Namespace) -> int:
+    if args.compare_live and not args.confirm_live:
+        print("--confirm-live is required for --compare-live.", file=sys.stderr)
+        return 2
+    if args.compare_live:
+        return _run_live_golden_eval_comparison_command(args)
+
     try:
         result = run_golden_evals(
             case_id=args.case_id,
@@ -663,6 +696,74 @@ def _run_eval_golden_command(args: argparse.Namespace) -> int:
     if args.markdown_path is not None:
         print(f"Wrote Markdown: {args.markdown_path}")
     return 0 if result.passed else 1
+
+
+def _run_live_golden_eval_comparison_command(args: argparse.Namespace) -> int:
+    settings = load_settings()
+    api_key = getattr(settings, "anthropic_api_key", None)
+    if not api_key:
+        try:
+            result = run_live_golden_eval_comparison(
+                case_id=args.case_id,
+                fixture_group=args.fixture_group,
+                live_unavailable_reason=(
+                    "ANTHROPIC_API_KEY is required for --compare-live."
+                ),
+            )
+            _write_live_golden_eval_comparison_outputs(result, args)
+        except (GoldenEvalError, OSError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        _print_live_golden_eval_comparison_report(result)
+        _print_live_golden_eval_comparison_output_paths(args)
+        return 2
+
+    try:
+        client = _create_anthropic_client(api_key)
+        provider = AnthropicGoldenEvalOutcomeProvider(
+            client,
+            model_name=args.anthropic_model or DEFAULT_ANTHROPIC_MODEL,
+        )
+        result = run_live_golden_eval_comparison(
+            case_id=args.case_id,
+            fixture_group=args.fixture_group,
+            live_outcome_provider=provider,
+        )
+        _write_live_golden_eval_comparison_outputs(result, args)
+    except (GoldenEvalError, OSError, ValueError) as exc:
+        print(_redact_known_secrets(str(exc), settings), file=sys.stderr)
+        return 2
+    except Exception as exc:  # pragma: no cover - depends on Anthropic internals
+        result = run_live_golden_eval_comparison(
+            case_id=args.case_id,
+            fixture_group=args.fixture_group,
+            live_unavailable_reason=_redact_known_secrets(str(exc), settings),
+        )
+        _write_live_golden_eval_comparison_outputs(result, args)
+        _print_live_golden_eval_comparison_report(result)
+        _print_live_golden_eval_comparison_output_paths(args)
+        return 2
+
+    _print_live_golden_eval_comparison_report(result)
+    _print_live_golden_eval_comparison_output_paths(args)
+    return 0 if result.passed else 1
+
+
+def _write_live_golden_eval_comparison_outputs(
+    result: LiveGoldenEvalComparisonReport,
+    args: argparse.Namespace,
+) -> None:
+    if args.json_path is not None:
+        write_live_golden_eval_comparison_json(result, args.json_path)
+    if args.markdown_path is not None:
+        write_live_golden_eval_comparison_markdown(result, args.markdown_path)
+
+
+def _print_live_golden_eval_comparison_output_paths(args: argparse.Namespace) -> None:
+    if args.json_path is not None:
+        print(f"Wrote JSON: {args.json_path}")
+    if args.markdown_path is not None:
+        print(f"Wrote Markdown: {args.markdown_path}")
 
 
 def _run_diff_decisions_command(args: argparse.Namespace) -> int:
@@ -871,6 +972,70 @@ def _print_golden_case_eval_result(result: GoldenCaseEvalResult) -> None:
                 f"reason={detail.reason}; missing={missing}; "
                 f"present={present}; unresolved={unresolved}"
             )
+
+
+def _print_live_golden_eval_comparison_report(
+    report: LiveGoldenEvalComparisonReport,
+) -> None:
+    print(f"Live golden eval comparison: {report.status.value}")
+    print(
+        "Mock evals: "
+        f"{report.mock_report.passed_count}/{report.mock_report.total_count} "
+        f"{'passed' if report.mock_report.passed else 'failed'}"
+    )
+    print(f"Compared cases: {report.compared_count}/{report.total_count}")
+    print(f"Unavailable cases: {report.unavailable_count}")
+    print(f"Live validation failures: {report.validation_failure_count}")
+    print(f"Differences: {report.difference_count}")
+    if report.unavailable_reason:
+        print(report.unavailable_reason)
+    for comparison in report.case_comparisons:
+        status = _live_comparison_case_status(comparison).upper()
+        live_verdict = (
+            comparison.live_result.actual_verdict.value
+            if comparison.live_result is not None
+            else "n/a"
+        )
+        print(
+            f"{status} {comparison.case_id}: "
+            f"mock={comparison.mock_result.actual_verdict.value}; "
+            f"live={live_verdict}; "
+            f"latency_ms={_display_value(comparison.latency_ms)}; "
+            f"input_tokens={_display_value(comparison.input_tokens)}; "
+            f"output_tokens={_display_value(comparison.output_tokens)}; "
+            f"estimated_cost_usd={_display_value(comparison.estimated_cost_usd)}"
+        )
+        if comparison.live_unavailable_reason:
+            print(f"  Live unavailable: {comparison.live_unavailable_reason}")
+        if comparison.live_validation_failure:
+            print(f"  Live validation failure: {comparison.live_validation_failure}")
+        if comparison.verdict_changed:
+            print("  Verdict changed: yes")
+        if comparison.validation_errors_changed:
+            print(
+                "  Validation errors changed: "
+                f"mock={_joined_issue_values(comparison.mock_validation_errors)}; "
+                f"live={_joined_issue_values(comparison.live_validation_errors)}"
+            )
+        if comparison.evidence_coverage_delta not in (None, 0):
+            print(
+                "  Evidence coverage delta: "
+                f"{comparison.evidence_coverage_delta:+.2f}"
+            )
+
+
+def _live_comparison_case_status(comparison: Any) -> str:
+    if comparison.live_unavailable_reason:
+        return "unavailable"
+    if comparison.live_validation_failure:
+        return "validation_failure"
+    if comparison.has_difference:
+        return "diff"
+    return "match"
+
+
+def _joined_issue_values(values: tuple[str, ...]) -> str:
+    return "; ".join(values) or "none"
 
 
 def _print_issue_tuple(label: str, values: tuple[str, ...]) -> None:

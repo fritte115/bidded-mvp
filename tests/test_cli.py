@@ -20,6 +20,7 @@ from bidded.evals.golden_runner import (
     GoldenEvalReport,
     MissingCitationDetail,
 )
+from bidded.fixtures.golden_cases import golden_demo_cases
 from bidded.orchestration import AgentRunStatus, EvidenceSourceType, Verdict
 from bidded.orchestration.run_controls import (
     DemoTraceEntry,
@@ -259,6 +260,8 @@ def test_cli_eval_golden_help_prints_without_external_services() -> None:
     assert "--case-id" in result.stdout
     assert "--fixture-group" in result.stdout
     assert "--json-path" in result.stdout
+    assert "--compare-live" in result.stdout
+    assert "--confirm-live" in result.stdout
 
 
 def test_cli_diff_decisions_help_prints_without_external_services() -> None:
@@ -310,6 +313,42 @@ class RecordingSupabaseClient:
     def table(self, table_name: str) -> RecordingCompanyTable:
         self.table_names.append(table_name)
         return self.company_table
+
+
+class RecordingEvalAnthropicClient:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self.messages = RecordingEvalMessages(payload)
+
+
+class RecordingEvalMessages:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self.payload = payload
+        self.created_kwargs: dict[str, object] = {}
+
+    def create(self, **kwargs: object) -> object:
+        self.created_kwargs = kwargs
+        return type(
+            "Response",
+            (),
+            {
+                "content": [
+                    type(
+                        "TextBlock",
+                        (),
+                        {"text": json.dumps(self.payload)},
+                    )()
+                ],
+                "usage": type(
+                    "Usage",
+                    (),
+                    {
+                        "input_tokens": 123,
+                        "output_tokens": 45,
+                    },
+                )(),
+                "estimated_cost_usd": 0.019,
+            },
+        )()
 
 
 def test_cli_seed_demo_company_upserts_demo_company(
@@ -1056,6 +1095,192 @@ def test_cli_eval_golden_runs_selected_case_and_writes_json(
     assert "Pass rate: 100.00% (1/1)" in markdown_path.read_text(
         encoding="utf-8"
     )
+
+
+def test_cli_eval_golden_default_does_not_construct_anthropic(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def fail_anthropic_client(_api_key: str) -> object:
+        raise AssertionError("default eval must not construct Anthropic")
+
+    monkeypatch.setattr(cli, "_create_anthropic_client", fail_anthropic_client)
+
+    result = cli.main(["eval-golden", "--case-id", "obvious_bid"])
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Golden evals: 1/1 passed" in captured.out
+    assert "PASS obvious_bid" in captured.out
+
+
+def test_cli_eval_golden_compare_live_requires_confirmation(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    result = cli.main(
+        [
+            "eval-golden",
+            "--case-id",
+            "obvious_bid",
+            "--compare-live",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert result == 2
+    assert "--confirm-live is required for --compare-live" in captured.err
+
+
+def test_cli_eval_golden_compare_live_reports_missing_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "load_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {
+                "anthropic_api_key": None,
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_create_anthropic_client",
+        lambda _api_key: (_ for _ in ()).throw(
+            AssertionError("live eval should not construct a client without a key")
+        ),
+    )
+
+    result = cli.main(
+        [
+            "eval-golden",
+            "--case-id",
+            "obvious_bid",
+            "--compare-live",
+            "--confirm-live",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert result == 2
+    assert "Live golden eval comparison: unavailable" in captured.out
+    assert "Mock evals: 1/1 passed" in captured.out
+    assert "ANTHROPIC_API_KEY is required for --compare-live" in captured.out
+
+
+def test_cli_eval_golden_compare_live_runs_mocked_live_client_and_writes_reports(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    case = golden_demo_cases()[0]
+    json_path = tmp_path / "live-compare.json"
+    markdown_path = tmp_path / "live-compare.md"
+    anthropic_client = RecordingEvalAnthropicClient(
+        {
+            "verdict": "bid",
+            "evidence_refs": [
+                evidence_ref.model_dump(mode="json")
+                for evidence_ref in case.expected.required_evidence_refs
+            ],
+            "coverage_claims": [],
+        }
+    )
+    monkeypatch.setattr(
+        cli,
+        "load_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {
+                "anthropic_api_key": "sk-ant-test-secret",
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_create_anthropic_client",
+        lambda api_key: anthropic_client if api_key == "sk-ant-test-secret" else None,
+    )
+
+    result = cli.main(
+        [
+            "eval-golden",
+            "--case-id",
+            "obvious_bid",
+            "--compare-live",
+            "--confirm-live",
+            "--anthropic-model",
+            "claude-test-model",
+            "--json-path",
+            str(json_path),
+            "--markdown-path",
+            str(markdown_path),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert result == 0
+    assert "Live golden eval comparison: passed" in captured.out
+    assert "MATCH obvious_bid: mock=bid; live=bid" in captured.out
+    assert "input_tokens=123" in captured.out
+    assert "estimated_cost_usd=0.019" in captured.out
+    assert f"Wrote JSON: {json_path}" in captured.out
+    assert f"Wrote Markdown: {markdown_path}" in captured.out
+    assert payload["schema_version"] == "2026-04-19.live-golden-comparison.v1"
+    assert payload["status"] == "passed"
+    assert payload["case_comparisons"][0]["input_tokens"] == 123
+    assert "Status: PASS" in markdown_path.read_text(encoding="utf-8")
+    assert anthropic_client.messages.created_kwargs["model"] == "claude-test-model"
+
+
+def test_cli_eval_golden_compare_live_reports_validation_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    anthropic_client = RecordingEvalAnthropicClient(
+        {
+            "evidence_refs": [],
+            "coverage_claims": [],
+        }
+    )
+    monkeypatch.setattr(
+        cli,
+        "load_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {
+                "anthropic_api_key": "sk-ant-test-secret",
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_create_anthropic_client",
+        lambda _api_key: anthropic_client,
+    )
+
+    result = cli.main(
+        [
+            "eval-golden",
+            "--case-id",
+            "obvious_bid",
+            "--compare-live",
+            "--confirm-live",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert "Live golden eval comparison: failed" in captured.out
+    assert "Live validation failures: 1" in captured.out
+    assert "VALIDATION_FAILURE obvious_bid" in captured.out
+    assert "Live validation failure:" in captured.out
 
 
 def test_cli_eval_golden_passes_fixture_group_selector(

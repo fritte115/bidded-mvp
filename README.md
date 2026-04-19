@@ -37,7 +37,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Demo doctor | `bidded doctor` kontrollerar demo-miljövariabler, Supabase-tabeller, Storage-bucket och optional Anthropic-connectivity utan att skriva ut secrets. |
 | Demo smoke | `bidded demo-smoke` kör ett opt-in smoke-flöde över seed, PDF-registrering, ingestion, evidence, pending run, worker och decision readback; default är mockade agenthandlers, medan `--live-llm` använder Claude. |
 | Golden demo cases | `bidded.fixtures.golden_cases` exponerar sex core-cases och sex adversarial, evidence-backed regression cases för verdicts, saknad bolagsevidens, unsupported claims, near-miss certifiering, dolda skall-krav, stale evidence, deadline-konflikter, svag marginal och Red Team blocker-challenges. |
-| Golden eval runner | `bidded eval-golden` kör deterministiska golden cases per `--fixture-group core/adversarial/all`, eller ett valt case ID, rapporterar allowed-verdict-/blocker-/validation-/evidence-ref-/coverage-avvikelser och kan skriva stabil JSON och läsbar Markdown utan live Claude eller Supabase. |
+| Golden eval runner | `bidded eval-golden` kör deterministiska golden cases per `--fixture-group core/adversarial/all`, eller ett valt case ID, rapporterar allowed-verdict-/blocker-/validation-/evidence-ref-/coverage-avvikelser och kan skriva stabil JSON och läsbar Markdown utan live Claude eller Supabase. Med `--compare-live --confirm-live` kan samma cases jämföras mot live Claude-output, inklusive verdict-, validation-, evidence coverage-, latency- och token/cost-diffar. |
 | Decision diff | `bidded diff-decisions` jämför normaliserade eval-resultat, decision-export JSON eller persisted run IDs på verdict, confidence, blockers, risker, missing info, actions och citerade evidence keys utan brus från prose/order. |
 | Frontend | Ingen frontend i repot. Lovable är fortsatt tänkt som tunn demo-UI ovanpå Supabase, men de närmaste stories prioriterar demo-hardening innan en ny handoff-story. |
 
@@ -341,6 +341,13 @@ Pending run och worker-körning:
 .venv/bin/bidded eval-golden \
   --fixture-group adversarial
 
+.venv/bin/bidded eval-golden \
+  --case-id obvious_bid \
+  --compare-live \
+  --confirm-live \
+  --json-path live-golden-compare.json \
+  --markdown-path live-golden-compare.md
+
 .venv/bin/bidded diff-decisions \
   --baseline-json baseline-golden-eval.json \
   --candidate-json candidate-golden-eval.json \
@@ -362,7 +369,7 @@ status, export och fallback-replay finns i
 
 | Variabel | Används av | Kommentar |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | Ralph/Claude CLI via Makefile, `bidded doctor` | Finns i `.env.example`. Behövs för `make ralph`; doctor kontrollerar live LLM-connectivity när nyckeln finns eller `--check-anthropic` används. |
+| `ANTHROPIC_API_KEY` | Ralph/Claude CLI via Makefile, `bidded doctor`, opt-in live eval jämförelse | Finns i `.env.example`. Behövs för `make ralph`; doctor kontrollerar live LLM-connectivity när nyckeln finns eller `--check-anthropic` används. `bidded eval-golden --compare-live --confirm-live` kräver den men kör fortfarande mock-baseline och rapporterar `unavailable` när den saknas. |
 | `SUPABASE_URL` | Python CLI/worker | Hosted Supabase demo project. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Python CLI/worker | Server-side access för demo worker. Ska inte exponeras i frontend. |
 | `SUPABASE_STORAGE_BUCKET` | PDF registration/ingestion | Bucket för uppladdade upphandlingsdokument. |
@@ -374,7 +381,7 @@ status, export och fallback-replay finns i
 
 | Variabel | Används av | Kommentar |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | Python worker / Claude | Behövs när mockade agent handlers ersätts med live Claude-anrop. |
+| `ANTHROPIC_API_KEY` | Python worker / Claude | Behövs när mockade agent handlers ersätts med live Claude-anrop i worker/demo-smoke. |
 
 ## Utvecklingsflöde Idag
 
@@ -401,7 +408,7 @@ python3 -m venv .venv
 .venv/bin/ruff check .
 ```
 
-Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandon för bolag och replaybara demo-states, tenderregistreringen, PDF-ingestion med optional chunk embeddings, evidence builders, graph routing shell, worker lifecycle CLI, operator run controls, demo-smoke, golden eval runner och mocked end-to-end coverage finns; övriga demo-kommandon byggs i senare stories.
+Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandon för bolag och replaybara demo-states, tenderregistreringen, PDF-ingestion med optional chunk embeddings, evidence builders, graph routing shell, worker lifecycle CLI, operator run controls, demo-smoke, golden eval runner, live-vs-mock eval comparison och mocked end-to-end coverage finns; övriga demo-kommandon byggs i senare stories.
 
 ## Teststrategi
 
@@ -418,9 +425,9 @@ När appen byggs ska kvaliteten styras av:
 - graph routing- och retry/stop-tester för success, invalid output, missing inputs, empty evidence, `failed`, `needs_human_review` och END
 - en mocked end-to-end-test som seeder bolag, registrerar fixture-data, bygger evidence board, kör alla swarm-rundor och sparar ett slutbeslut
 - replaybara demo-state seedtester för idempotence, fixture-scoping, schema-valida payloads och evidence IDs
-- golden eval-runner-tester för all-cases, selected-case, pass/fail-resultat, verdict regression, citation coverage och stabil JSON-/Markdown-output
+- golden eval-runner-tester för all-cases, selected-case, pass/fail-resultat, verdict regression, citation coverage, stabil JSON-/Markdown-output och opt-in live-vs-mock comparison med mockad Anthropic-klient
 
-Live Claude, live embeddings och live Supabase kan användas för demo-smoke, men ska inte vara krav för story-completion.
+Live Claude, live embeddings och live Supabase kan användas för demo-smoke och explicit live eval comparison, men ska inte vara krav för story-completion.
 
 ## Roadmap Från PRD
 
