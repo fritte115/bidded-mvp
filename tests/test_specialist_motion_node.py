@@ -11,6 +11,7 @@ from bidded.orchestration import (
     EvidenceItemState,
     EvidenceSourceType,
     GraphRouteNode,
+    ScoutOutputState,
     SpecialistRole,
     default_graph_node_handlers,
     run_bidded_graph_shell,
@@ -18,6 +19,7 @@ from bidded.orchestration import (
 from bidded.orchestration.specialist_motions import (
     Round1SpecialistRequest,
     build_round_1_specialist_handler,
+    build_round_1_specialist_request,
 )
 from bidded.requirements import RequirementType
 
@@ -323,6 +325,34 @@ def test_round_1_specialists_get_evidence_locked_requests_and_persist_rows() -> 
     assert blockers_by_role[SpecialistRole.WIN_STRATEGIST.value] == []
     assert blockers_by_role[SpecialistRole.DELIVERY_CFO.value] == []
     assert blockers_by_role[SpecialistRole.RED_TEAM.value] == []
+
+
+def test_compliance_request_includes_evidence_recall_warnings() -> None:
+    state = _ready_state().model_copy(
+        update={
+            "chunks": [
+                DocumentChunkState(
+                    chunk_id=UUID("55555555-5555-4555-8555-555555555556"),
+                    document_id=DOCUMENT_ID,
+                    chunk_index=1,
+                    page_start=2,
+                    page_end=2,
+                    text="Bidders must submit a current credit report.",
+                    metadata={"source_label": "Tender page 2"},
+                )
+            ],
+            "scout_output": ScoutOutputState(),
+        }
+    )
+
+    request = build_round_1_specialist_request(state, SpecialistRole.COMPLIANCE)
+
+    recalled_types = [
+        warning.requirement_type for warning in request.evidence_recall_warnings
+    ]
+    assert recalled_types == [RequirementType.FINANCIAL_STANDING]
+    assert request.evidence_recall_warnings[0].source_label == "Tender page 2"
+    assert "financial_standing" in request.evidence_recall_warnings[0].missing_info
 
 
 def test_non_compliance_formal_blocker_fails_before_round_1_persistence() -> None:

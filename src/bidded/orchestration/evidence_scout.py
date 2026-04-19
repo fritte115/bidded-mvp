@@ -11,6 +11,10 @@ from bidded.agents.schemas import (
     EvidenceScoutOutput,
     ScoutCategory,
 )
+from bidded.orchestration.evidence_recall import (
+    EvidenceRecallWarning,
+    audit_evidence_recall,
+)
 from bidded.orchestration.graph import GraphRouteNode, InvalidGraphOutput, ScoutHandler
 from bidded.orchestration.state import (
     BidRunState,
@@ -86,6 +90,7 @@ class EvidenceScoutRequest(BaseModel):
     categories: tuple[str, ...]
     retrieved_chunks: tuple[EvidenceScoutRetrievedChunk, ...]
     evidence_board: tuple[EvidenceItemState, ...]
+    evidence_recall_warnings: tuple[EvidenceRecallWarning, ...] = ()
 
 
 class EvidenceScoutModel(Protocol):
@@ -158,6 +163,10 @@ def build_evidence_scout_request(
             )
         ),
         evidence_board=tuple(state.evidence_board),
+        evidence_recall_warnings=audit_evidence_recall(
+            chunks=state.chunks,
+            evidence_board=state.evidence_board,
+        ),
     )
 
 

@@ -19,7 +19,7 @@ Started: 2026-04-18
 - **Bidded Graph State/Routing Contract**: `BidRunState.apply_node_update` enforces node ownership and reducers; `src/bidded/orchestration/graph.py` owns the fixed LangGraph shell, preflight checks, Evidence Scout audit append, explicit edge table, bounded retry/stop policy, mocked handlers, and terminal routing.
 - **Bidded Agent Tool Policy Contract**: `src/bidded/agents/tool_policy.py` is the source of truth for LLM-agent denied tools, bounded retrieval, artifact access, and orchestrator-owned side effects.
 - **Bidded Agent Output Schema Contract**: `src/bidded/agents/schemas.py` is the strict Pydantic surface for RequirementType, Evidence Scout output, motions, rebuttals, Judge decisions, typed Judge reasoning details, evidence refs, material claim evidence-ID validation, validation errors, and specialist role bounds.
-- **Bidded Evidence/Retrieval Contract**: `src/bidded/retrieval` returns hybrid keyword/glossary/embedding metadata with deterministic scores; `src/bidded/evidence` converts retrieved chunks into validated evidence rows with nullable tender `requirement_type` and glossary metadata.
+- **Bidded Evidence/Retrieval Contract**: `src/bidded/retrieval` returns deterministic hybrid scores; `src/bidded/evidence` builds nullable typed evidence; recall audit warnings compare chunk/glossary signals to evidence-board requirement coverage before agent requests.
 
 ## Session Log
 
@@ -193,4 +193,9 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added hybrid document chunk retrieval that merges keyword, regulatory glossary, and embedding/pgvector candidates with deterministic scoring metadata and Evidence Scout request integration.
 - **Files**: src/bidded/retrieval/__init__.py, src/bidded/orchestration/evidence_scout.py, tests/test_document_chunk_retrieval.py, tests/test_evidence_scout_node.py, README.md, ralph/progress.md, ralph/CLAUDE.md, ralph/prd.json, ralph/state.json
 - **Key learnings**: Keep retrieval scoring centralized so graph request builders and evidence extraction share the same hybrid metadata contract.
+---
+## 2026-04-19 02:22 CEST - US-033
+- **Implemented**: Added deterministic evidence recall warnings for important missing requirement coverage and exposed them to Evidence Scout, Compliance, and Judge requests.
+- **Files**: src/bidded/orchestration/evidence_recall.py, src/bidded/orchestration/evidence_scout.py, src/bidded/orchestration/specialist_motions.py, src/bidded/orchestration/judge.py, src/bidded/orchestration/__init__.py, tests/test_evidence_recall_audit.py, tests/test_evidence_scout_node.py, tests/test_specialist_motion_node.py, tests/test_judge_decision_node.py, ralph/progress.md, ralph/CLAUDE.md, ralph/prd.json, ralph/state.json
+- **Key learnings**: Keep recall audit output as structured warning/missing_info context so missing evidence coverage informs agents without becoming an automatic hard blocker.
 ---

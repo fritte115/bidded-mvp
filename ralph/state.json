@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-033",
-  "storyTitle": "Add evidence recall audit",
+  "currentStory": "US-034",
+  "storyTitle": "Add demo environment doctor",
   "nextAction": "implement",
-  "progressTokens": 2940,
+  "progressTokens": 3030,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

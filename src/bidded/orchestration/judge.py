@@ -15,6 +15,10 @@ from bidded.agents.schemas import (
     SupportedClaim,
     VoteSummary,
 )
+from bidded.orchestration.evidence_recall import (
+    EvidenceRecallWarning,
+    audit_evidence_recall,
+)
 from bidded.orchestration.graph import (
     GraphRouteNode,
     InvalidGraphOutput,
@@ -68,6 +72,7 @@ class JudgeDecisionRequest(BaseModel):
     document_ids: tuple[UUID, ...]
     evidence_board: tuple[EvidenceItemState, ...]
     requirement_context: tuple[RequirementEvidenceContext, ...] = ()
+    evidence_recall_warnings: tuple[EvidenceRecallWarning, ...] = ()
     scout_output: ScoutOutputState
     motions: dict[AgentRole, SpecialistMotionState]
     rebuttals: dict[AgentRole, RebuttalState]
@@ -182,6 +187,10 @@ def build_judge_decision_request(state: BidRunState) -> JudgeDecisionRequest:
         document_ids=tuple(state.document_ids),
         evidence_board=tuple(state.evidence_board),
         requirement_context=build_requirement_context(state.evidence_board),
+        evidence_recall_warnings=audit_evidence_recall(
+            chunks=state.chunks,
+            evidence_board=state.evidence_board,
+        ),
         scout_output=state.scout_output,
         motions=_agent_role_motion_map(state.motions),
         rebuttals=_agent_role_rebuttal_map(state.rebuttals),

@@ -7,6 +7,10 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from bidded.agents.schemas import AgentRole, EvidenceReference, Round1Motion
+from bidded.orchestration.evidence_recall import (
+    EvidenceRecallWarning,
+    audit_evidence_recall,
+)
 from bidded.orchestration.graph import (
     GraphRouteNode,
     InvalidGraphOutput,
@@ -52,6 +56,7 @@ class Round1SpecialistRequest(BaseModel):
     agent_role: AgentRole
     evidence_board: tuple[EvidenceItemState, ...]
     requirement_context: tuple[RequirementEvidenceContext, ...] = ()
+    evidence_recall_warnings: tuple[EvidenceRecallWarning, ...] = ()
     scout_output: ScoutOutputState
 
 
@@ -141,6 +146,10 @@ def build_round_1_specialist_request(
         agent_role=_AGENT_ROLE_BY_SPECIALIST[role],
         evidence_board=tuple(state.evidence_board),
         requirement_context=build_requirement_context(state.evidence_board),
+        evidence_recall_warnings=audit_evidence_recall(
+            chunks=state.chunks,
+            evidence_board=state.evidence_board,
+        ),
         scout_output=state.scout_output,
     )
 

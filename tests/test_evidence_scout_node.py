@@ -272,6 +272,55 @@ def test_evidence_scout_request_uses_hybrid_glossary_retrieval() -> None:
     assert submission_chunks[0].retrieval_score == retrieval["final_score"]
 
 
+def test_evidence_scout_request_includes_recall_warnings() -> None:
+    state = BidRunState(
+        run_id=RUN_ID,
+        company_id=COMPANY_ID,
+        tender_id=TENDER_ID,
+        document_ids=[DOCUMENT_ID],
+        run_context={"tenant_key": "demo"},
+        chunks=[
+            DocumentChunkState(
+                chunk_id=UUID("55555555-5555-4555-8555-555555555557"),
+                document_id=DOCUMENT_ID,
+                chunk_index=0,
+                page_start=2,
+                page_end=2,
+                text="Bidders must submit a current credit report.",
+                metadata={"source_label": "Tender page 2"},
+            )
+        ],
+        evidence_board=[
+            EvidenceItemState(
+                evidence_id=UUID("66666666-6666-4666-8666-666666666667"),
+                evidence_key="TENDER-QUAL-001",
+                source_type=EvidenceSourceType.TENDER_DOCUMENT,
+                excerpt="Bidders must provide comparable references.",
+                normalized_meaning="The tender requires comparable references.",
+                category="qualification_requirement",
+                requirement_type=RequirementType.QUALIFICATION_REQUIREMENT,
+                confidence=0.91,
+                source_metadata={"source_label": "Tender page 1"},
+                document_id=DOCUMENT_ID,
+                chunk_id=UUID("55555555-5555-4555-8555-555555555558"),
+                page_start=1,
+                page_end=1,
+            )
+        ],
+    )
+
+    request = build_evidence_scout_request(state, top_k_per_category=1)
+
+    recalled_types = [
+        warning.requirement_type for warning in request.evidence_recall_warnings
+    ]
+    assert recalled_types == [RequirementType.FINANCIAL_STANDING]
+    warning = request.evidence_recall_warnings[0]
+    assert warning.source_label == "Tender page 2"
+    assert warning.severity == "warning"
+    assert "financial_standing" in warning.missing_info
+
+
 def test_unsupported_mocked_claude_fact_fails_before_persistence() -> None:
     payload = _valid_scout_payload()
     payload["findings"][0] = {

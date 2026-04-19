@@ -412,6 +412,7 @@ def _run_judge_scenario(
     votes: dict[AgentRole, str],
     formal_compliance_blocker: bool = False,
     potential_compliance_blocker: bool = False,
+    state: BidRunState | None = None,
 ) -> tuple[Any, RecordingJudgeModel, RecordingDecisionClient]:
     judge = RecordingJudgeModel(judge_verdict)
     client = RecordingDecisionClient()
@@ -429,7 +430,8 @@ def _run_judge_scenario(
         persist_decision=build_decision_persistence_handler(client),
     )
 
-    return run_bidded_graph_shell(_ready_state(), handlers=handlers), judge, client
+    result = run_bidded_graph_shell(state or _ready_state(), handlers=handlers)
+    return result, judge, client
 
 
 def test_judge_gates_formal_compliance_blockers_to_no_bid_and_persists() -> None:
@@ -590,6 +592,53 @@ def test_potential_blocker_does_not_auto_gate_conditional_bid() -> None:
             "evidence_refs": [_submission_ref()],
         }
     ]
+
+
+def test_judge_request_includes_recall_warnings_without_hard_gate() -> None:
+    base_state = _ready_state()
+    state = base_state.model_copy(
+        update={
+            "chunks": [
+                DocumentChunkState(
+                    chunk_id=UUID("55555555-5555-4555-8555-555555555556"),
+                    document_id=DOCUMENT_ID,
+                    chunk_index=1,
+                    page_start=3,
+                    page_end=3,
+                    text="Bidders must submit a current credit report.",
+                    metadata={"source_label": "Tender page 3"},
+                )
+            ],
+            "evidence_board": [
+                evidence
+                for evidence in base_state.evidence_board
+                if evidence.requirement_type is not RequirementType.FINANCIAL_STANDING
+            ],
+        }
+    )
+
+    result, judge, _ = _run_judge_scenario(
+        judge_verdict="bid",
+        votes={
+            AgentRole.COMPLIANCE_OFFICER: "bid",
+            AgentRole.WIN_STRATEGIST: "bid",
+            AgentRole.DELIVERY_CFO: "bid",
+            AgentRole.RED_TEAM: "bid",
+        },
+        state=state,
+    )
+
+    assert result.state.status is AgentRunStatus.SUCCEEDED
+    assert result.state.final_decision is not None
+    assert result.state.final_decision.verdict is Verdict.BID
+    assert result.state.final_decision.compliance_blockers == []
+    recalled_types = [
+        warning.requirement_type
+        for warning in judge.requests[0].evidence_recall_warnings
+    ]
+    assert recalled_types == [RequirementType.FINANCIAL_STANDING]
+    assert judge.requests[0].evidence_recall_warnings[0].severity == "warning"
+    assert judge.requests[0].formal_compliance_blockers == ()
 
 
 @pytest.mark.parametrize(

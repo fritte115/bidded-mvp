@@ -1,5 +1,9 @@
 """LangGraph orchestration state and node boundaries."""
 
+from bidded.orchestration.evidence_recall import (
+    EvidenceRecallWarning,
+    audit_evidence_recall,
+)
 from bidded.orchestration.graph import (
     GraphEdgeSpec,
     GraphNodeHandlers,
@@ -91,6 +95,7 @@ __all__ = [
     "AgentRunStatus",
     "BidRunState",
     "DocumentChunkState",
+    "EvidenceRecallWarning",
     "EvidenceItemState",
     "EvidenceRef",
     "EvidenceSourceType",
@@ -138,6 +143,7 @@ __all__ = [
     "build_bidded_graph_shell",
     "build_bid_run_state_from_supabase",
     "build_decision_persistence_handler",
+    "audit_evidence_recall",
     "build_judge_decision_request",
     "build_judge_handler",
     "build_pending_run_config",
