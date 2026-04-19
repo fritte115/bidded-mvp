@@ -538,8 +538,8 @@
         "Tests cover idempotence, fixture scoping, valid evidence references, and seeded run readability; pytest and ruff check pass."
       ],
       "priority": 35,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added seed-demo-states for fixture-owned pending/succeeded/failed/needs_human_review runs with deterministic evidence, outputs, decisions, idempotence tests, and CLI docs. Complete."
     },
     {
       "id": "US-036",

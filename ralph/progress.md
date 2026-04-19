@@ -15,7 +15,7 @@ Started: 2026-04-18
 - **Bidded CLI Boundary**: Keep CLI help/package imports free of live client construction; create external clients only inside real command execution paths and keep command services injectable for tests.
 - **Bidded Document Pipeline Contract**: Keep tender registration, PDF ingestion, and chunk embedding persistence in `src/bidded/documents`; registered text-PDFs use mocked Storage, PyMuPDF extraction, deterministic page chunks, optional Python-owned embeddings, and parser status metadata.
 - **Bidded Pending Run Contract**: Create `agent_runs` through an orchestration service that validates demo company, tender, and tender document rows, inserts `pending`, and leaves processing for later graph steps.
-- **Bidded Agent Audit Contract**: `agent_outputs` are immutable rows keyed by `agent_role`, `round_name`, and `output_type`; Judge `bid_decisions` surface evidence IDs and link source agent outputs through metadata.
+- **Bidded Agent Audit Contract**: `agent_outputs` are immutable rows keyed by `agent_role`, `round_name`, and `output_type`; Judge `bid_decisions` surface evidence IDs, source outputs, and replayable fixtures via metadata.
 - **Bidded Graph State/Routing Contract**: `BidRunState.apply_node_update` enforces node ownership and reducers; `src/bidded/orchestration/graph.py` owns the fixed LangGraph shell, preflight checks, Evidence Scout audit append, explicit edge table, bounded retry/stop policy, mocked handlers, and terminal routing.
 - **Bidded Agent Tool Policy Contract**: `src/bidded/agents/tool_policy.py` is the source of truth for LLM-agent denied tools, bounded retrieval, artifact access, and orchestrator-owned side effects.
 - **Bidded Agent Output Schema Contract**: `src/bidded/agents/schemas.py` is the strict Pydantic surface for RequirementType, Evidence Scout output, motions, rebuttals, Judge decisions, typed Judge reasoning details, evidence refs, material claim evidence-ID validation, validation errors, and specialist role bounds.
@@ -203,4 +203,9 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added a demo environment doctor command for env, Supabase table, Storage probe, Anthropic availability, and secret-redacted output.
 - **Files**: src/bidded/doctor.py, src/bidded/cli/__init__.py, tests/test_demo_environment_doctor.py, tests/test_cli.py, tests/test_project_scaffold.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
 - **Key learnings**: Keep demo-health checks injectable and output-only redacted so live readiness can be tested without constructing external clients during import or help.
+---
+## 2026-04-19 02:49 CEST - US-035
+- **Implemented**: Added deterministic replayable demo-state seeding for pending, succeeded, failed, and needs_human_review runs with fixture-owned metadata, valid evidence refs, decisions, and CLI wiring.
+- **Files**: src/bidded/db/seed_demo_states.py, src/bidded/cli/__init__.py, tests/test_demo_state_seed.py, tests/test_cli.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
+- **Key learnings**: Seed immutable audit fixtures by selecting existing fixture rows first and inserting only missing `agent_outputs`, while upserting deterministic fixture-owned source rows by ID.
 ---

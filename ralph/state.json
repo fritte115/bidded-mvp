@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-035",
-  "storyTitle": "Seed replayable demo states",
+  "currentStory": "US-036",
+  "storyTitle": "Harden worker claiming",
   "nextAction": "implement",
-  "progressTokens": 3090,
+  "progressTokens": 3165,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

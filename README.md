@@ -23,7 +23,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Graph routing shell | `src/bidded/orchestration/graph.py` bygger en fast LangGraph-shell med preflight, Evidence Scout-validering, mocked agent handlers, explicit edge table, bounded retry/stop-policy, failed, needs_human_review och END. |
 | Agent tool policies | Immutable policy contracts finns under `src/bidded/agents/tool_policy.py` för LLM-agenternas läs/skrivgränser och orchestratorns side effects. |
 | Agent output schemas | Strict Pydantic schemas finns under `src/bidded/agents/schemas.py` för Evidence Scout, Round 1 motions, Round 2 rebuttals, Judge decisions, evidence-claim validation, nullable `RequirementType` och kravtypade Judge-detaljer för blockers, risker, missing info och actions. |
-| Seedat demo-bolag och demo-tender | `bidded seed-demo-company` upsertar en större syntetisk IT-konsultprofil, `bidded register-demo-tender` registrerar en lokal text-PDF, och `bidded.evidence` kan konvertera profilfakta till idempotenta `company_profile` evidence rows. |
+| Seedat demo-bolag och demo-tender | `bidded seed-demo-company` upsertar en större syntetisk IT-konsultprofil, `bidded seed-demo-states` skapar replaybara fixture-runs för `pending`, `succeeded`, `failed` och `needs_human_review`, `bidded register-demo-tender` registrerar en lokal text-PDF, och `bidded.evidence` kan konvertera profilfakta till idempotenta `company_profile` evidence rows. |
 | PDF-ingestion | `bidded.documents` kan ladda ned registrerade tender-PDF:er från Storage, extrahera text med PyMuPDF, ersätta deterministiska sidrefererade `document_chunks`, optionalt generera och lagra chunk embeddings i Python, och uppdatera `documents.parse_status`. |
 | Retrieval | `bidded.retrieval` kan hämta top-K `document_chunks` med hybrid keyword-, regulatory glossary- och embedding/pgvector-ranking, deduplicerade chunk-resultat och deterministisk fallback utan live embeddings. |
 | Tender evidence board | `bidded.evidence` kan föreslå, klassificera, validera, deduplicera, upserta och slå upp `tender_document` evidence rows från retrieved chunks med stabila citation keys, deterministisk nullable `requirement_type` och regulatory-glossary metadata. |
@@ -257,6 +257,7 @@ Seed-kommandot kräver `SUPABASE_URL` och `SUPABASE_SERVICE_ROLE_KEY`:
 
 ```bash
 .venv/bin/bidded seed-demo-company
+.venv/bin/bidded seed-demo-states
 ```
 
 Tenderregistrering kräver `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` och
@@ -336,7 +337,7 @@ python3 -m venv .venv
 .venv/bin/ruff check .
 ```
 
-Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandot, tenderregistreringen, PDF-ingestion med optional chunk embeddings, evidence builders, graph routing shell, worker lifecycle CLI och mocked end-to-end coverage finns; övriga operator- och demo-kommandon byggs i senare stories.
+Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandon för bolag och replaybara demo-states, tenderregistreringen, PDF-ingestion med optional chunk embeddings, evidence builders, graph routing shell, worker lifecycle CLI och mocked end-to-end coverage finns; övriga operator- och demo-kommandon byggs i senare stories.
 
 ## Teststrategi
 
@@ -352,6 +353,7 @@ När appen byggs ska kvaliteten styras av:
 - evidence-claim validation för missing evidence IDs, assumptions, missing_info och tender/company comparison claims
 - graph routing- och retry/stop-tester för success, invalid output, missing inputs, empty evidence, `failed`, `needs_human_review` och END
 - en mocked end-to-end-test som seeder bolag, registrerar fixture-data, bygger evidence board, kör alla swarm-rundor och sparar ett slutbeslut
+- replaybara demo-state seedtester för idempotence, fixture-scoping, schema-valida payloads och evidence IDs
 
 Live Claude, live embeddings och live Supabase kan användas för demo-smoke, men ska inte vara krav för story-completion.
 

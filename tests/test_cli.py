@@ -11,6 +11,7 @@ import pytest
 
 import bidded.cli as cli
 from bidded.db.seed_demo_company import DEMO_COMPANY_NAME
+from bidded.db.seed_demo_states import DemoStatesSeedResult
 from bidded.orchestration import AgentRunStatus, Verdict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +37,7 @@ def test_cli_help_prints_without_external_services() -> None:
     assert "Bidded" in result.stdout
     assert "usage:" in result.stdout.lower()
     assert "seed-demo-company" in result.stdout
+    assert "seed-demo-states" in result.stdout
     assert "doctor" in result.stdout
 
 
@@ -58,6 +60,29 @@ def test_cli_seed_demo_company_help_prints_without_external_services() -> None:
     assert result.returncode == 0, result.stderr
     assert "seed-demo-company" in result.stdout
     assert "demo IT consultancy company" in result.stdout
+
+
+def test_cli_seed_demo_states_help_prints_without_external_services() -> None:
+    env = os.environ.copy()
+    env.pop("ANTHROPIC_API_KEY", None)
+    env.pop("SUPABASE_URL", None)
+    env.pop("SUPABASE_SERVICE_ROLE_KEY", None)
+    env["PYTHONPATH"] = str(PROJECT_ROOT / "src")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "bidded.cli", "seed-demo-states", "--help"],
+        cwd=PROJECT_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "seed-demo-states" in result.stdout
+    assert "pending, succeeded, failed, and needs-human-review" in (
+        result.stdout.replace("\n", " ")
+    )
 
 
 def test_cli_register_demo_tender_help_prints_demo_pdf_hint_without_services() -> None:
@@ -189,6 +214,42 @@ def test_cli_seed_demo_company_upserts_demo_company(
     assert DEMO_COMPANY_NAME in captured.out
     assert client.table_names == ["companies"]
     assert client.company_table.upserts[0][1] == "tenant_key,name"
+
+
+def test_cli_seed_demo_states_invokes_replayable_fixture_seed(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client = object()
+    monkeypatch.setattr(cli, "_create_supabase_client", lambda: client)
+
+    def record_seed(received_client: object) -> DemoStatesSeedResult:
+        assert received_client is client
+        return DemoStatesSeedResult(
+            tenant_key="demo",
+            company_id="11111111-1111-4111-8111-111111111111",
+            tender_id="22222222-2222-4222-8222-222222222222",
+            document_id="33333333-3333-4333-8333-333333333333",
+            run_ids_by_state={
+                "pending": "44444444-4444-4444-8444-444444444441",
+                "succeeded": "44444444-4444-4444-8444-444444444442",
+                "failed": "44444444-4444-4444-8444-444444444443",
+                "needs_human_review": "44444444-4444-4444-8444-444444444444",
+            },
+            evidence_items_seeded=9,
+            agent_outputs_seeded=12,
+            bid_decisions_seeded=2,
+        )
+
+    monkeypatch.setattr(cli, "seed_demo_states", record_seed)
+
+    result = cli.main(["seed-demo-states"])
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Seeded replayable demo states for tenant demo" in captured.out
+    assert "pending, succeeded, failed, needs_human_review" in captured.out
+    assert "evidence items: 9" in captured.out
 
 
 def test_cli_register_demo_tender_fails_without_supabase_credentials(

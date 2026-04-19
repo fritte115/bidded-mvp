@@ -8,6 +8,7 @@ from typing import Any
 from bidded import __version__
 from bidded.config import load_settings
 from bidded.db.seed_demo_company import seed_demo_company
+from bidded.db.seed_demo_states import seed_demo_states
 from bidded.doctor import run_demo_environment_doctor
 from bidded.documents import TenderPdfRegistrationError, register_demo_tender_pdf
 from bidded.orchestration import (
@@ -38,6 +39,16 @@ def build_parser() -> argparse.ArgumentParser:
         description="Seed the demo IT consultancy company in Supabase.",
     )
     seed_parser.set_defaults(handler=_run_seed_demo_company_command)
+
+    demo_states_parser = subparsers.add_parser(
+        "seed-demo-states",
+        help="Seed replayable demo run states.",
+        description=(
+            "Seed deterministic replayable demo rows for pending, succeeded, "
+            "failed, and needs-human-review states without live agent execution."
+        ),
+    )
+    demo_states_parser.set_defaults(handler=_run_seed_demo_states_command)
 
     register_parser = subparsers.add_parser(
         "register-demo-tender",
@@ -186,6 +197,28 @@ def _run_seed_demo_company_command(_args: argparse.Namespace) -> int:
         "Upserted demo company "
         f"{result.company_name} for tenant {result.tenant_key}; "
         f"rows returned: {result.rows_returned}."
+    )
+    return 0
+
+
+def _run_seed_demo_states_command(_args: argparse.Namespace) -> int:
+    try:
+        client = _create_supabase_client()
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    result = seed_demo_states(client)
+    state_order = ["pending", "succeeded", "failed", "needs_human_review"]
+    present_states = [
+        state for state in state_order if state in result.run_ids_by_state
+    ]
+    print(
+        "Seeded replayable demo states for tenant "
+        f"{result.tenant_key}: {', '.join(present_states)}; "
+        f"evidence items: {result.evidence_items_seeded}; "
+        f"agent outputs: {result.agent_outputs_seeded}; "
+        f"bid decisions: {result.bid_decisions_seeded}."
     )
     return 0
 
