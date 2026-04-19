@@ -137,6 +137,13 @@ def upsert_company_profile_evidence(
         company_id=company_id,
         company_profile=company_profile,
     )
+    if not evidence_items:
+        return CompanyProfileEvidenceUpsertResult(
+            evidence_count=0,
+            evidence_keys=(),
+            rows_returned=0,
+        )
+
     response = (
         client.table("evidence_items")
         .upsert(evidence_items, on_conflict="tenant_key,evidence_key")

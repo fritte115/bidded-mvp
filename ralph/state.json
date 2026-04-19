@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-058",
-  "storyTitle": "Add preparation input audit",
+  "currentStory": "US-059",
+  "storyTitle": "Add multi-PDF procurement fixture workflow",
   "nextAction": "implement",
-  "progressTokens": 4845,
+  "progressTokens": 4920,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

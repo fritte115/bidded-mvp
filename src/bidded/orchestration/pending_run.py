@@ -51,6 +51,7 @@ def create_pending_run_context(
     document_id: UUID | str | None = None,
     document_ids: Sequence[UUID | str] | None = None,
     created_via: str = DEFAULT_CREATED_VIA,
+    metadata: Mapping[str, Any] | None = None,
 ) -> PendingRunContextResult:
     """Validate target rows and create a pending Supabase agent run."""
 
@@ -99,18 +100,19 @@ def create_pending_run_context(
         )
 
     run_config = build_pending_run_config(document_ids=normalized_document_ids)
+    run_metadata: dict[str, Any] = {
+        "created_via": created_via,
+        "document_ids": [str(document_id) for document_id in normalized_document_ids],
+    }
+    if metadata:
+        run_metadata.update(dict(metadata))
     payload: dict[str, Any] = {
         "tenant_key": DEMO_TENANT_KEY,
         "tender_id": str(normalized_tender_id),
         "company_id": str(normalized_company_id),
         "status": AgentRunStatus.PENDING.value,
         "run_config": run_config,
-        "metadata": {
-            "created_via": created_via,
-            "document_ids": [
-                str(document_id) for document_id in normalized_document_ids
-            ],
-        },
+        "metadata": run_metadata,
     }
     response = client.table("agent_runs").insert(payload).execute()
     run_id = _first_returned_id(response, "agent_runs")

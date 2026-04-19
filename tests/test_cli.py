@@ -21,7 +21,13 @@ from bidded.evals.golden_runner import (
     MissingCitationDetail,
 )
 from bidded.fixtures.golden_cases import golden_demo_cases
-from bidded.orchestration import AgentRunStatus, EvidenceSourceType, Verdict
+from bidded.orchestration import (
+    AgentRunStatus,
+    EvidenceSourceType,
+    PreparationAudit,
+    PreparationAuditIssue,
+    Verdict,
+)
 from bidded.orchestration.run_controls import (
     DemoTraceEntry,
     RetryRunResult,
@@ -640,6 +646,23 @@ def test_cli_prepare_run_delegates_to_service(
             company_evidence_count=12,
             evidence_count=20,
             warnings=("document 2 had parser_failed status; retried ingestion",),
+            audit=PreparationAudit(
+                max_severity="warning",
+                issues=(
+                    PreparationAuditIssue(
+                        severity="info",
+                        check="documents_parsed",
+                        message="All selected tender documents are parsed.",
+                    ),
+                    PreparationAuditIssue(
+                        severity="warning",
+                        check="document_ingestion",
+                        message=(
+                            "document 2 had parser_failed status; retried ingestion"
+                        ),
+                    ),
+                ),
+            ),
         )
 
     monkeypatch.setattr(cli, "prepare_procurement_run", record_prepare)
@@ -672,6 +695,13 @@ def test_cli_prepare_run_delegates_to_service(
     assert "WARNING document 2 had parser_failed status; retried ingestion" in (
         captured.out
     )
+    assert "AUDIT INFO documents_parsed: All selected tender documents are parsed." in (
+        captured.out
+    )
+    assert (
+        "AUDIT WARNING document_ingestion: document 2 had parser_failed status; "
+        "retried ingestion"
+    ) in captured.out
     assert captured_prepare == {
         "client": client,
         "tender_id": "33333333-3333-4333-8333-333333333333",

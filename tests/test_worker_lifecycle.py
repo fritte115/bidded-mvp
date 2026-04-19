@@ -390,6 +390,35 @@ def test_worker_loads_typed_and_legacy_requirement_type_evidence() -> None:
     }
 
 
+def test_worker_passes_preparation_audit_into_graph_context() -> None:
+    client = RecordingWorkerClient()
+    preparation_audit = {
+        "max_severity": "warning",
+        "issues": [
+            {
+                "severity": "warning",
+                "check": "tender_evidence",
+                "message": "Document produced no tender evidence items.",
+                "document_id": str(DOCUMENT_ID),
+                "company_id": None,
+                "evidence_key": None,
+                "details": {},
+            }
+        ],
+    }
+    run_row = _pending_agent_run(
+        metadata={
+            "created_via": "test",
+            "preparation_audit": preparation_audit,
+        }
+    )
+
+    state = build_bid_run_state_from_supabase(client, run_row=run_row)
+
+    assert state.run_context["preparation_audit"] == preparation_audit
+    assert state.run_context["metadata"]["preparation_audit"] == preparation_audit
+
+
 def test_worker_picks_oldest_pending_demo_run_when_run_id_is_omitted() -> None:
     client = RecordingWorkerClient()
     client.rows["agent_runs"] = [

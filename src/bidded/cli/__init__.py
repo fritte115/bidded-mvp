@@ -616,6 +616,10 @@ def _print_prepare_run_result(result: Any) -> None:
         )
     for warning in result.warnings:
         print(f"WARNING {warning}")
+    audit = getattr(result, "audit", None)
+    if audit is not None:
+        for issue in audit.issues:
+            print(f"AUDIT {issue.severity.upper()} {issue.check}: {issue.message}")
 
 
 def _run_demo_smoke_command(args: argparse.Namespace) -> int:

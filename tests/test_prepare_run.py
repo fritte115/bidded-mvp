@@ -231,6 +231,18 @@ def test_prepare_procurement_run_ingests_evidence_and_creates_pending_run() -> N
         result.company_evidence_count
     )
     assert result.warnings == ()
+    assert result.audit.max_severity == "info"
+    assert result.audit.has_errors is False
+    assert {
+        issue.check for issue in result.audit.issues if issue.severity == "info"
+    } >= {
+        "documents_parsed",
+        "document_chunks",
+        "tender_evidence",
+        "company_evidence",
+        "evidence_provenance",
+        "requirement_types",
+    }
 
     document_result = result.document_results[0]
     assert document_result.document_id == DOCUMENT_ID
@@ -243,6 +255,9 @@ def test_prepare_procurement_run_ingests_evidence_and_creates_pending_run() -> N
     assert payload["run_config"]["document_ids"] == [str(DOCUMENT_ID)]
     assert payload["metadata"]["document_ids"] == [str(DOCUMENT_ID)]
     assert payload["metadata"]["created_via"] == "bidded_prepare_run"
+    assert payload["metadata"]["preparation_audit"] == result.audit.model_dump(
+        mode="json"
+    )
     assert "running" not in {row.get("status") for row in client.rows["agent_runs"]}
     assert client.rows["agent_outputs"] == []
     assert client.rows["bid_decisions"] == []
@@ -357,6 +372,159 @@ def test_prepare_procurement_run_blocks_parser_failed_documents() -> None:
     assert ingestion_calls == [DOCUMENT_ID]
     assert client.rows["agent_runs"] == []
     assert client.rows["evidence_items"] == []
+
+
+def test_prepare_procurement_run_audits_missing_chunks_as_error() -> None:
+    client = RecordingPrepareClient()
+    client.rows["documents"][0]["parse_status"] = "parsed"
+
+    def ingest_without_chunks(
+        received_client: RecordingPrepareClient,
+        **_kwargs: Any,
+    ) -> SimpleNamespace:
+        received_client.rows["documents"][0]["parse_status"] = "parsed"
+        received_client.rows["document_chunks"] = []
+        return SimpleNamespace(document_id=DOCUMENT_ID, page_count=1, chunk_count=0)
+
+    with pytest.raises(PrepareRunError, match="no document_chunks") as exc_info:
+        prepare_procurement_run(
+            client,
+            tender_id=TENDER_ID,
+            company_id=COMPANY_ID,
+            document_ids=[DOCUMENT_ID],
+            bucket_name="procurement-fixtures",
+            ingest_document=ingest_without_chunks,
+        )
+
+    assert exc_info.value.audit is not None
+    assert exc_info.value.audit.max_severity == "error"
+    assert {
+        issue.check for issue in exc_info.value.audit.errors
+    } == {"document_chunks"}
+    assert client.rows["agent_runs"] == []
+    assert client.rows["evidence_items"] == []
+
+
+def test_prepare_procurement_run_allows_empty_tender_evidence_as_warning() -> None:
+    client = RecordingPrepareClient()
+    client.rows["documents"][0]["parse_status"] = "parsed"
+    client.rows["document_chunks"] = [
+        _chunk_row(
+            document_id=DOCUMENT_ID,
+            chunk_id=CHUNK_ID,
+            text="This appendix is provided for background context only.",
+            source_label="document 1",
+        )
+    ]
+
+    def fail_ingestion(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("parsed document chunks should be reused")
+
+    result = prepare_procurement_run(
+        client,
+        tender_id=TENDER_ID,
+        company_id=COMPANY_ID,
+        document_ids=[DOCUMENT_ID],
+        bucket_name="procurement-fixtures",
+        ingest_document=fail_ingestion,
+    )
+
+    assert result.tender_evidence_count == 0
+    assert result.audit.max_severity == "warning"
+    assert [issue.check for issue in result.audit.warnings] == ["tender_evidence"]
+    assert "produced no tender evidence" in result.warnings[0]
+    assert client.rows["agent_runs"][0]["metadata"]["preparation_audit"] == (
+        result.audit.model_dump(mode="json")
+    )
+
+
+def test_prepare_procurement_run_blocks_missing_company_evidence() -> None:
+    client = RecordingPrepareClient()
+    client.rows["documents"][0]["parse_status"] = "parsed"
+    client.rows["document_chunks"] = [
+        _chunk_row(
+            document_id=DOCUMENT_ID,
+            chunk_id=CHUNK_ID,
+            text="Supplier must provide ISO 27001 certification.",
+            source_label="document 1",
+        )
+    ]
+    client.rows["companies"][0].update(
+        {
+            "certifications": [],
+            "reference_projects": [],
+            "capabilities": {},
+            "employee_count": None,
+            "annual_revenue_sek": None,
+            "financial_assumptions": {},
+            "profile_details": {},
+        }
+    )
+
+    with pytest.raises(
+        PrepareRunError,
+        match="Company evidence audit failed",
+    ) as exc_info:
+        prepare_procurement_run(
+            client,
+            tender_id=TENDER_ID,
+            company_id=COMPANY_ID,
+            document_ids=[DOCUMENT_ID],
+            bucket_name="procurement-fixtures",
+            ingest_document=lambda *_args, **_kwargs: None,
+        )
+
+    assert exc_info.value.audit is not None
+    assert exc_info.value.audit.max_severity == "error"
+    assert [issue.check for issue in exc_info.value.audit.errors] == [
+        "company_evidence"
+    ]
+    assert client.rows["agent_runs"] == []
+
+
+def test_prepare_procurement_run_blocks_stale_tender_evidence_provenance() -> None:
+    client = RecordingPrepareClient()
+    client.rows["documents"][0]["parse_status"] = "parsed"
+    client.rows["document_chunks"] = [
+        _chunk_row(
+            document_id=DOCUMENT_ID,
+            chunk_id=CHUNK_ID,
+            text="Supplier must provide ISO 27001 certification.",
+            source_label="document 1",
+        )
+    ]
+    original_upsert_row = client.upsert_row
+
+    def upsert_stale_evidence(
+        table_name: str,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        row = original_upsert_row(table_name, payload)
+        if payload.get("source_type") == "tender_document":
+            row["document_id"] = str(OTHER_TENDER_ID)
+        return row
+
+    client.upsert_row = upsert_stale_evidence  # type: ignore[method-assign]
+
+    with pytest.raises(
+        PrepareRunError,
+        match="Evidence provenance audit failed",
+    ) as exc_info:
+        prepare_procurement_run(
+            client,
+            tender_id=TENDER_ID,
+            company_id=COMPANY_ID,
+            document_ids=[DOCUMENT_ID],
+            bucket_name="procurement-fixtures",
+            ingest_document=lambda *_args, **_kwargs: None,
+        )
+
+    assert exc_info.value.audit is not None
+    assert exc_info.value.audit.max_severity == "error"
+    assert [issue.check for issue in exc_info.value.audit.errors] == [
+        "evidence_provenance"
+    ]
+    assert client.rows["agent_runs"] == []
 
 
 def test_prepare_procurement_run_reuses_parsed_chunks_on_idempotent_rerun() -> None:

@@ -50,6 +50,8 @@ from bidded.orchestration.pending_run import (
     create_pending_run_context,
 )
 from bidded.orchestration.prepare_run import (
+    PreparationAudit,
+    PreparationAuditIssue,
     PreparedDocumentSummary,
     PrepareRunError,
     PrepareRunResult,
@@ -146,6 +148,8 @@ __all__ = [
     "JudgeDecisionValidationError",
     "PendingRunContextError",
     "PendingRunContextResult",
+    "PreparationAudit",
+    "PreparationAuditIssue",
     "PrepareRunError",
     "PrepareRunResult",
     "PreparedDocumentSummary",

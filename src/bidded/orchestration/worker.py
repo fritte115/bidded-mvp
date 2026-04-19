@@ -368,6 +368,7 @@ def build_bid_run_state_from_supabase(
             "tenant_key": tenant_key,
             "run_config": run_config,
             "metadata": metadata,
+            "preparation_audit": _mapping(metadata.get("preparation_audit")),
             "document_parse_statuses": {
                 str(row["id"]): str(row.get("parse_status"))
                 for row in relevant_documents

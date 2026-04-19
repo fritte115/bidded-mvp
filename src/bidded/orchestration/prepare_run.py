@@ -3,8 +3,10 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from bidded.documents import ChunkEmbeddingAdapter, PdfIngestionError
 from bidded.documents.pdf_ingestion import (
@@ -26,10 +28,55 @@ from bidded.orchestration.state import EvidenceSourceType
 from bidded.retrieval import RetrievedDocumentChunk
 
 DEFAULT_PREPARE_CREATED_VIA = "bidded_prepare_run"
+_AUDIT_SEVERITY_ORDER = {"info": 0, "warning": 1, "error": 2}
 
 
 class PrepareRunError(RuntimeError):
     """Raised when uploaded procurement documents cannot be prepared for agents."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        audit: PreparationAudit | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.audit = audit
+
+
+class PreparationAuditIssue(BaseModel):
+    """One deterministic preparation audit finding."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    severity: Literal["info", "warning", "error"]
+    check: str = Field(min_length=1)
+    message: str = Field(min_length=1)
+    document_id: UUID | None = None
+    company_id: UUID | None = None
+    evidence_key: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class PreparationAudit(BaseModel):
+    """Readable audit attached to a prepared pending run."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    max_severity: Literal["info", "warning", "error"]
+    issues: tuple[PreparationAuditIssue, ...] = ()
+
+    @property
+    def has_errors(self) -> bool:
+        return self.max_severity == "error"
+
+    @property
+    def warnings(self) -> tuple[PreparationAuditIssue, ...]:
+        return tuple(issue for issue in self.issues if issue.severity == "warning")
+
+    @property
+    def errors(self) -> tuple[PreparationAuditIssue, ...]:
+        return tuple(issue for issue in self.issues if issue.severity == "error")
 
 
 @dataclass(frozen=True)
@@ -51,6 +98,7 @@ class PrepareRunResult:
     company_evidence_count: int
     evidence_count: int
     warnings: tuple[str, ...]
+    audit: PreparationAudit
 
 
 def prepare_procurement_run(
@@ -113,14 +161,25 @@ def prepare_procurement_run(
             parse_status = str(document_row.get("parse_status") or "")
 
         if parse_status != "parsed":
-            raise PrepareRunError(
-                f"Document {document_id} parse_status is {parse_status!r}; "
-                "expected 'parsed' before creating an agent run."
+            audit = _document_preparation_error_audit(
+                document_id=document_id,
+                check="documents_parsed",
+                message=(
+                    f"Document {document_id} parse_status is {parse_status!r}; "
+                    "expected 'parsed' before creating an agent run."
+                ),
             )
+            raise PrepareRunError(str(audit.errors[0].message), audit=audit)
         if not chunks:
-            raise PrepareRunError(
-                f"Document {document_id} has no document_chunks after preparation."
+            audit = _document_preparation_error_audit(
+                document_id=document_id,
+                check="document_chunks",
+                message=(
+                    f"Document {document_id} has no document_chunks after "
+                    "preparation."
+                ),
             )
+            raise PrepareRunError(str(audit.errors[0].message), audit=audit)
 
         chunks_by_document[document_id] = chunks
         parse_status_by_document[document_id] = parse_status
@@ -141,12 +200,15 @@ def prepare_procurement_run(
         company_id=normalized_company_id,
         company_profile=company_profile,
     )
-    pending_run = create_pending_run_context(
+    tender_evidence_rows = _fetch_evidence_rows_by_keys(
         client,
-        tender_id=normalized_tender_id,
-        company_id=normalized_company_id,
-        document_ids=list(normalized_document_ids),
-        created_via=created_via,
+        source_type=EvidenceSourceType.TENDER_DOCUMENT.value,
+        evidence_keys=tender_evidence.evidence_keys,
+    )
+    company_evidence_rows = _fetch_evidence_rows_by_keys(
+        client,
+        source_type=EvidenceSourceType.COMPANY_PROFILE.value,
+        evidence_keys=company_evidence.evidence_keys,
     )
 
     evidence_counts = Counter(candidate.document_id for candidate in tender_candidates)
@@ -159,6 +221,28 @@ def prepare_procurement_run(
         )
         for document_id in normalized_document_ids
     )
+    audit = _build_preparation_audit(
+        company_id=normalized_company_id,
+        document_ids=normalized_document_ids,
+        document_results=document_results,
+        tender_candidates=tender_candidates,
+        tender_evidence_keys=tender_evidence.evidence_keys,
+        tender_evidence_rows=tender_evidence_rows,
+        tender_evidence_count=tender_evidence.evidence_count,
+        company_evidence_keys=company_evidence.evidence_keys,
+        company_evidence_rows=company_evidence_rows,
+        company_evidence_count=company_evidence.evidence_count,
+        warnings=tuple(warnings),
+    )
+    _raise_for_preparation_audit_errors(audit)
+    pending_run = create_pending_run_context(
+        client,
+        tender_id=normalized_tender_id,
+        company_id=normalized_company_id,
+        document_ids=list(normalized_document_ids),
+        created_via=created_via,
+        metadata={"preparation_audit": audit.model_dump(mode="json")},
+    )
     return _prepare_result(
         tender_id=normalized_tender_id,
         company_id=normalized_company_id,
@@ -167,7 +251,8 @@ def prepare_procurement_run(
         document_results=document_results,
         tender_evidence_count=tender_evidence.evidence_count,
         company_evidence_count=company_evidence.evidence_count,
-        warnings=tuple(warnings),
+        warnings=tuple(issue.message for issue in audit.warnings),
+        audit=audit,
     )
 
 
@@ -181,6 +266,7 @@ def _prepare_result(
     tender_evidence_count: int,
     company_evidence_count: int,
     warnings: tuple[str, ...],
+    audit: PreparationAudit,
 ) -> PrepareRunResult:
     return PrepareRunResult(
         tender_id=tender_id,
@@ -192,7 +278,320 @@ def _prepare_result(
         company_evidence_count=company_evidence_count,
         evidence_count=tender_evidence_count + company_evidence_count,
         warnings=warnings,
+        audit=audit,
     )
+
+
+def _build_preparation_audit(
+    *,
+    company_id: UUID,
+    document_ids: tuple[UUID, ...],
+    document_results: tuple[PreparedDocumentSummary, ...],
+    tender_candidates: Sequence[Any],
+    tender_evidence_keys: Sequence[str],
+    tender_evidence_rows: Sequence[Mapping[str, Any]],
+    tender_evidence_count: int,
+    company_evidence_keys: Sequence[str],
+    company_evidence_rows: Sequence[Mapping[str, Any]],
+    company_evidence_count: int,
+    warnings: tuple[str, ...],
+) -> PreparationAudit:
+    selected_document_ids = set(document_ids)
+    issues: list[PreparationAuditIssue] = []
+
+    for warning in warnings:
+        issues.append(
+            PreparationAuditIssue(
+                severity="warning",
+                check="document_ingestion",
+                message=warning,
+            )
+        )
+
+    unparsed_documents = [
+        summary for summary in document_results if summary.parse_status != "parsed"
+    ]
+    if unparsed_documents:
+        for summary in unparsed_documents:
+            issues.append(
+                PreparationAuditIssue(
+                    severity="error",
+                    check="documents_parsed",
+                    document_id=summary.document_id,
+                    message=(
+                        f"Document {summary.document_id} parse_status is "
+                        f"{summary.parse_status!r}; expected 'parsed'."
+                    ),
+                )
+            )
+    else:
+        issues.append(
+            PreparationAuditIssue(
+                severity="info",
+                check="documents_parsed",
+                message="All selected tender documents are parsed.",
+                details={"document_count": len(document_results)},
+            )
+        )
+
+    documents_without_chunks = [
+        summary for summary in document_results if summary.chunk_count == 0
+    ]
+    if documents_without_chunks:
+        for summary in documents_without_chunks:
+            issues.append(
+                PreparationAuditIssue(
+                    severity="error",
+                    check="document_chunks",
+                    document_id=summary.document_id,
+                    message=f"Document {summary.document_id} has no chunks.",
+                )
+            )
+    else:
+        issues.append(
+            PreparationAuditIssue(
+                severity="info",
+                check="document_chunks",
+                message="All selected tender documents have chunks.",
+                details={
+                    "chunk_count": sum(
+                        summary.chunk_count for summary in document_results
+                    )
+                },
+            )
+        )
+
+    documents_without_tender_evidence = [
+        summary for summary in document_results if summary.evidence_count == 0
+    ]
+    if documents_without_tender_evidence:
+        for summary in documents_without_tender_evidence:
+            issues.append(
+                PreparationAuditIssue(
+                    severity="warning",
+                    check="tender_evidence",
+                    document_id=summary.document_id,
+                    message=(
+                        f"Document {summary.document_id} produced no tender "
+                        "evidence items; agents will rely on chunks and other "
+                        "evidence for this document."
+                    ),
+                )
+            )
+    else:
+        issues.append(
+            PreparationAuditIssue(
+                severity="info",
+                check="tender_evidence",
+                message="Tender evidence exists for every selected document.",
+                details={"tender_evidence_count": tender_evidence_count},
+            )
+        )
+
+    if company_evidence_count <= 0:
+        issues.append(
+            PreparationAuditIssue(
+                severity="error",
+                check="company_evidence",
+                company_id=company_id,
+                message=f"Company {company_id} produced no company profile evidence.",
+            )
+        )
+    else:
+        issues.append(
+            PreparationAuditIssue(
+                severity="info",
+                check="company_evidence",
+                company_id=company_id,
+                message="Company profile evidence exists for the selected company.",
+                details={"company_evidence_count": company_evidence_count},
+            )
+        )
+
+    provenance_errors = _evidence_provenance_errors(
+        company_id=company_id,
+        document_ids=selected_document_ids,
+        tender_evidence_keys=tender_evidence_keys,
+        tender_evidence_rows=tender_evidence_rows,
+        company_evidence_keys=company_evidence_keys,
+        company_evidence_rows=company_evidence_rows,
+    )
+    stale_candidates = [
+        candidate
+        for candidate in tender_candidates
+        if getattr(candidate, "document_id", None) not in selected_document_ids
+    ]
+    for candidate in stale_candidates:
+        provenance_errors.append(
+            PreparationAuditIssue(
+                severity="error",
+                check="evidence_provenance",
+                document_id=getattr(candidate, "document_id", None),
+                message=(
+                    "Tender evidence candidate points outside the selected "
+                    f"document set: {getattr(candidate, 'document_id', None)}."
+                ),
+            )
+        )
+    if provenance_errors:
+        issues.extend(provenance_errors)
+    else:
+        issues.append(
+            PreparationAuditIssue(
+                severity="info",
+                check="evidence_provenance",
+                message=(
+                    "Prepared tender evidence provenance points to selected "
+                    "documents and company evidence points to the selected company."
+                ),
+                details={
+                    "document_ids": [str(document_id) for document_id in document_ids],
+                    "company_id": str(company_id),
+                },
+            )
+        )
+
+    typed_requirement_count = sum(
+        1
+        for row in tender_evidence_rows
+        if row.get("requirement_type") is not None
+    )
+    issues.append(
+        PreparationAuditIssue(
+            severity="info",
+            check="requirement_types",
+            message=(
+                "Requirement types are present on detected tender evidence."
+                if typed_requirement_count
+                else "No requirement types were detected in prepared tender evidence."
+            ),
+            details={"typed_tender_evidence_count": typed_requirement_count},
+        )
+    )
+
+    return _preparation_audit(issues)
+
+
+def _document_preparation_error_audit(
+    *,
+    document_id: UUID,
+    check: Literal["documents_parsed", "document_chunks"],
+    message: str,
+) -> PreparationAudit:
+    return _preparation_audit(
+        [
+            PreparationAuditIssue(
+                severity="error",
+                check=check,
+                document_id=document_id,
+                message=message,
+            )
+        ]
+    )
+
+
+def _evidence_provenance_errors(
+    *,
+    company_id: UUID,
+    document_ids: set[UUID],
+    tender_evidence_keys: Sequence[str],
+    tender_evidence_rows: Sequence[Mapping[str, Any]],
+    company_evidence_keys: Sequence[str],
+    company_evidence_rows: Sequence[Mapping[str, Any]],
+) -> list[PreparationAuditIssue]:
+    issues: list[PreparationAuditIssue] = []
+    tender_rows_by_key = {
+        str(row.get("evidence_key")): row for row in tender_evidence_rows
+    }
+    company_rows_by_key = {
+        str(row.get("evidence_key")): row for row in company_evidence_rows
+    }
+
+    for evidence_key in sorted(
+        set(tender_evidence_keys).difference(tender_rows_by_key)
+    ):
+        issues.append(
+            PreparationAuditIssue(
+                severity="error",
+                check="evidence_provenance",
+                evidence_key=evidence_key,
+                message=(
+                    f"Tender evidence {evidence_key} was not readable after upsert."
+                ),
+            )
+        )
+
+    for evidence_key, row in sorted(tender_rows_by_key.items()):
+        row_document_id = _optional_uuid(row.get("document_id"))
+        if row_document_id not in document_ids:
+            issues.append(
+                PreparationAuditIssue(
+                    severity="error",
+                    check="evidence_provenance",
+                    document_id=row_document_id,
+                    evidence_key=evidence_key,
+                    message=(
+                        f"Tender evidence {evidence_key} points to document "
+                        f"{row_document_id}; expected one of the selected documents."
+                    ),
+                )
+            )
+
+    for evidence_key in sorted(
+        set(company_evidence_keys).difference(company_rows_by_key)
+    ):
+        issues.append(
+            PreparationAuditIssue(
+                severity="error",
+                check="evidence_provenance",
+                evidence_key=evidence_key,
+                message=(
+                    f"Company evidence {evidence_key} was not readable after upsert."
+                ),
+            )
+        )
+
+    for evidence_key, row in sorted(company_rows_by_key.items()):
+        row_company_id = _optional_uuid(row.get("company_id"))
+        if row_company_id != company_id:
+            issues.append(
+                PreparationAuditIssue(
+                    severity="error",
+                    check="evidence_provenance",
+                    company_id=row_company_id,
+                    evidence_key=evidence_key,
+                    message=(
+                        f"Company evidence {evidence_key} points to company "
+                        f"{row_company_id}; expected {company_id}."
+                    ),
+                )
+            )
+
+    return issues
+
+
+def _raise_for_preparation_audit_errors(audit: PreparationAudit) -> None:
+    if not audit.has_errors:
+        return
+    error_checks = {issue.check for issue in audit.errors}
+    if "company_evidence" in error_checks:
+        message = "Company evidence audit failed."
+    elif "evidence_provenance" in error_checks:
+        message = "Evidence provenance audit failed."
+    else:
+        message = "Preparation input audit failed."
+    raise PrepareRunError(message, audit=audit)
+
+
+def _preparation_audit(
+    issues: Sequence[PreparationAuditIssue],
+) -> PreparationAudit:
+    max_severity = max(
+        (issue.severity for issue in issues),
+        key=lambda severity: _AUDIT_SEVERITY_ORDER[severity],
+        default="info",
+    )
+    return PreparationAudit(max_severity=max_severity, issues=tuple(issues))
 
 
 def _fetch_tender(client: Any, tender_id: UUID) -> dict[str, Any]:
@@ -270,6 +669,38 @@ def _fetch_document_chunks(
     return sorted(chunks, key=lambda chunk: (chunk.chunk_index, chunk.chunk_id))
 
 
+def _fetch_evidence_rows_by_keys(
+    client: Any,
+    *,
+    source_type: str,
+    evidence_keys: Sequence[str],
+) -> tuple[dict[str, Any], ...]:
+    expected_keys = set(evidence_keys)
+    if not expected_keys:
+        return ()
+
+    rows = _response_rows(
+        client.table("evidence_items")
+        .select(
+            "id,tenant_key,evidence_key,source_type,document_id,company_id,"
+            "chunk_id,page_start,page_end,field_path,requirement_type"
+        )
+        .eq("tenant_key", DEMO_TENANT_KEY)
+        .eq("source_type", source_type)
+        .execute()
+    )
+    return tuple(
+        sorted(
+            (
+                dict(row)
+                for row in rows
+                if str(row.get("evidence_key")) in expected_keys
+            ),
+            key=lambda row: str(row.get("evidence_key") or ""),
+        )
+    )
+
+
 def _retrieved_chunk_from_row(row: Mapping[str, Any]) -> RetrievedDocumentChunk:
     return RetrievedDocumentChunk(
         chunk_id=str(row.get("id") or ""),
@@ -326,6 +757,17 @@ def _normalize_uuid(value: Any, field_name: str) -> UUID:
         raise PrepareRunError(f"{field_name} must be a UUID.") from exc
 
 
+def _optional_uuid(value: Any) -> UUID | None:
+    if value is None:
+        return None
+    if isinstance(value, UUID):
+        return value
+    try:
+        return UUID(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
 def _positive_int(value: object, field_name: str) -> int:
     parsed = _int_value(value, field_name)
     if parsed <= 0:
@@ -353,6 +795,8 @@ def _mapping(value: object) -> dict[str, Any]:
 
 __all__ = [
     "DEFAULT_PREPARE_CREATED_VIA",
+    "PreparationAudit",
+    "PreparationAuditIssue",
     "PrepareRunError",
     "PrepareRunResult",
     "PreparedDocumentSummary",
