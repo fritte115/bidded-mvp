@@ -276,6 +276,7 @@ def _coerce_judge_decision_mapping(
         ]
     _coerce_cited_memo(out)
     _coerce_evidence_ids(out)
+    _coerce_conditional_bid_recommended_actions(out)
     return out
 
 
@@ -349,6 +350,101 @@ def _dedupe_evidence_ids_from_ref_dicts(
             continue
         seen.add(evidence_id)
         deduped.append(evidence_id)
+    return deduped
+
+
+def _coerce_conditional_bid_recommended_actions(out: dict[str, Any]) -> None:
+    if str(out.get("verdict") or "").strip() != FinalVerdict.CONDITIONAL_BID.value:
+        return
+    if _string_list(out.get("recommended_actions")):
+        out["recommended_actions"] = _string_list(out.get("recommended_actions"))
+        return
+
+    detail_actions = _dedupe_strings(
+        _texts_from_detail_items(out.get("recommended_action_details"))
+    )
+    if detail_actions:
+        out["recommended_actions"] = detail_actions
+        return
+
+    gap_actions: list[str] = []
+    gap_actions.extend(
+        f"Resolve missing information: {item}"
+        for item in _string_list(out.get("missing_info"))
+    )
+    gap_actions.extend(
+        f"Resolve evidence gap: {item}"
+        for item in _string_list(out.get("potential_evidence_gaps"))
+    )
+    deduped_gap_actions = _dedupe_strings(gap_actions)
+    if deduped_gap_actions:
+        out["recommended_actions"] = deduped_gap_actions
+        return
+
+    actions: list[str] = []
+    actions.extend(_actions_from_supported_claims(out.get("potential_blockers")))
+    actions.extend(_actions_from_risks(out.get("risk_register")))
+
+    deduped = _dedupe_strings(actions)
+    if deduped:
+        out["recommended_actions"] = deduped
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list | tuple):
+        return []
+    return [text for item in value if (text := str(item).strip())]
+
+
+def _texts_from_detail_items(value: Any) -> list[str]:
+    if not isinstance(value, list | tuple):
+        return []
+    texts: list[str] = []
+    for item in value:
+        if isinstance(item, Mapping):
+            text = str(item.get("text") or "").strip()
+            if text:
+                texts.append(text)
+        elif text := str(item).strip():
+            texts.append(text)
+    return texts
+
+
+def _actions_from_supported_claims(value: Any) -> list[str]:
+    if not isinstance(value, list | tuple):
+        return []
+    actions: list[str] = []
+    for item in value:
+        if isinstance(item, Mapping):
+            claim = str(item.get("claim") or "").strip()
+            if claim:
+                actions.append(f"Resolve potential blocker: {claim}")
+        elif text := str(item).strip():
+            actions.append(f"Resolve potential blocker: {text}")
+    return actions
+
+
+def _actions_from_risks(value: Any) -> list[str]:
+    if not isinstance(value, list | tuple):
+        return []
+    actions: list[str] = []
+    for item in value:
+        if isinstance(item, Mapping):
+            mitigation = str(item.get("mitigation") or "").strip()
+            if mitigation:
+                actions.append(mitigation)
+    return actions
+
+
+def _dedupe_strings(values: Sequence[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = value.strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        deduped.append(text)
     return deduped
 
 

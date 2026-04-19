@@ -618,6 +618,53 @@ def test_judge_coerces_missing_cited_memo_and_evidence_ids() -> None:
     ]
 
 
+def test_judge_coerces_conditional_bid_actions_from_details() -> None:
+    raw = _judge_payload(
+        verdict="conditional_bid",
+        vote_summary={"bid": 0, "no_bid": 0, "conditional_bid": 1},
+    )
+    raw["recommended_actions"] = []
+    raw["recommended_action_details"] = [
+        {
+            "text": "Confirm ISO certificate validity before bid approval.",
+            "requirement_type": "quality_management",
+            "evidence_refs": [_quality_ref()],
+        }
+    ]
+
+    output = validate_judge_decision_output(
+        raw,
+        evidence_board=_ready_state().evidence_board,
+        expected_vote_summary=VoteSummary.model_validate(raw["vote_summary"]),
+    )
+
+    assert output.recommended_actions == [
+        "Confirm ISO certificate validity before bid approval."
+    ]
+
+
+def test_judge_coerces_conditional_bid_actions_from_missing_info() -> None:
+    raw = _judge_payload(
+        verdict="conditional_bid",
+        vote_summary={"bid": 0, "no_bid": 0, "conditional_bid": 1},
+    )
+    raw["recommended_actions"] = []
+    raw["recommended_action_details"] = []
+    raw["missing_info"] = ["Named consultant availability is not confirmed."]
+    raw["potential_evidence_gaps"] = ["Current certificate expiry evidence is absent."]
+
+    output = validate_judge_decision_output(
+        raw,
+        evidence_board=_ready_state().evidence_board,
+        expected_vote_summary=VoteSummary.model_validate(raw["vote_summary"]),
+    )
+
+    assert output.recommended_actions == [
+        "Resolve missing information: Named consultant availability is not confirmed.",
+        "Resolve evidence gap: Current certificate expiry evidence is absent.",
+    ]
+
+
 def test_judge_request_includes_recall_warnings_without_hard_gate() -> None:
     base_state = _ready_state()
     state = base_state.model_copy(
