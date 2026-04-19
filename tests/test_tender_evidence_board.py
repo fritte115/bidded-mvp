@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from bidded.agents import RequirementType
+from bidded.evidence.contract_clause_classifier import MockContractClauseClassifier
 from bidded.evidence.tender_document import (
     TenderEvidenceCandidate,
     build_tender_clause_segments,
@@ -541,6 +542,44 @@ def test_tender_evidence_clause_metadata_uses_clause_context_for_tags() -> None:
         }
     ]
     assert item["source_metadata"] == {"source_label": "Tender.pdf"}
+
+
+def test_tender_evidence_items_apply_mocked_clause_classifier_metadata() -> None:
+    chunks = [
+        _retrieved_chunk(
+            "8. Commercial exposure\n"
+            "During the contract, the supplier's aggregate financial exposure "
+            "is limited to twelve months of fees.",
+            page_start=8,
+        )
+    ]
+    classifier = MockContractClauseClassifier(
+        tag_id="liability_caps",
+        confidence=0.83,
+        rationale="The clause uses document-specific wording for a liability cap.",
+    )
+
+    item = build_tender_evidence_items(
+        build_tender_evidence_candidates(chunks),
+        clause_classifier=classifier,
+    )[0]
+
+    assert classifier.requests[0].evidence_key == item["evidence_key"]
+    assert classifier.requests[0].clause_provenance is not None
+    assert classifier.requests[0].clause_provenance.heading == "Commercial exposure"
+    assert classifier.requests[0].deterministic_tag_ids == ()
+    assert item["metadata"]["contract_clause_ids"] == ["liability_caps"]
+    assert item["metadata"]["contract_clause_classification"] == {
+        "tag_id": "liability_caps",
+        "confidence": 0.83,
+        "rationale": (
+            "The clause uses document-specific wording for a liability cap."
+        ),
+        "evidence_key": item["evidence_key"],
+        "clause_provenance": None,
+        "missing_info": [],
+        "review_warnings": [],
+    }
 
 
 def test_tender_evidence_items_extract_structured_contract_terms() -> None:

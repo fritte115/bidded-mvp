@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-055",
-  "storyTitle": "Add bounded clause classifier adapter",
+  "currentStory": "US-056",
+  "storyTitle": "Add contract clause coverage audit",
   "nextAction": "implement",
-  "progressTokens": 4620,
+  "progressTokens": 4695,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

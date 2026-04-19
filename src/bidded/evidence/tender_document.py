@@ -9,6 +9,15 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from bidded.evidence.contract_clause_classifier import (
+    DEFAULT_MIN_CLASSIFIER_CONFIDENCE,
+    ContractClauseClassificationOutput,
+    ContractClauseClassificationRequest,
+    ContractClauseClassifier,
+    ContractClauseProvenance,
+    classify_contract_clause,
+    contract_clause_classification_metadata,
+)
 from bidded.evidence.contract_clause_tags import (
     ContractClauseTagMatch,
     match_contract_clause_tags,
@@ -498,6 +507,8 @@ def build_tender_evidence_items(
     candidates: list[TenderEvidenceCandidate | Mapping[str, Any]],
     *,
     tenant_key: str = "demo",
+    clause_classifier: ContractClauseClassifier | None = None,
+    classifier_min_confidence: float = DEFAULT_MIN_CLASSIFIER_CONFIDENCE,
 ) -> list[dict[str, Any]]:
     """Validate candidates and convert them to evidence_items payloads."""
 
@@ -510,6 +521,18 @@ def build_tender_evidence_items(
             continue
         seen_keys.add(evidence_key)
         metadata = _metadata_for_candidate(candidate)
+        if clause_classifier is not None:
+            classification_request = _classification_request_for_candidate(
+                candidate,
+                evidence_key=evidence_key,
+                metadata=metadata,
+            )
+            classification = classify_contract_clause(
+                classification_request,
+                clause_classifier,
+                min_confidence=classifier_min_confidence,
+            )
+            _apply_contract_clause_classification(metadata, classification)
         evidence_items.append(
             {
                 "tenant_key": tenant_key,
@@ -541,8 +564,15 @@ def upsert_tender_evidence_items(
     candidates: list[TenderEvidenceCandidate | Mapping[str, Any]],
     *,
     tenant_key: str = "demo",
+    clause_classifier: ContractClauseClassifier | None = None,
+    classifier_min_confidence: float = DEFAULT_MIN_CLASSIFIER_CONFIDENCE,
 ) -> TenderEvidenceUpsertResult:
-    evidence_items = build_tender_evidence_items(candidates, tenant_key=tenant_key)
+    evidence_items = build_tender_evidence_items(
+        candidates,
+        tenant_key=tenant_key,
+        clause_classifier=clause_classifier,
+        classifier_min_confidence=classifier_min_confidence,
+    )
     response = (
         client.table("evidence_items")
         .upsert(evidence_items, on_conflict="tenant_key,evidence_key")
@@ -670,6 +700,59 @@ def _contract_clause_tag_match_metadata(
         "suggested_proof_action": match.suggested_proof_action,
         "blocker_review_hint": match.blocker_review_hint,
     }
+
+
+def _classification_request_for_candidate(
+    candidate: TenderEvidenceCandidate,
+    *,
+    evidence_key: str,
+    metadata: Mapping[str, Any],
+) -> ContractClauseClassificationRequest:
+    raw_tag_ids = metadata.get("contract_clause_ids", ())
+    deterministic_tag_ids = (
+        tuple(raw_tag_ids) if isinstance(raw_tag_ids, list | tuple) else ()
+    )
+    return ContractClauseClassificationRequest(
+        evidence_key=evidence_key,
+        document_id=candidate.document_id,
+        chunk_id=candidate.chunk_id,
+        page_start=candidate.page_start,
+        page_end=candidate.page_end,
+        excerpt=candidate.excerpt,
+        source_label=candidate.source_label,
+        deterministic_tag_ids=deterministic_tag_ids,
+        clause_provenance=(
+            _classification_provenance_for_segment(candidate.clause_section)
+            if candidate.clause_section is not None
+            else None
+        ),
+    )
+
+
+def _classification_provenance_for_segment(
+    segment: TenderClauseSegment,
+) -> ContractClauseProvenance:
+    return ContractClauseProvenance(
+        document_id=segment.document_id,
+        section_number=segment.section_number,
+        heading=segment.heading,
+        page_start=segment.page_start,
+        page_end=segment.page_end,
+        chunk_ids=segment.chunk_ids,
+    )
+
+
+def _apply_contract_clause_classification(
+    metadata: dict[str, Any],
+    classification: ContractClauseClassificationOutput,
+) -> None:
+    metadata["contract_clause_classification"] = (
+        contract_clause_classification_metadata(classification)
+    )
+    current_tag_ids = list(metadata.get("contract_clause_ids", ()))
+    if classification.tag_id not in current_tag_ids:
+        current_tag_ids.append(classification.tag_id)
+    metadata["contract_clause_ids"] = current_tag_ids
 
 
 def _glossary_match_metadata(match: RegulatoryGlossaryMatch) -> dict[str, Any]:
