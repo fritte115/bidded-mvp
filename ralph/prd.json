@@ -917,6 +917,192 @@
       "priority": 60,
       "passes": true,
       "notes": "Added parsed multi-document pending-run validation, repeated create-pending-run document IDs, worker evidence scoping coverage, and deterministic tests. Complete."
+    },
+    {
+      "id": "US-061",
+      "title": "Format Python baseline",
+      "description": "As a developer, I need the Python codebase formatted consistently so that later refactors have readable diffs.",
+      "acceptanceCriteria": [
+        "Run Ruff formatting once across tracked Python files with no behavioral edits.",
+        ".venv/bin/ruff format --check . passes.",
+        ".venv/bin/ruff check . passes.",
+        ".venv/bin/pytest -q passes.",
+        "Commit contains only formatting plus Ralph bookkeeping."
+      ],
+      "priority": 61,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-062",
+      "title": "Extract agent validation helpers",
+      "description": "As a developer, I need shared agent artifact validation helpers so that evidence-backed claim rules are maintained in one place.",
+      "acceptanceCriteria": [
+        "Add a shared internal validation module for evidence-ref matching, missing evidence errors, field-path formatting, state-ref conversion, and evidence-ref deduping.",
+        "Refactor Evidence Scout, Round 1, Round 2, and Judge validation to use the shared helpers.",
+        "Preserve all public request/output schemas and persisted payload shapes.",
+        "Keep role-specific rules, such as formal blocker requirement types, explicit in their owning node modules.",
+        "Tests cover invalid evidence refs, duplicate refs, field-path formatting, and existing node validation behavior.",
+        "pytest, ruff check, and ruff format --check pass."
+      ],
+      "priority": 62,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-063",
+      "title": "Split graph shell internals",
+      "description": "As a developer, I need the graph shell split into focused modules so that routing, retry policy, defaults, and LangGraph assembly are easier to change safely.",
+      "acceptanceCriteria": [
+        "Keep public imports from bidded.orchestration.graph backward compatible.",
+        "Move route enums/edge table, retry-policy helpers, and default placeholder handlers into focused internal modules.",
+        "Keep LangGraph assembly and node orchestration behavior unchanged.",
+        "Existing graph routing tests pass without behavioral rewrites.",
+        "Add coverage proving public graph APIs still import from bidded.orchestration.graph.",
+        "pytest, ruff check, and ruff format --check pass."
+      ],
+      "priority": 63,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-064",
+      "title": "Consolidate deterministic test fakes",
+      "description": "As a developer, I need shared Supabase and agent test fakes so that new stories do not copy fragile mock infrastructure.",
+      "acceptanceCriteria": [
+        "Add shared test support modules for in-memory Supabase tables/queries and recording agent models.",
+        "Migrate at least worker, pending-run, Judge, and mocked E2E tests to the shared fakes.",
+        "Preserve deterministic behavior and avoid live Supabase, Claude, embeddings, or filesystem-only assumptions.",
+        "Tests remain readable at the scenario level.",
+        "pytest, ruff check, and ruff format --check pass."
+      ],
+      "priority": 64,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-065",
+      "title": "Isolate compatibility paths",
+      "description": "As a developer, I need legacy/backward-compatible behavior isolated so that old rows and future UI merge shapes are supported intentionally.",
+      "acceptanceCriteria": [
+        "Add a compatibility module or clearly named helpers for legacy evidence rows, legacy run language keys, and old UI-facing row shapes where applicable.",
+        "Runtime code calls compatibility helpers instead of inline ad hoc normalization.",
+        "Document each compatibility path with owner, reason, and removal condition.",
+        "Tests cover legacy requirement_type absence, legacy language keys, and old row-shape normalization.",
+        "No compatibility path silently changes current canonical payloads.",
+        "pytest, ruff check, and ruff format --check pass."
+      ],
+      "priority": 65,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-066",
+      "title": "Make local gates real",
+      "description": "As a developer, I need Makefile gates that actually run in a fresh dev environment so that story completion is reliable.",
+      "acceptanceCriteria": [
+        "Add mypy to dev dependencies and configure a non-strict initial typecheck suitable for the current Pydantic/orchestration code.",
+        "make typecheck passes without missing executable errors.",
+        "make check-fast runs lint, format-check, typecheck, and tests successfully.",
+        "Document the difference between fast local gates, full gates, and live smoke checks.",
+        "pytest, ruff check, ruff format --check, and make check-fast pass."
+      ],
+      "priority": 66,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-067",
+      "title": "Add pre-commit workflow",
+      "description": "As a developer, I need pre-commit hooks so that formatting and lint failures are caught before Ralph commits.",
+      "acceptanceCriteria": [
+        "Add pre-commit to dev dependencies.",
+        "Add .pre-commit-config.yaml with Ruff format and Ruff check hooks.",
+        "Include a lightweight secret/path hygiene hook for .env, service-role keys, and generated private demo files.",
+        "Document install and run commands.",
+        "pre-commit run --all-files, pytest, and make check-fast pass."
+      ],
+      "priority": 67,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-068",
+      "title": "Add test stability command",
+      "description": "As a developer, I need an explicit stability check so that suspected flakes can be confirmed instead of guessed.",
+      "acceptanceCriteria": [
+        "Add a Makefile target that reruns the deterministic pytest suite a configurable number of times.",
+        "Default repeat count is small enough for local use.",
+        "The command does not call live Supabase, Claude, embeddings, or frontend services.",
+        "README documents the current status: no known flaky tests, only PyMuPDF/SWIG deprecation warnings observed.",
+        "Tests or script checks cover failure propagation.",
+        "pytest, ruff check, and ruff format --check pass."
+      ],
+      "priority": 68,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-069",
+      "title": "Audit UI merge contract",
+      "description": "As a developer, I need a staged merge-ui-with-backend audit so that frontend/backend integration does not overwrite current backend contracts.",
+      "acceptanceCriteria": [
+        "Compare current backend contracts with merge-ui-with-backend for Supabase schema, API server, pending-run creation, worker execution, language policy, and frontend mapping expectations.",
+        "Produce a committed contract document listing compatible surfaces, conflicts, deferred surfaces, and required adapters.",
+        "Explicitly classify older branch behavior as compatibility/adaptation work, not canonical backend replacement.",
+        "No frontend or backend runtime merge happens in this story.",
+        "pytest, ruff check, and ruff format --check pass."
+      ],
+      "priority": 69,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-070",
+      "title": "Add backend UI adapter surface",
+      "description": "As a developer, I need a backend API adapter for the staged UI merge so that the frontend can start runs without owning worker internals.",
+      "acceptanceCriteria": [
+        "Add an injectable API/service layer for UI run preparation/start using current canonical backend services.",
+        "The UI-facing endpoint accepts a tender/procurement ID and returns a run ID plus deterministic status/error payloads.",
+        "The adapter never exposes Supabase service-role credentials to frontend code.",
+        "The adapter does not let UI write agent_outputs, evidence_items, or bid_decisions directly.",
+        "Tests cover no documents, unparsed documents, prepared documents, pending-run creation, worker start handoff, and error payloads with mocked clients.",
+        "pytest, ruff check, and ruff format --check pass."
+      ],
+      "priority": 70,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-071",
+      "title": "Import frontend with isolated gates",
+      "description": "As a developer, I need the merge-ui-with-backend frontend imported in a controlled stage so that UI work can continue without destabilizing Python gates.",
+      "acceptanceCriteria": [
+        "Import the frontend directory and package lock from merge-ui-with-backend after backend contract audit.",
+        "Keep frontend mock fallbacks explicit where backend surfaces are not ready.",
+        "Add root Makefile targets for frontend install/check/test/build without making Python check-fast depend on npm by default.",
+        "Frontend tests and build pass from the imported package.",
+        "Python pytest, ruff check, and ruff format --check still pass."
+      ],
+      "priority": 71,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-072",
+      "title": "Add cross-stack contract tests",
+      "description": "As a developer, I need backend/frontend contract tests so that future schema or payload changes do not silently break the UI.",
+      "acceptanceCriteria": [
+        "Add shared JSON fixtures or generated snapshots for decision summaries, runs, evidence items, and bid draft links.",
+        "Frontend mapping tests consume the same fixture shapes the backend adapter emits.",
+        "Backend tests verify emitted payloads match the contract fixtures.",
+        "Contract tests run without live Supabase or browser automation.",
+        "Document update rules for intentional contract changes.",
+        "Python and frontend gates pass."
+      ],
+      "priority": 72,
+      "passes": false,
+      "notes": ""
     }
   ]
 }
