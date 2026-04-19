@@ -88,7 +88,7 @@ export function AgentMotionCard({
 
   return (
     <>
-      <Card className="flex min-w-0 flex-col overflow-hidden">
+      <Card className="flex min-w-0 flex-col self-start overflow-hidden">
         <Collapsible defaultOpen={false}>
           <CollapsibleTrigger asChild>
             <CardHeader className="group cursor-pointer space-y-3 pb-3 hover:bg-secondary/40">
