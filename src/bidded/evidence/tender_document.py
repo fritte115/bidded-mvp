@@ -606,7 +606,9 @@ def _metadata_for_candidate(candidate: TenderEvidenceCandidate) -> dict[str, Any
         metadata["clause_section"] = _clause_section_metadata(
             candidate.clause_section
         )
-    contract_clause_tag_matches = match_contract_clause_tags(candidate.excerpt)
+    contract_clause_tag_matches = match_contract_clause_tags(
+        _contract_clause_context(candidate)
+    )
     if contract_clause_tag_matches:
         metadata["contract_clause_ids"] = [
             match.tag_id for match in contract_clause_tag_matches
@@ -642,6 +644,19 @@ def _clause_section_metadata(segment: TenderClauseSegment) -> dict[str, Any]:
         "chunk_ids": [str(chunk_id) for chunk_id in segment.chunk_ids],
         "body_text": segment.body_text,
     }
+
+
+def _contract_clause_context(candidate: TenderEvidenceCandidate) -> str:
+    if candidate.clause_section is None:
+        return candidate.excerpt
+    return _inline_text(
+        " ".join(
+            [
+                candidate.clause_section.heading,
+                candidate.clause_section.body_text or candidate.excerpt,
+            ]
+        )
+    )
 
 
 def _contract_clause_tag_match_metadata(

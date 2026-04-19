@@ -823,8 +823,8 @@
         "Tests cover evidence payload shape, backwards compatibility for existing evidence rows, stable keys, and metadata omission when no clause metadata exists; pytest and ruff check pass."
       ],
       "priority": 54,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Annotated clause-scoped evidence tags from clause context while preserving excerpt citations, requirement types, stable keys, glossary metadata, and upserts. Complete."
     },
     {
       "id": "US-055",

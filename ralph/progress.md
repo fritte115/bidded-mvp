@@ -19,7 +19,7 @@ Started: 2026-04-18
 - **Bidded Graph State/Routing Contract**: `BidRunState.apply_node_update` enforces node ownership and reducers; `src/bidded/orchestration/graph.py` owns the fixed LangGraph shell, preflight checks, Evidence Scout audit append, explicit edge table, bounded retry/stop policy, mocked handlers, and terminal routing.
 - **Bidded Agent Tool Policy Contract**: `src/bidded/agents/tool_policy.py` is the source of truth for LLM-agent denied tools, bounded retrieval, artifact access, and orchestrator-owned side effects.
 - **Bidded Agent Output Schema Contract**: `src/bidded/agents/schemas.py` is the strict Pydantic surface for RequirementType, Evidence Scout output, motions, rebuttals, Judge decisions, typed Judge reasoning details, evidence refs, material claim evidence-ID validation, validation errors, and specialist role bounds.
-- **Bidded Evidence/Retrieval Contract**: `src/bidded/retrieval` returns deterministic hybrid scores; `src/bidded/evidence` builds nullable typed evidence with glossary, clause-section, contract-clause tag, and extracted-term metadata; recall audit warnings compare chunk/glossary signals to evidence-board coverage before agent requests.
+- **Bidded Evidence/Retrieval Contract**: `src/bidded/retrieval` returns deterministic hybrid scores; `src/bidded/evidence` builds nullable typed evidence with excerpt-scoped glossary/extracted-term metadata, clause-section metadata, and clause-context contract-clause tag metadata; recall audit warnings compare chunk/glossary signals to evidence-board coverage before agent requests.
 - **Bidded Operator Controls Contract**: `run_controls.py` owns status/demo-trace/retry/stale-reset controls; `decision_export.py` reads persisted decisions, agent outputs, and cited evidence into local Markdown/JSON without DB mutation.
 - **Bidded Golden Eval Contract**: `golden_demo_cases` exposes typed core/adversarial fixture groups selected by `bidded eval-golden --fixture-group`; `golden_runner.py` compares recorded/injected outcomes and writes deterministic reports; `live_comparison.py` adds opt-in `--compare-live --confirm-live`; `decision_diff.py` compares material fields only.
 
@@ -300,4 +300,9 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added deterministic structured contract-term extraction for SEK/Mkr amounts, recurrence/cap phrases, and day deadlines on tender evidence metadata.
 - **Files**: src/bidded/evidence/contract_terms.py, src/bidded/evidence/tender_document.py, src/bidded/evidence/__init__.py, tests/test_tender_evidence_board.py, README.md, ralph/progress.md, ralph/CLAUDE.md, ralph/prd.json, ralph/state.json
 - **Key learnings**: Keep numeric/timing contract facts under `metadata.extracted_terms` so agents and later audits can reason over terms without parsing prose again.
+---
+## 2026-04-19 06:07 CEST - US-054
+- **Implemented**: Annotated tender evidence clause tags from clause context so rows can carry clause-section, contract-clause, extracted-term, and glossary metadata while citations stay excerpt-level.
+- **Files**: src/bidded/evidence/tender_document.py, tests/test_tender_evidence_board.py, ralph/progress.md, ralph/CLAUDE.md, ralph/prd.json, ralph/state.json
+- **Key learnings**: Match deterministic contract-clause tags against clause heading/body context, but keep extracted terms and glossary matches excerpt-scoped to avoid changing citation provenance.
 ---

@@ -490,6 +490,59 @@ def test_tender_evidence_items_include_contract_clause_tag_metadata() -> None:
     }
 
 
+def test_tender_evidence_clause_metadata_uses_clause_context_for_tags() -> None:
+    chunks = [
+        _retrieved_chunk(
+            "8. Liability cap\n"
+            "During the contract, damages are capped at 2 Mkr per claim.",
+            page_start=8,
+        )
+    ]
+
+    item = build_tender_evidence_items(build_tender_evidence_candidates(chunks))[0]
+
+    assert item["excerpt"] == (
+        "During the contract, damages are capped at 2 Mkr per claim."
+    )
+    assert item["requirement_type"] == "contract_obligation"
+    assert item["metadata"]["clause_section"]["heading"] == "Liability cap"
+    assert item["metadata"]["contract_clause_ids"] == ["liability_caps"]
+    assert item["metadata"]["contract_clause_matches"] == [
+        {
+            "id": "liability_caps",
+            "display_label": "Liability caps",
+            "matched_patterns": ["liability cap"],
+            "risk_lens": (
+                "Check total liability exposure against deal value and insurance."
+            ),
+            "suggested_proof_action": (
+                "Confirm proposed cap and carve-outs with legal and commercial owners."
+            ),
+            "blocker_review_hint": (
+                "Escalate unlimited or unusually high liability exposure."
+            ),
+        }
+    ]
+    assert item["metadata"]["extracted_terms"]["money_amounts"] == [
+        {
+            "raw_text": "2 Mkr",
+            "amount": 2,
+            "currency": "SEK",
+            "unit": "Mkr",
+            "normalized_amount_sek": 2_000_000,
+            "context": "liability_cap",
+        }
+    ]
+    assert item["metadata"]["extracted_terms"]["recurrence_or_cap_phrases"] == [
+        {
+            "raw_text": "per claim",
+            "normalized_unit": "claim",
+            "scope_type": "claim",
+        }
+    ]
+    assert item["source_metadata"] == {"source_label": "Tender.pdf"}
+
+
 def test_tender_evidence_items_extract_structured_contract_terms() -> None:
     chunks = [
         _retrieved_chunk(

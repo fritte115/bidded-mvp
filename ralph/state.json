@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-054",
-  "storyTitle": "Annotate evidence board with clause metadata",
+  "currentStory": "US-055",
+  "storyTitle": "Add bounded clause classifier adapter",
   "nextAction": "implement",
-  "progressTokens": 4545,
+  "progressTokens": 4620,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"
