@@ -1,3 +1,14 @@
+from bidded.evals.decision_diff import (
+    DecisionDiff,
+    DecisionDiffError,
+    DecisionDiffReport,
+    DecisionFieldDiff,
+    NormalizedDecision,
+    diff_decision_payloads,
+    load_persisted_run_decision_payload,
+    render_decision_diff_text,
+    write_decision_diff_json,
+)
 from bidded.evals.golden_runner import (
     EvidenceCitationRequirement,
     EvidenceCoverageClaim,
@@ -14,6 +25,10 @@ from bidded.evals.golden_runner import (
 )
 
 __all__ = [
+    "DecisionDiff",
+    "DecisionDiffError",
+    "DecisionDiffReport",
+    "DecisionFieldDiff",
     "EvidenceCitationRequirement",
     "EvidenceCoverageClaim",
     "EvidenceCoverageClaimType",
@@ -23,7 +38,12 @@ __all__ = [
     "GoldenEvalError",
     "GoldenEvalReport",
     "MissingCitationDetail",
+    "NormalizedDecision",
+    "diff_decision_payloads",
+    "load_persisted_run_decision_payload",
+    "render_decision_diff_text",
     "run_golden_evals",
     "score_evidence_coverage",
+    "write_decision_diff_json",
     "write_golden_eval_json",
 ]

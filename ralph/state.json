@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-047",
-  "storyTitle": "Diff normalized decisions",
+  "currentStory": "US-048",
+  "storyTitle": "Add adversarial fixtures",
   "nextAction": "implement",
-  "progressTokens": 4020,
+  "progressTokens": 4095,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

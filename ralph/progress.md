@@ -21,7 +21,7 @@ Started: 2026-04-18
 - **Bidded Agent Output Schema Contract**: `src/bidded/agents/schemas.py` is the strict Pydantic surface for RequirementType, Evidence Scout output, motions, rebuttals, Judge decisions, typed Judge reasoning details, evidence refs, material claim evidence-ID validation, validation errors, and specialist role bounds.
 - **Bidded Evidence/Retrieval Contract**: `src/bidded/retrieval` returns deterministic hybrid scores; `src/bidded/evidence` builds nullable typed evidence; recall audit warnings compare chunk/glossary signals to evidence-board requirement coverage before agent requests.
 - **Bidded Operator Controls Contract**: `run_controls.py` owns status/demo-trace/retry/stale-reset controls; `decision_export.py` reads persisted decisions, agent outputs, and cited evidence into local Markdown/JSON without DB mutation.
-- **Bidded Golden Eval Contract**: `src/bidded/evals/golden_runner.py` compares recorded or injected golden outcomes against allowed verdicts, hard blocker gates, missing info/actions, unsupported-claim rejection, validation errors, resolved evidence refs, material-claim citation coverage, and version metadata warnings; `bidded eval-golden` is deterministic and live-service-free.
+- **Bidded Golden Eval Contract**: `src/bidded/evals/golden_runner.py` compares recorded/injected outcomes and emits normalized actual decisions; `src/bidded/evals/decision_diff.py` powers `bidded diff-decisions` over eval JSON, exported decisions, or persisted run IDs by material fields only.
 
 ## Session Log
 
@@ -265,4 +265,9 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added deterministic prompt/schema/retrieval/model version metadata for worker audit rows and golden eval JSON/CLI output, with non-blocking eval warnings for legacy missing metadata.
 - **Files**: src/bidded/versioning.py, src/bidded/orchestration/worker.py, src/bidded/evals/golden_runner.py, src/bidded/cli/__init__.py, tests/test_worker_lifecycle.py, tests/test_golden_eval_runner.py, tests/test_cli.py, ralph/prd.json, ralph/state.json, ralph/progress.md
 - **Key learnings**: Keep version provenance centralized and normalize legacy/missing eval metadata to defaults while surfacing warnings only in eval output.
+---
+## 2026-04-19 04:57 CEST - US-047
+- **Implemented**: Added normalized decision diffing for eval JSON, exported decisions, and persisted run IDs with text/JSON CLI output and strict exit behavior.
+- **Files**: src/bidded/evals/decision_diff.py, src/bidded/evals/golden_runner.py, src/bidded/evals/__init__.py, src/bidded/cli/__init__.py, tests/test_decision_diff.py, tests/test_golden_eval_runner.py, tests/test_cli.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
+- **Key learnings**: Keep eval comparison on normalized structured decision fields so prose and ordering changes do not create material diffs.
 ---

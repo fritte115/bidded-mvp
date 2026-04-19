@@ -7,6 +7,7 @@ from pathlib import Path
 
 from pydantic import Field
 
+from bidded.evals.decision_diff import NormalizedDecision
 from bidded.fixtures.golden_cases import GoldenDemoCase, golden_demo_cases
 from bidded.orchestration.state import (
     EvidenceItemState,
@@ -114,8 +115,10 @@ class GoldenActualOutcome(StrictStateModel):
     """Actual output produced for a golden case by a recorded or mocked runner."""
 
     verdict: Verdict
+    confidence: float | None = Field(default=None, ge=0, le=1)
     specialist_votes: tuple[Verdict, ...] = ()
     blockers: tuple[str, ...] = ()
+    risks: tuple[str, ...] = ()
     missing_info: tuple[str, ...] = ()
     recommended_actions: tuple[str, ...] = ()
     unsupported_claims_rejected: tuple[str, ...] = ()
@@ -148,6 +151,7 @@ class GoldenCaseEvalResult(StrictStateModel):
     evidence_coverage: EvidenceCoverageScore = Field(
         default_factory=_default_evidence_coverage_score
     )
+    actual_decision: NormalizedDecision | None = None
     version_metadata: VersionMetadata = Field(
         default_factory=lambda: default_version_metadata(
             eval_fixture_version=GOLDEN_EVAL_FIXTURE_VERSION
@@ -324,6 +328,7 @@ def evaluate_golden_case(
         actual_validation_errors=actual.validation_errors,
         evidence_reference_failures=evidence_reference_failures,
         evidence_coverage=evidence_coverage,
+        actual_decision=_normalized_actual_decision(case.case_id, actual),
         version_metadata=version_metadata,
         version_warnings=version_warnings,
     )
@@ -466,6 +471,24 @@ def _recorded_coverage_claims(
         for action in case.expected.recommended_actions
     )
     return tuple(claims)
+
+
+def _normalized_actual_decision(
+    case_id: str,
+    actual: GoldenActualOutcome,
+) -> NormalizedDecision:
+    return NormalizedDecision(
+        decision_id=case_id,
+        verdict=actual.verdict.value,
+        confidence=actual.confidence,
+        blockers=actual.blockers,
+        risks=tuple({"risk": risk} for risk in actual.risks),
+        missing_info=actual.missing_info,
+        recommended_actions=actual.recommended_actions,
+        cited_evidence_keys=tuple(
+            evidence_ref.evidence_key for evidence_ref in actual.evidence_refs
+        ),
+    )
 
 
 def _required_source_types(

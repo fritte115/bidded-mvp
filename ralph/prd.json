@@ -718,8 +718,8 @@
         "Tests cover identical decisions, changed verdict, changed blockers, changed evidence keys, prose-only differences, and strict-mode exit codes; pytest and ruff check pass."
       ],
       "priority": 47,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added normalized decision diff service, diff-decisions CLI, eval actual-decision JSON, persisted-run loading, text/JSON output, strict exits, and tests. Complete."
     },
     {
       "id": "US-048",

@@ -38,6 +38,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Demo smoke | `bidded demo-smoke` kör ett opt-in smoke-flöde över seed, PDF-registrering, ingestion, evidence, pending run, worker och decision readback; default är mockade agenthandlers, medan `--live-llm` använder Claude. |
 | Golden demo cases | `bidded.fixtures.golden_cases` exponerar sex deterministiska, evidence-backed regression cases för `bid`, `no_bid`, `conditional_bid`, `needs_human_review`, saknad bolagsevidens och unsupported-claim rejection. |
 | Golden eval runner | `bidded eval-golden` kör de deterministiska golden cases, eller ett valt case ID, rapporterar allowed-verdict-/blocker-/validation-/evidence-ref-/coverage-avvikelser och kan skriva stabil JSON utan live Claude eller Supabase. |
+| Decision diff | `bidded diff-decisions` jämför normaliserade eval-resultat, decision-export JSON eller persisted run IDs på verdict, confidence, blockers, risker, missing info, actions och citerade evidence keys utan brus från prose/order. |
 | Frontend | Ingen frontend i repot. Lovable är fortsatt tänkt som tunn demo-UI ovanpå Supabase, men de närmaste stories prioriterar demo-hardening innan en ny handoff-story. |
 
 README:n beskriver därför både nuläget och den stack som PRD:n definierar att vi bygger mot. När stories implementeras ska planerade delar flyttas till faktiskt levererade delar.
@@ -255,6 +256,7 @@ PRD:n beskriver en lokal CLI/worker. Den kan nu:
 - resetta stale `running` runs till `failed` med explicit operator reason och status-guard
 - exportera en färdig decision bundle som Markdown och stabil JSON från `bid_decisions`, `agent_outputs` och citerade `evidence_items`
 - köra golden evals med `bidded eval-golden`, optionalt för ett valt case ID och med stabil JSON-output
+- jämföra normaliserade beslut med `bidded diff-decisions` över eval JSON, decision-export JSON eller persisted run IDs
 - uppdatera run-status till `running`, `succeeded`, `failed` eller `needs_human_review`
 - skriva normaliserade `agent_outputs` och `bid_decisions` utan raw full prompts som default audit artifact
 - logga tillräckligt lokalt för demooperation medan Supabase förblir source of truth
@@ -334,6 +336,16 @@ Pending run och worker-körning:
 .venv/bin/bidded eval-golden \
   --case-id hard_compliance_no_bid \
   --json-path golden-eval.json
+
+.venv/bin/bidded diff-decisions \
+  --baseline-json baseline-golden-eval.json \
+  --candidate-json candidate-golden-eval.json \
+  --json-path decision-diff.json \
+  --strict
+
+.venv/bin/bidded diff-decisions \
+  --baseline-run-id "$BASELINE_AGENT_RUN_ID" \
+  --candidate-run-id "$CANDIDATE_AGENT_RUN_ID"
 ```
 
 En operatörsinriktad checklista för pre-demo setup, live smoke, worker-körning,

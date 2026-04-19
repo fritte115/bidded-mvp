@@ -366,6 +366,35 @@ def test_golden_eval_runner_includes_version_metadata_in_json(
     assert payload["results"][0]["version_warnings"] == []
 
 
+def test_golden_eval_runner_includes_normalized_actual_decision_in_json(
+    tmp_path: Path,
+) -> None:
+    report = run_golden_evals(case_id="conditional_bid_next_actions")
+    json_path = tmp_path / "evals" / "golden-with-decision.json"
+
+    write_golden_eval_json(report, json_path)
+
+    result = json.loads(json_path.read_text(encoding="utf-8"))["results"][0]
+    assert result["actual_decision"]["decision_id"] == (
+        "conditional_bid_next_actions"
+    )
+    assert result["actual_decision"]["verdict"] == "conditional_bid"
+    assert result["actual_decision"]["blockers"] == []
+    assert result["actual_decision"]["missing_info"] == [
+        "Named security-cleared delivery lead CV is not present.",
+        "Signed data processing agreement attachment is not present.",
+    ]
+    assert result["actual_decision"]["recommended_actions"] == [
+        "Name the delivery lead and attach that person's CV.",
+        "Prepare and sign the data processing agreement attachment.",
+    ]
+    assert result["actual_decision"]["cited_evidence_keys"] == [
+        "GOLDEN-CONDITIONAL-BID-NEXT-ACTIONS-TENDER-NAMED-LEAD",
+        "GOLDEN-CONDITIONAL-BID-NEXT-ACTIONS-TENDER-SIGNED-DPA",
+        "GOLDEN-CONDITIONAL-BID-NEXT-ACTIONS-COMPANY-CLEARED-LEADS",
+    ]
+
+
 def test_golden_eval_warns_when_actual_version_metadata_is_missing() -> None:
     def legacy_outcome(case: GoldenDemoCase) -> GoldenActualOutcome:
         return _expected_outcome_with_claim(case)

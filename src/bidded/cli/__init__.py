@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,13 @@ from bidded.demo_smoke import (
 )
 from bidded.doctor import run_demo_environment_doctor
 from bidded.documents import TenderPdfRegistrationError, register_demo_tender_pdf
+from bidded.evals.decision_diff import (
+    DecisionDiffError,
+    diff_decision_payloads,
+    load_persisted_run_decision_payload,
+    render_decision_diff_text,
+    write_decision_diff_json,
+)
 from bidded.evals.golden_runner import (
     GoldenCaseEvalResult,
     GoldenEvalError,
@@ -310,6 +318,44 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional destination for a stable JSON eval report.",
     )
     eval_parser.set_defaults(handler=_run_eval_golden_command)
+
+    diff_parser = subparsers.add_parser(
+        "diff-decisions",
+        help="Diff normalized decisions from eval JSON or persisted runs.",
+        description=(
+            "Compare two eval-result JSON files, decision export JSON files, "
+            "or persisted run IDs using normalized material decision fields."
+        ),
+    )
+    diff_parser.add_argument(
+        "--baseline-json",
+        type=Path,
+        help="Baseline eval-result or decision-export JSON path.",
+    )
+    diff_parser.add_argument(
+        "--candidate-json",
+        type=Path,
+        help="Candidate eval-result or decision-export JSON path.",
+    )
+    diff_parser.add_argument(
+        "--baseline-run-id",
+        help="Baseline persisted agent_runs UUID.",
+    )
+    diff_parser.add_argument(
+        "--candidate-run-id",
+        help="Candidate persisted agent_runs UUID.",
+    )
+    diff_parser.add_argument(
+        "--json-path",
+        type=Path,
+        help="Optional destination for a stable JSON diff report.",
+    )
+    diff_parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Return exit code 1 when material decision fields differ.",
+    )
+    diff_parser.set_defaults(handler=_run_diff_decisions_command)
     return parser
 
 
@@ -595,6 +641,70 @@ def _run_eval_golden_command(args: argparse.Namespace) -> int:
     if args.json_path is not None:
         print(f"Wrote JSON: {args.json_path}")
     return 0 if result.passed else 1
+
+
+def _run_diff_decisions_command(args: argparse.Namespace) -> int:
+    try:
+        baseline_payload, baseline_source = _load_decision_diff_payload(
+            json_path=args.baseline_json,
+            run_id=args.baseline_run_id,
+            source_label="baseline",
+        )
+        candidate_payload, candidate_source = _load_decision_diff_payload(
+            json_path=args.candidate_json,
+            run_id=args.candidate_run_id,
+            source_label="candidate",
+        )
+        result = diff_decision_payloads(
+            baseline_payload,
+            candidate_payload,
+            baseline_source=baseline_source,
+            candidate_source=candidate_source,
+        )
+        if args.json_path is not None:
+            write_decision_diff_json(result, args.json_path)
+    except (DecisionDiffError, OSError, json.JSONDecodeError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    print(render_decision_diff_text(result), end="")
+    if args.json_path is not None:
+        print(f"Wrote JSON: {args.json_path}")
+    if args.strict and result.has_material_changes:
+        return 1
+    return 0
+
+
+def _load_decision_diff_payload(
+    *,
+    json_path: Path | None,
+    run_id: str | None,
+    source_label: str,
+) -> tuple[dict[str, Any], str]:
+    if json_path is not None and run_id is not None:
+        raise DecisionDiffError(
+            f"Provide either --{source_label}-json or "
+            f"--{source_label}-run-id, not both."
+        )
+    if json_path is None and run_id is None:
+        raise DecisionDiffError(
+            f"Provide --{source_label}-json or --{source_label}-run-id."
+        )
+    if json_path is not None:
+        payload = json.loads(json_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise DecisionDiffError(f"{json_path} must contain a JSON object.")
+        return payload, str(json_path)
+
+    try:
+        client = _create_supabase_client()
+    except RuntimeError as exc:
+        raise DecisionDiffError(str(exc)) from exc
+    assert run_id is not None
+    return (
+        load_persisted_run_decision_payload(client, run_id=run_id),
+        f"run:{run_id}",
+    )
 
 
 def _display_value(value: object | None) -> str:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -58,6 +59,7 @@ def test_cli_help_prints_without_external_services() -> None:
     assert "reset-stale-runs" in result.stdout
     assert "export-decision" in result.stdout
     assert "eval-golden" in result.stdout
+    assert "diff-decisions" in result.stdout
 
 
 def test_cli_seed_demo_company_help_prints_without_external_services() -> None:
@@ -256,6 +258,29 @@ def test_cli_eval_golden_help_prints_without_external_services() -> None:
     assert "eval-golden" in result.stdout
     assert "--case-id" in result.stdout
     assert "--json-path" in result.stdout
+
+
+def test_cli_diff_decisions_help_prints_without_external_services() -> None:
+    env = os.environ.copy()
+    env.pop("ANTHROPIC_API_KEY", None)
+    env.pop("SUPABASE_URL", None)
+    env.pop("SUPABASE_SERVICE_ROLE_KEY", None)
+    env["PYTHONPATH"] = str(PROJECT_ROOT / "src")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "bidded.cli", "diff-decisions", "--help"],
+        cwd=PROJECT_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "diff-decisions" in result.stdout
+    assert "--baseline-json" in result.stdout
+    assert "--candidate-json" in result.stdout
+    assert "--strict" in result.stdout
 
 
 class RecordingCompanyTable:
@@ -1107,3 +1132,86 @@ def test_cli_eval_golden_returns_nonzero_for_failed_expectations(
         "reason=missing_required_source_type; missing=tender_document; "
         "present=company_profile; unresolved=none"
     ) in captured.out
+
+
+def test_cli_diff_decisions_writes_json_and_strict_exit(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    baseline_path = tmp_path / "baseline.json"
+    candidate_path = tmp_path / "candidate.json"
+    diff_path = tmp_path / "diff.json"
+    baseline_path.write_text(
+        json.dumps(_decision_diff_payload(verdict="bid")),
+        encoding="utf-8",
+    )
+    candidate_path.write_text(
+        json.dumps(_decision_diff_payload(verdict="no_bid")),
+        encoding="utf-8",
+    )
+
+    result = cli.main(
+        [
+            "diff-decisions",
+            "--baseline-json",
+            str(baseline_path),
+            "--candidate-json",
+            str(candidate_path),
+            "--json-path",
+            str(diff_path),
+            "--strict",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(diff_path.read_text(encoding="utf-8"))
+    assert result == 1
+    assert "Decision diff: material changes detected." in captured.out
+    assert "CHANGED verdict: bid -> no_bid" in captured.out
+    assert f"Wrote JSON: {diff_path}" in captured.out
+    assert payload["has_material_changes"] is True
+    assert payload["decision_diffs"][0]["changed_fields"] == ["verdict"]
+
+
+def test_cli_diff_decisions_strict_returns_zero_for_identical_decisions(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    baseline_path = tmp_path / "baseline.json"
+    candidate_path = tmp_path / "candidate.json"
+    payload = _decision_diff_payload(verdict="bid")
+    baseline_path.write_text(json.dumps(payload), encoding="utf-8")
+    candidate_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = cli.main(
+        [
+            "diff-decisions",
+            "--baseline-json",
+            str(baseline_path),
+            "--candidate-json",
+            str(candidate_path),
+            "--strict",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Decision diff: no material changes." in captured.out
+
+
+def _decision_diff_payload(*, verdict: str) -> dict[str, object]:
+    return {
+        "schema_version": "2026-04-19.v1",
+        "run_id": "11111111-1111-4111-8111-111111111111",
+        "decision": {
+            "verdict": verdict,
+            "confidence": 0.74,
+            "cited_memo": "Memo prose is ignored by normalized diffs.",
+            "compliance_blockers": [],
+            "potential_blockers": [],
+            "risk_register": [],
+            "missing_info": [],
+            "recommended_actions": ["Submit bid."],
+        },
+        "evidence": [{"evidence_key": "E-TENDER-ISO"}],
+    }
