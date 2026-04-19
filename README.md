@@ -37,7 +37,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Demo doctor | `bidded doctor` kontrollerar demo-miljövariabler, Supabase-tabeller, Storage-bucket och optional Anthropic-connectivity utan att skriva ut secrets. |
 | Demo smoke | `bidded demo-smoke` kör ett opt-in smoke-flöde över seed, PDF-registrering, ingestion, evidence, pending run, worker och decision readback; default är mockade agenthandlers, medan `--live-llm` använder Claude. |
 | Golden demo cases | `bidded.fixtures.golden_cases` exponerar sex core-cases och sex adversarial, evidence-backed regression cases för verdicts, saknad bolagsevidens, unsupported claims, near-miss certifiering, dolda skall-krav, stale evidence, deadline-konflikter, svag marginal och Red Team blocker-challenges. |
-| Golden eval runner | `bidded eval-golden` kör deterministiska golden cases per `--fixture-group core/adversarial/all`, eller ett valt case ID, rapporterar allowed-verdict-/blocker-/validation-/evidence-ref-/coverage-avvikelser och kan skriva stabil JSON utan live Claude eller Supabase. |
+| Golden eval runner | `bidded eval-golden` kör deterministiska golden cases per `--fixture-group core/adversarial/all`, eller ett valt case ID, rapporterar allowed-verdict-/blocker-/validation-/evidence-ref-/coverage-avvikelser och kan skriva stabil JSON och läsbar Markdown utan live Claude eller Supabase. |
 | Decision diff | `bidded diff-decisions` jämför normaliserade eval-resultat, decision-export JSON eller persisted run IDs på verdict, confidence, blockers, risker, missing info, actions och citerade evidence keys utan brus från prose/order. |
 | Frontend | Ingen frontend i repot. Lovable är fortsatt tänkt som tunn demo-UI ovanpå Supabase, men de närmaste stories prioriterar demo-hardening innan en ny handoff-story. |
 
@@ -255,7 +255,7 @@ PRD:n beskriver en lokal CLI/worker. Den kan nu:
 - skapa en ny `pending` retry-run kopplad till failed eller `needs_human_review` source-run utan att mutera immutable `agent_outputs`
 - resetta stale `running` runs till `failed` med explicit operator reason och status-guard
 - exportera en färdig decision bundle som Markdown och stabil JSON från `bid_decisions`, `agent_outputs` och citerade `evidence_items`
-- köra golden evals med `bidded eval-golden`, optionalt för ett valt case ID och med stabil JSON-output
+- köra golden evals med `bidded eval-golden`, optionalt för ett valt case ID och med stabil JSON-/Markdown-output
 - jämföra normaliserade beslut med `bidded diff-decisions` över eval JSON, decision-export JSON eller persisted run IDs
 - uppdatera run-status till `running`, `succeeded`, `failed` eller `needs_human_review`
 - skriva normaliserade `agent_outputs` och `bid_decisions` utan raw full prompts som default audit artifact
@@ -335,7 +335,8 @@ Pending run och worker-körning:
 
 .venv/bin/bidded eval-golden \
   --case-id hard_compliance_no_bid \
-  --json-path golden-eval.json
+  --json-path golden-eval.json \
+  --markdown-path golden-eval.md
 
 .venv/bin/bidded eval-golden \
   --fixture-group adversarial
@@ -417,7 +418,7 @@ När appen byggs ska kvaliteten styras av:
 - graph routing- och retry/stop-tester för success, invalid output, missing inputs, empty evidence, `failed`, `needs_human_review` och END
 - en mocked end-to-end-test som seeder bolag, registrerar fixture-data, bygger evidence board, kör alla swarm-rundor och sparar ett slutbeslut
 - replaybara demo-state seedtester för idempotence, fixture-scoping, schema-valida payloads och evidence IDs
-- golden eval-runner-tester för all-cases, selected-case, pass/fail-resultat, verdict regression, citation coverage och stabil JSON-output
+- golden eval-runner-tester för all-cases, selected-case, pass/fail-resultat, verdict regression, citation coverage och stabil JSON-/Markdown-output
 
 Live Claude, live embeddings och live Supabase kan användas för demo-smoke, men ska inte vara krav för story-completion.
 

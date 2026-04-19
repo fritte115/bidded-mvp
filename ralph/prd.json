@@ -748,8 +748,8 @@
         "Tests cover all-pass report, mixed-pass report, JSON schema shape, Markdown content, and deterministic ordering; pytest and ruff check pass."
       ],
       "priority": 49,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added deterministic golden eval JSON/Markdown report exports with aggregate summaries, failed-case details, CLI wiring, and tests. Complete."
     },
     {
       "id": "US-050",

@@ -19,9 +19,12 @@ from bidded.evals.golden_runner import (
     GoldenEvalError,
     GoldenEvalReport,
     MissingCitationDetail,
+    golden_eval_report_json_payload,
+    render_golden_eval_markdown,
     run_golden_evals,
     score_evidence_coverage,
     write_golden_eval_json,
+    write_golden_eval_markdown,
 )
 
 __all__ = [
@@ -40,10 +43,13 @@ __all__ = [
     "MissingCitationDetail",
     "NormalizedDecision",
     "diff_decision_payloads",
+    "golden_eval_report_json_payload",
     "load_persisted_run_decision_payload",
     "render_decision_diff_text",
+    "render_golden_eval_markdown",
     "run_golden_evals",
     "score_evidence_coverage",
     "write_decision_diff_json",
+    "write_golden_eval_markdown",
     "write_golden_eval_json",
 ]

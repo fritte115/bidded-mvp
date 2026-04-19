@@ -31,6 +31,7 @@ from bidded.evals.golden_runner import (
     GoldenEvalReport,
     run_golden_evals,
     write_golden_eval_json,
+    write_golden_eval_markdown,
 )
 from bidded.orchestration import (
     AgentRunStatus,
@@ -325,6 +326,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--json-path",
         type=Path,
         help="Optional destination for a stable JSON eval report.",
+    )
+    eval_parser.add_argument(
+        "--markdown-path",
+        type=Path,
+        help="Optional destination for a readable Markdown eval report.",
     )
     eval_parser.set_defaults(handler=_run_eval_golden_command)
 
@@ -645,6 +651,8 @@ def _run_eval_golden_command(args: argparse.Namespace) -> int:
         )
         if args.json_path is not None:
             write_golden_eval_json(result, args.json_path)
+        if args.markdown_path is not None:
+            write_golden_eval_markdown(result, args.markdown_path)
     except (GoldenEvalError, OSError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -652,6 +660,8 @@ def _run_eval_golden_command(args: argparse.Namespace) -> int:
     _print_golden_eval_report(result)
     if args.json_path is not None:
         print(f"Wrote JSON: {args.json_path}")
+    if args.markdown_path is not None:
+        print(f"Wrote Markdown: {args.markdown_path}")
     return 0 if result.passed else 1
 
 

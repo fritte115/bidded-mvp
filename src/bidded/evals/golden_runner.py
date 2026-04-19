@@ -4,6 +4,7 @@ import json
 from collections.abc import Callable, Sequence
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 from pydantic import Field
 
@@ -102,6 +103,7 @@ _SOURCE_TYPE_ORDER = (
     EvidenceSourceType.TENDER_DOCUMENT,
     EvidenceSourceType.COMPANY_PROFILE,
 )
+GOLDEN_EVAL_REPORT_SCHEMA_VERSION = "2026-04-19.golden-eval-report.v1"
 
 
 def _default_evidence_coverage_score() -> EvidenceCoverageScore:
@@ -433,11 +435,255 @@ def write_golden_eval_json(report: GoldenEvalReport, path: Path) -> None:
     """Write a deterministic JSON representation of an eval report."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = report.model_dump(mode="json")
     path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        json.dumps(golden_eval_report_json_payload(report), indent=2, sort_keys=True)
+        + "\n",
         encoding="utf-8",
     )
+
+
+def write_golden_eval_markdown(report: GoldenEvalReport, path: Path) -> None:
+    """Write a deterministic Markdown representation of an eval report."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(render_golden_eval_markdown(report), encoding="utf-8")
+
+
+def render_golden_eval_markdown(report: GoldenEvalReport) -> str:
+    """Render a human-readable golden eval report."""
+
+    failed_results = tuple(result for result in report.results if not result.passed)
+    pass_rate = _pass_rate(report)
+    failed_case_ids = ", ".join(result.case_id for result in failed_results) or "none"
+    status = "PASS" if report.passed else "FAIL"
+    lines = [
+        "# Golden Eval Report",
+        "",
+        f"Status: {status}",
+        (
+            f"Pass rate: {pass_rate:.2%} "
+            f"({report.passed_count}/{report.total_count})"
+        ),
+        f"Failed cases: {failed_case_ids}",
+        "",
+        "## Runtime Summary",
+        "",
+        f"- Total cases: {report.total_count}",
+        f"- Passed cases: {report.passed_count}",
+        f"- Failed cases: {report.failed_count}",
+        f"- Pass rate: {pass_rate:.2%}",
+        "",
+        "## Version Metadata",
+        "",
+        f"- {_format_version_metadata(report.version_metadata)}",
+    ]
+    if report.version_warnings:
+        lines.extend(["", "## Version Warnings", ""])
+        lines.extend(f"- {warning}" for warning in report.version_warnings)
+
+    lines.extend(
+        [
+            "",
+            "## Cases",
+            "",
+            (
+                "| Case | Status | Expected | Actual | Evidence coverage | "
+                "Unsupported claims | Validation errors |"
+            ),
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+    for result in report.results:
+        lines.append(_golden_case_markdown_row(result))
+
+    if failed_results:
+        lines.extend(["", "## Failure Details", ""])
+        for result in failed_results:
+            lines.extend(_golden_case_failure_markdown(result))
+
+    return "\n".join(lines) + "\n"
+
+
+def golden_eval_report_json_payload(report: GoldenEvalReport) -> dict[str, Any]:
+    """Return the stable JSON-compatible representation of an eval report."""
+
+    failed_results = tuple(result for result in report.results if not result.passed)
+    pass_rate = _pass_rate(report)
+    return {
+        "schema_version": GOLDEN_EVAL_REPORT_SCHEMA_VERSION,
+        "passed": report.passed,
+        "total_count": report.total_count,
+        "passed_count": report.passed_count,
+        "failed_count": report.failed_count,
+        "runtime_summary": {
+            "failed_case_ids": [result.case_id for result in failed_results],
+            "failed_count": report.failed_count,
+            "pass_rate": pass_rate,
+            "passed_count": report.passed_count,
+            "total_count": report.total_count,
+        },
+        "failed_cases": [
+            _golden_case_report_payload(result) for result in failed_results
+        ],
+        "version_metadata": report.version_metadata.model_dump(mode="json"),
+        "version_warnings": list(report.version_warnings),
+        "results": [
+            _golden_case_report_payload(result) for result in report.results
+        ],
+    }
+
+
+def _golden_case_report_payload(result: GoldenCaseEvalResult) -> dict[str, Any]:
+    payload = result.model_dump(mode="json")
+    payload["status"] = "passed" if result.passed else "failed"
+    payload["validation_errors"] = list(result.actual_validation_errors)
+    return payload
+
+
+def _pass_rate(report: GoldenEvalReport) -> float:
+    return 1.0 if report.total_count == 0 else report.passed_count / report.total_count
+
+
+def _golden_case_markdown_row(result: GoldenCaseEvalResult) -> str:
+    coverage = result.evidence_coverage
+    validation_errors = "; ".join(result.actual_validation_errors) or "none"
+    return (
+        f"| {_markdown_cell(result.case_id)} "
+        f"| {'PASS' if result.passed else 'FAIL'} "
+        f"| {result.expected_verdict.value} "
+        f"| {result.actual_verdict.value} "
+        f"| {coverage.score:.2f} "
+        f"| {coverage.unsupported_claim_count} "
+        f"| {_markdown_cell(validation_errors)} |"
+    )
+
+
+def _golden_case_failure_markdown(result: GoldenCaseEvalResult) -> list[str]:
+    lines = [f"### {result.case_id}", ""]
+    if result.verdict_regression_failures:
+        allowed_verdicts = result.allowed_verdicts or (result.expected_verdict,)
+        lines.append(
+            "- Verdict: "
+            f"expected {_verdict_values(allowed_verdicts)}, "
+            f"actual {result.actual_verdict.value}"
+        )
+    elif result.expected_verdict != result.actual_verdict:
+        lines.append(
+            "- Verdict: "
+            f"expected {result.expected_verdict.value}, "
+            f"actual {result.actual_verdict.value}"
+        )
+    _extend_markdown_issue_lines(
+        lines,
+        "Verdict regression failures",
+        result.verdict_regression_failures,
+    )
+    _extend_markdown_issue_lines(
+        lines,
+        "Missing required blockers",
+        result.missing_required_blockers,
+    )
+    _extend_markdown_issue_lines(
+        lines,
+        "Unexpected hard blockers",
+        result.unexpected_hard_blockers,
+    )
+    _extend_markdown_issue_lines(
+        lines,
+        "Missing required missing info",
+        result.missing_required_missing_info,
+    )
+    _extend_markdown_issue_lines(
+        lines,
+        "Missing required recommended actions",
+        result.missing_required_recommended_actions,
+    )
+    _extend_markdown_issue_lines(
+        lines,
+        "Missing unsupported-claim rejections",
+        result.missing_expected_unsupported_claim_rejections,
+    )
+    _extend_markdown_issue_lines(
+        lines,
+        "Unexpected unsupported-claim rejections",
+        result.unexpected_unsupported_claim_rejections,
+    )
+    _extend_markdown_issue_lines(
+        lines,
+        "Validation errors",
+        result.actual_validation_errors,
+    )
+    _extend_markdown_issue_lines(
+        lines,
+        "Missing expected validation errors",
+        result.missing_expected_validation_errors,
+    )
+    _extend_markdown_issue_lines(
+        lines,
+        "Unexpected validation errors",
+        result.unexpected_validation_errors,
+    )
+    _extend_markdown_issue_lines(
+        lines,
+        "Evidence-reference failures",
+        result.evidence_reference_failures,
+    )
+    if not result.evidence_coverage.passed:
+        coverage = result.evidence_coverage
+        lines.append(
+            "- Evidence coverage: "
+            f"{coverage.score:.2f} below threshold {coverage.threshold:.2f}"
+        )
+        if coverage.unsupported_claim_count:
+            lines.append(
+                "- Unsupported material claims: "
+                f"{coverage.unsupported_claim_count}"
+            )
+        for detail in coverage.missing_citation_details:
+            missing = _source_type_values(detail.missing_source_types)
+            present = _source_type_values(detail.present_source_types)
+            unresolved = ", ".join(detail.unresolved_evidence_refs) or "none"
+            lines.append(
+                "- Missing citation: "
+                f"{detail.claim_type.value} - {detail.claim} "
+                f"reason={detail.reason}; missing={missing}; "
+                f"present={present}; unresolved={unresolved}"
+            )
+    lines.append("")
+    return lines
+
+
+def _extend_markdown_issue_lines(
+    lines: list[str],
+    label: str,
+    values: Sequence[str],
+) -> None:
+    if values:
+        lines.append(f"- {label}: {'; '.join(values)}")
+
+
+def _markdown_cell(value: str) -> str:
+    return value.replace("\n", " ").replace("|", "\\|")
+
+
+def _source_type_values(values: Sequence[EvidenceSourceType]) -> str:
+    return ", ".join(value.value for value in values) or "none"
+
+
+def _format_version_metadata(metadata: VersionMetadata) -> str:
+    fields = (
+        "prompt_version",
+        "schema_version",
+        "retrieval_version",
+        "model_name",
+        "eval_fixture_version",
+    )
+    values = [
+        f"{field}={value}"
+        for field in fields
+        if (value := getattr(metadata, field, None)) is not None
+    ]
+    return "; ".join(values) or "none"
 
 
 def _recorded_coverage_claims(

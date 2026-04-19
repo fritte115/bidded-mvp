@@ -1025,6 +1025,7 @@ def test_cli_eval_golden_runs_selected_case_and_writes_json(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     json_path = tmp_path / "golden-eval.json"
+    markdown_path = tmp_path / "golden-eval.md"
 
     result = cli.main(
         [
@@ -1033,6 +1034,8 @@ def test_cli_eval_golden_runs_selected_case_and_writes_json(
             "obvious_bid",
             "--json-path",
             str(json_path),
+            "--markdown-path",
+            str(markdown_path),
         ]
     )
 
@@ -1048,7 +1051,11 @@ def test_cli_eval_golden_runs_selected_case_and_writes_json(
     ) in captured.out
     assert "PASS obvious_bid" in captured.out
     assert "Wrote JSON" in captured.out
+    assert "Wrote Markdown" in captured.out
     assert '"case_id": "obvious_bid"' in json_path.read_text(encoding="utf-8")
+    assert "Pass rate: 100.00% (1/1)" in markdown_path.read_text(
+        encoding="utf-8"
+    )
 
 
 def test_cli_eval_golden_passes_fixture_group_selector(
