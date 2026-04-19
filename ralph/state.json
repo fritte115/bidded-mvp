@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-057",
-  "storyTitle": "Prepare uploaded procurement document set for run",
+  "currentStory": "US-058",
+  "storyTitle": "Add preparation input audit",
   "nextAction": "implement",
-  "progressTokens": 4770,
+  "progressTokens": 4845,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

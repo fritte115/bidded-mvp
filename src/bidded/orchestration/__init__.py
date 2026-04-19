@@ -49,6 +49,12 @@ from bidded.orchestration.pending_run import (
     build_pending_run_config,
     create_pending_run_context,
 )
+from bidded.orchestration.prepare_run import (
+    PreparedDocumentSummary,
+    PrepareRunError,
+    PrepareRunResult,
+    prepare_procurement_run,
+)
 from bidded.orchestration.run_controls import (
     DemoTraceEntry,
     RetryRunResult,
@@ -140,6 +146,9 @@ __all__ = [
     "JudgeDecisionValidationError",
     "PendingRunContextError",
     "PendingRunContextResult",
+    "PrepareRunError",
+    "PrepareRunResult",
+    "PreparedDocumentSummary",
     "RetryRunResult",
     "RequirementType",
     "Round1MotionResult",
@@ -189,6 +198,7 @@ __all__ = [
     "judge_decision_result_from_agent_output",
     "persist_agent_outputs",
     "persist_final_decision",
+    "prepare_procurement_run",
     "round_1_motion_result_from_agent_output",
     "round_2_rebuttal_result_from_agent_output",
     "reset_stale_runs",

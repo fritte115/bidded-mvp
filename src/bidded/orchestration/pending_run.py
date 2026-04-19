@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 from uuid import UUID
@@ -48,14 +48,18 @@ def create_pending_run_context(
     *,
     tender_id: UUID | str,
     company_id: UUID | str,
-    document_id: UUID | str,
+    document_id: UUID | str | None = None,
+    document_ids: Sequence[UUID | str] | None = None,
     created_via: str = DEFAULT_CREATED_VIA,
 ) -> PendingRunContextResult:
     """Validate target rows and create a pending Supabase agent run."""
 
     normalized_tender_id = _normalize_uuid(tender_id, "tender_id")
     normalized_company_id = _normalize_uuid(company_id, "company_id")
-    normalized_document_id = _normalize_uuid(document_id, "document_id")
+    normalized_document_ids = _normalize_document_ids(
+        document_id=document_id,
+        document_ids=document_ids,
+    )
 
     _require_row(
         client,
@@ -77,24 +81,24 @@ def create_pending_run_context(
         },
         missing_message=f"Demo tender does not exist: {normalized_tender_id}",
     )
-    _require_row(
-        client,
-        table_name="documents",
-        columns="id",
-        filters={
-            "id": str(normalized_document_id),
-            "tenant_key": DEMO_TENANT_KEY,
-            "tender_id": str(normalized_tender_id),
-            "document_role": EvidenceSourceType.TENDER_DOCUMENT.value,
-        },
-        missing_message=(
-            "Tender procurement document does not exist for tender "
-            f"{normalized_tender_id}: {normalized_document_id}"
-        ),
-    )
+    for normalized_document_id in normalized_document_ids:
+        _require_row(
+            client,
+            table_name="documents",
+            columns="id",
+            filters={
+                "id": str(normalized_document_id),
+                "tenant_key": DEMO_TENANT_KEY,
+                "tender_id": str(normalized_tender_id),
+                "document_role": EvidenceSourceType.TENDER_DOCUMENT.value,
+            },
+            missing_message=(
+                "Tender procurement document does not exist for tender "
+                f"{normalized_tender_id}: {normalized_document_id}"
+            ),
+        )
 
-    document_ids = [normalized_document_id]
-    run_config = build_pending_run_config(document_ids=document_ids)
+    run_config = build_pending_run_config(document_ids=normalized_document_ids)
     payload: dict[str, Any] = {
         "tenant_key": DEMO_TENANT_KEY,
         "tender_id": str(normalized_tender_id),
@@ -103,7 +107,9 @@ def create_pending_run_context(
         "run_config": run_config,
         "metadata": {
             "created_via": created_via,
-            "document_ids": [str(document_id) for document_id in document_ids],
+            "document_ids": [
+                str(document_id) for document_id in normalized_document_ids
+            ],
         },
     }
     response = client.table("agent_runs").insert(payload).execute()
@@ -113,12 +119,12 @@ def create_pending_run_context(
         run_id=run_id,
         tender_id=normalized_tender_id,
         company_id=normalized_company_id,
-        document_ids=document_ids,
+        document_ids=list(normalized_document_ids),
         run_config=run_config,
     )
 
 
-def build_pending_run_config(*, document_ids: list[UUID]) -> dict[str, Any]:
+def build_pending_run_config(*, document_ids: Sequence[UUID]) -> dict[str, Any]:
     """Return the deterministic default run config for a Bidded v1 run."""
 
     return {
@@ -190,6 +196,35 @@ def _normalize_uuid(value: UUID | str, field_name: str) -> UUID:
         return UUID(str(value))
     except ValueError as exc:
         raise PendingRunContextError(f"{field_name} must be a UUID.") from exc
+
+
+def _normalize_document_ids(
+    *,
+    document_id: UUID | str | None,
+    document_ids: Sequence[UUID | str] | None,
+) -> tuple[UUID, ...]:
+    if document_id is not None and document_ids is not None:
+        raise PendingRunContextError(
+            "Use either document_id or document_ids, not both."
+        )
+
+    raw_document_ids: Sequence[UUID | str]
+    if document_ids is not None:
+        raw_document_ids = document_ids
+    elif document_id is not None:
+        raw_document_ids = [document_id]
+    else:
+        raise PendingRunContextError("At least one tender document ID is required.")
+
+    normalized = tuple(
+        _normalize_uuid(raw_document_id, "document_ids")
+        for raw_document_id in raw_document_ids
+    )
+    if not normalized:
+        raise PendingRunContextError("At least one tender document ID is required.")
+    if len(set(normalized)) != len(normalized):
+        raise PendingRunContextError("document_ids must not contain duplicates.")
+    return normalized
 
 
 __all__ = [

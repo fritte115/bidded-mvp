@@ -870,8 +870,8 @@
         "Tests cover one document, seven documents, mixed tender IDs rejected, parser_failed document handling, idempotent reruns, and no agent execution during preparation; pytest and ruff check pass."
       ],
       "priority": 57,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added prepare-run service/CLI for uploaded document sets with ingestion reuse, evidence creation, multi-doc pending runs, parser-failure blocking, and deterministic coverage. Complete."
     },
     {
       "id": "US-058",

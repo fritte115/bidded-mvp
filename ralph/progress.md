@@ -14,7 +14,7 @@ Started: 2026-04-18
 - **Bidded Supabase Migrations**: Keep hosted Supabase SQL under `supabase/migrations/` with deterministic pytest contract tests, demo `tenant_key = 'demo'` checks, pgvector RPC/index contracts, and no Auth/RLS unless a story adds it.
 - **Bidded CLI Boundary**: Keep CLI help/package imports free of live client construction; create external clients only inside real command execution paths and keep command services injectable for tests.
 - **Bidded Document Pipeline Contract**: Keep tender registration, PDF ingestion, and chunk embedding persistence in `src/bidded/documents`; registered text-PDFs use mocked Storage, PyMuPDF extraction, deterministic page chunks, optional Python-owned embeddings, and parser status metadata.
-- **Bidded Pending Run Contract**: Create `agent_runs` through an orchestration service that validates demo rows, inserts `pending`, and leaves processing for workers that claim via `status = pending` updates.
+- **Bidded Prepare/Pending Run Contract**: `prepare_run.py` validates uploaded tender-document sets, runs/reuses ingestion, builds tender/company evidence, and then creates one pending `agent_runs` row through `pending_run.py`; workers still claim with `status = pending` guards.
 - **Bidded Agent Audit Contract**: `agent_outputs` are immutable rows keyed by `agent_role`, `round_name`, and `output_type`; audit/run metadata carries deterministic prompt/schema/retrieval/model versions; Judge `bid_decisions` surface evidence IDs, source outputs, and replayable fixtures via metadata.
 - **Bidded Graph State/Routing Contract**: `BidRunState.apply_node_update` enforces node ownership and reducers; `src/bidded/orchestration/graph.py` owns the fixed LangGraph shell, preflight checks, Evidence Scout audit append, explicit edge table, bounded retry/stop policy, mocked handlers, and terminal routing.
 - **Bidded Agent Tool Policy Contract**: `src/bidded/agents/tool_policy.py` is the source of truth for LLM-agent denied tools, bounded retrieval, artifact access, and orchestrator-owned side effects.
@@ -315,4 +315,9 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added deterministic contract-clause coverage audit warnings for missing clause bodies, untagged contract-risk signals, and missing extracted contract terms, then exposed them to Scout, Round 1 specialists, and Judge requests.
 - **Files**: src/bidded/orchestration/contract_clause_audit.py, src/bidded/orchestration/evidence_scout.py, src/bidded/orchestration/specialist_motions.py, src/bidded/orchestration/judge.py, src/bidded/orchestration/state.py, src/bidded/orchestration/worker.py, tests/test_contract_clause_coverage_audit.py, tests/test_worker_lifecycle.py, ralph/progress.md, ralph/CLAUDE.md, ralph/prd.json, ralph/state.json
 - **Key learnings**: Keep contract-clause audit findings as request-scoped warning context backed by evidence metadata, not graph blockers or verdict gates.
+---
+## 2026-04-19 06:49 CEST - US-057
+- **Implemented**: Added prepare-run orchestration and CLI for uploaded tender document sets, covering validation, ingestion reuse, evidence creation, multi-document pending runs, parser failure blocking, and no agent execution.
+- **Files**: src/bidded/orchestration/prepare_run.py, src/bidded/orchestration/pending_run.py, src/bidded/orchestration/__init__.py, src/bidded/cli/__init__.py, tests/test_prepare_run.py, tests/test_pending_run_context.py, tests/test_cli.py, README.md, ralph/progress.md, ralph/CLAUDE.md, ralph/prd.json, ralph/state.json
+- **Key learnings**: Keep preparation as an orchestrator-owned pre-worker step that completes evidence artifacts before inserting a pending run with the selected document set.
 ---

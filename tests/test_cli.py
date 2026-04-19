@@ -53,6 +53,7 @@ def test_cli_help_prints_without_external_services() -> None:
     assert "usage:" in result.stdout.lower()
     assert "seed-demo-company" in result.stdout
     assert "seed-demo-states" in result.stdout
+    assert "prepare-run" in result.stdout
     assert "doctor" in result.stdout
     assert "demo-smoke" in result.stdout
     assert "run-status" in result.stdout
@@ -146,6 +147,29 @@ def test_cli_create_pending_run_help_prints_without_external_services() -> None:
 
     assert result.returncode == 0, result.stderr
     assert "create-pending-run" in result.stdout
+    assert "--tender-id" in result.stdout
+    assert "--company-id" in result.stdout
+    assert "--document-id" in result.stdout
+
+
+def test_cli_prepare_run_help_prints_without_external_services() -> None:
+    env = os.environ.copy()
+    env.pop("ANTHROPIC_API_KEY", None)
+    env.pop("SUPABASE_URL", None)
+    env.pop("SUPABASE_SERVICE_ROLE_KEY", None)
+    env["PYTHONPATH"] = str(PROJECT_ROOT / "src")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "bidded.cli", "prepare-run", "--help"],
+        cwd=PROJECT_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "prepare-run" in result.stdout
     assert "--tender-id" in result.stdout
     assert "--company-id" in result.stdout
     assert "--document-id" in result.stdout
@@ -560,6 +584,103 @@ def test_cli_create_pending_run_delegates_to_service(
         "tender_id": "33333333-3333-4333-8333-333333333333",
         "company_id": "22222222-2222-4222-8222-222222222222",
         "document_id": "44444444-4444-4444-8444-444444444444",
+    }
+
+
+def test_cli_prepare_run_delegates_to_service(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client = object()
+    captured_prepare: dict[str, Any] = {}
+    monkeypatch.setattr(
+        cli,
+        "load_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {
+                "supabase_url": "https://example.supabase.co",
+                "supabase_service_role_key": "service-role",
+                "supabase_storage_bucket": "procurement-fixtures",
+            },
+        )(),
+    )
+    monkeypatch.setattr(cli, "_create_supabase_client", lambda _settings: client)
+
+    def record_prepare(
+        supabase_client: object,
+        **kwargs: Any,
+    ) -> SimpleNamespace:
+        captured_prepare["client"] = supabase_client
+        captured_prepare.update(kwargs)
+        return SimpleNamespace(
+            tender_id="33333333-3333-4333-8333-333333333333",
+            company_id="22222222-2222-4222-8222-222222222222",
+            document_ids=(
+                "44444444-4444-4444-8444-444444444441",
+                "44444444-4444-4444-8444-444444444442",
+            ),
+            agent_run_id="11111111-1111-4111-8111-111111111111",
+            document_results=(
+                SimpleNamespace(
+                    document_id="44444444-4444-4444-8444-444444444441",
+                    parse_status="parsed",
+                    chunk_count=2,
+                    evidence_count=3,
+                ),
+                SimpleNamespace(
+                    document_id="44444444-4444-4444-8444-444444444442",
+                    parse_status="parsed",
+                    chunk_count=4,
+                    evidence_count=5,
+                ),
+            ),
+            tender_evidence_count=8,
+            company_evidence_count=12,
+            evidence_count=20,
+            warnings=("document 2 had parser_failed status; retried ingestion",),
+        )
+
+    monkeypatch.setattr(cli, "prepare_procurement_run", record_prepare)
+
+    result = cli.main(
+        [
+            "prepare-run",
+            "--tender-id",
+            "33333333-3333-4333-8333-333333333333",
+            "--company-id",
+            "22222222-2222-4222-8222-222222222222",
+            "--document-id",
+            "44444444-4444-4444-8444-444444444441",
+            "--document-id",
+            "44444444-4444-4444-8444-444444444442",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Prepared pending agent run 11111111-1111-4111-8111-111111111111" in (
+        captured.out
+    )
+    assert "Documents: 2; chunks: 6; tender evidence: 8" in captured.out
+    assert "company evidence: 12; total evidence: 20" in captured.out
+    assert (
+        "Document 44444444-4444-4444-8444-444444444441: "
+        "parse_status=parsed chunks=2 evidence=3"
+    ) in captured.out
+    assert "WARNING document 2 had parser_failed status; retried ingestion" in (
+        captured.out
+    )
+    assert captured_prepare == {
+        "client": client,
+        "tender_id": "33333333-3333-4333-8333-333333333333",
+        "company_id": "22222222-2222-4222-8222-222222222222",
+        "document_ids": [
+            "44444444-4444-4444-8444-444444444441",
+            "44444444-4444-4444-8444-444444444442",
+        ],
+        "bucket_name": "procurement-fixtures",
     }
 
 

@@ -11,6 +11,7 @@ RUN_ID = UUID("11111111-1111-4111-8111-111111111111")
 COMPANY_ID = UUID("22222222-2222-4222-8222-222222222222")
 TENDER_ID = UUID("33333333-3333-4333-8333-333333333333")
 DOCUMENT_ID = UUID("44444444-4444-4444-8444-444444444444")
+SECOND_DOCUMENT_ID = UUID("55555555-5555-4555-8555-555555555555")
 
 
 class RecordingQuery:
@@ -126,6 +127,37 @@ def test_create_pending_run_context_inserts_pending_agent_run() -> None:
         "allow_new_external_sources": False,
     }
     assert config["document_ids"] == [str(DOCUMENT_ID)]
+
+
+def test_create_pending_run_context_records_multiple_documents() -> None:
+    client = RecordingSupabaseClient()
+    client.rows["documents"].append(
+        {
+            "id": str(SECOND_DOCUMENT_ID),
+            "tenant_key": "demo",
+            "tender_id": str(TENDER_ID),
+            "document_role": "tender_document",
+        }
+    )
+
+    result = create_pending_run_context(
+        client,
+        tender_id=TENDER_ID,
+        company_id=COMPANY_ID,
+        document_ids=[DOCUMENT_ID, SECOND_DOCUMENT_ID],
+        created_via="bidded_prepare_run",
+    )
+
+    assert result.document_ids == [DOCUMENT_ID, SECOND_DOCUMENT_ID]
+    payload = client.inserts["agent_runs"][0]
+    assert payload["run_config"]["document_ids"] == [
+        str(DOCUMENT_ID),
+        str(SECOND_DOCUMENT_ID),
+    ]
+    assert payload["metadata"] == {
+        "created_via": "bidded_prepare_run",
+        "document_ids": [str(DOCUMENT_ID), str(SECOND_DOCUMENT_ID)],
+    }
 
 
 @pytest.mark.parametrize(

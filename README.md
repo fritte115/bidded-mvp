@@ -31,7 +31,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Specialist motion node | `bidded.orchestration.specialist_motions` bygger evidence-locked Round 1 requests utan peer motions eller privat context, skickar kravtypad glossary-context, validerar strict `Round1Motion` output och tillåter formella Compliance-blockers bara för exclusion/qualification-evidens. |
 | Focused rebuttal node | `bidded.orchestration.specialist_rebuttals` bygger Round 2 requests med shared evidence board, alla validerade Round 1-motions, fokuspunkter för oenighet/blockers/missing info och append:ar fyra `round_2_rebuttal` agent_outputs först efter validering. |
 | Judge decision node | `bidded.orchestration.judge` bygger evidence-locked Judge requests med kravtypad glossary-context, validerar strict `JudgeDecision` output, gate:ar endast typade formella compliance blockers till `no_bid`, append:ar `final_decision` agent_output och skriver Supabase-kompatibla `bid_decisions` payloads med kravtyper i relevanta detaljer. |
-| Pending agent runs | `bidded create-pending-run` validerar vald demo tender, demo company och tender document innan en `pending` `agent_runs`-rad med evidence-locked run config skapas. |
+| Prepare and pending agent runs | `bidded prepare-run` validerar en uppladdad uppsättning tenderdokument, kör eller återanvänder PDF-ingestion, bygger tender- och bolagsevidens och skapar en `pending` run; `bidded create-pending-run` finns kvar som enklare run-context-kommando. |
 | Worker lifecycle CLI | `bidded worker` kör en specificerad pending run eller äldsta pending demo-run, uppdaterar `agent_runs`, kör graphen och persisterar normaliserade `agent_outputs` och `bid_decisions`. |
 | Operator run controls | `bidded run-status`, `bidded retry-run`, `bidded reset-stale-runs` och `bidded export-decision` visar auditstatus, demo trace, skapar lineage-kopplade retries, failar stale `running` runs och exporterar beslut med evidens. |
 | Demo doctor | `bidded doctor` kontrollerar demo-miljövariabler, Supabase-tabeller, Storage-bucket och optional Anthropic-connectivity utan att skriva ut secrets. |
@@ -246,6 +246,7 @@ PRD:n beskriver en lokal CLI/worker. Den kan nu:
 - seeda demo-bolaget idempotent
 - registrera en lokal text-PDF som tenderdokument
 - ladda upp PDF:en till Supabase Storage och spara dokumentrad med checksumma
+- förbereda ett redan uppladdat procurement document set med ingestion, evidence och en `pending` run utan agentexekvering
 - skapa en `pending` agent run utan att köra LLM eller dokumentprocessing
 - köra en specificerad `agent_run` via ID eller plocka äldsta pending run för demo-bolaget
 - claim:a pending runs med `status = pending`-guard innan graphen startar, så dubbelkörningar stoppas
@@ -308,6 +309,12 @@ Pending run och worker-körning:
   --tender-id "$TENDER_ID" \
   --company-id "$COMPANY_ID" \
   --document-id "$DOCUMENT_ID"
+
+.venv/bin/bidded prepare-run \
+  --tender-id "$TENDER_ID" \
+  --company-id "$COMPANY_ID" \
+  --document-id "$DOCUMENT_ID" \
+  --document-id "$ATTACHMENT_DOCUMENT_ID"
 
 .venv/bin/bidded worker --run-id "$AGENT_RUN_ID"
 
@@ -408,7 +415,7 @@ python3 -m venv .venv
 .venv/bin/ruff check .
 ```
 
-Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandon för bolag och replaybara demo-states, tenderregistreringen, PDF-ingestion med optional chunk embeddings, evidence builders, graph routing shell, worker lifecycle CLI, operator run controls, demo-smoke, golden eval runner, live-vs-mock eval comparison och mocked end-to-end coverage finns; övriga demo-kommandon byggs i senare stories.
+Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandon för bolag och replaybara demo-states, tenderregistreringen, PDF-ingestion med optional chunk embeddings, prepare-run, evidence builders, graph routing shell, worker lifecycle CLI, operator run controls, demo-smoke, golden eval runner, live-vs-mock eval comparison och mocked end-to-end coverage finns; övriga demo-kommandon byggs i senare stories.
 
 ## Teststrategi
 

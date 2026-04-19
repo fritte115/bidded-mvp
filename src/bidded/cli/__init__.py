@@ -43,8 +43,10 @@ from bidded.evals.live_comparison import (
 from bidded.orchestration import (
     AgentRunStatus,
     PendingRunContextError,
+    PrepareRunError,
     WorkerLifecycleError,
     create_pending_run_context,
+    prepare_procurement_run,
     run_worker_once,
 )
 from bidded.orchestration.decision_export import (
@@ -150,6 +152,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="Existing registered tender document UUID.",
     )
     pending_run_parser.set_defaults(handler=_run_create_pending_run_command)
+
+    prepare_run_parser = subparsers.add_parser(
+        "prepare-run",
+        help="Prepare uploaded procurement documents and create a pending run.",
+        description=(
+            "Validate existing uploaded tender documents, run or reuse PDF "
+            "ingestion, build tender and company evidence, then create one "
+            "pending agent run for the prepared document set."
+        ),
+    )
+    prepare_run_parser.add_argument(
+        "--tender-id",
+        required=True,
+        help="Existing demo tender UUID.",
+    )
+    prepare_run_parser.add_argument(
+        "--company-id",
+        required=True,
+        help="Existing demo company UUID.",
+    )
+    prepare_run_parser.add_argument(
+        "--document-id",
+        action="append",
+        required=True,
+        help=(
+            "Existing uploaded tender document UUID. Repeat for multi-document "
+            "procurement sets."
+        ),
+    )
+    prepare_run_parser.set_defaults(handler=_run_prepare_run_command)
 
     doctor_parser = subparsers.add_parser(
         "doctor",
@@ -516,6 +548,25 @@ def _run_create_pending_run_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_prepare_run_command(args: argparse.Namespace) -> int:
+    settings = load_settings()
+    try:
+        client = _create_supabase_client(settings)
+        result = prepare_procurement_run(
+            client,
+            tender_id=args.tender_id,
+            company_id=args.company_id,
+            document_ids=args.document_id,
+            bucket_name=settings.supabase_storage_bucket,
+        )
+    except (RuntimeError, PrepareRunError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    _print_prepare_run_result(result)
+    return 0
+
+
 def _run_worker_command(args: argparse.Namespace) -> int:
     settings = load_settings()
     try:
@@ -541,6 +592,30 @@ def _run_worker_command(args: argparse.Namespace) -> int:
     if result.terminal_status is AgentRunStatus.FAILED:
         return 1
     return 0
+
+
+def _print_prepare_run_result(result: Any) -> None:
+    document_results = tuple(result.document_results)
+    chunk_count = sum(summary.chunk_count for summary in document_results)
+    print(
+        f"Prepared pending agent run {result.agent_run_id} for tender "
+        f"{result.tender_id}."
+    )
+    print(
+        f"Documents: {len(result.document_ids)}; chunks: {chunk_count}; "
+        f"tender evidence: {result.tender_evidence_count}; "
+        f"company evidence: {result.company_evidence_count}; "
+        f"total evidence: {result.evidence_count}."
+    )
+    for summary in document_results:
+        print(
+            f"Document {summary.document_id}: "
+            f"parse_status={summary.parse_status} "
+            f"chunks={summary.chunk_count} "
+            f"evidence={summary.evidence_count}"
+        )
+    for warning in result.warnings:
+        print(f"WARNING {warning}")
 
 
 def _run_demo_smoke_command(args: argparse.Namespace) -> int:
