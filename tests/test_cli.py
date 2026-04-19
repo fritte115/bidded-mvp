@@ -13,6 +13,11 @@ import bidded.cli as cli
 from bidded.db.seed_demo_company import DEMO_COMPANY_NAME
 from bidded.db.seed_demo_states import DemoStatesSeedResult
 from bidded.orchestration import AgentRunStatus, Verdict
+from bidded.orchestration.run_controls import (
+    RetryRunResult,
+    RunStatusSnapshot,
+    StaleResetResult,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -39,6 +44,9 @@ def test_cli_help_prints_without_external_services() -> None:
     assert "seed-demo-company" in result.stdout
     assert "seed-demo-states" in result.stdout
     assert "doctor" in result.stdout
+    assert "run-status" in result.stdout
+    assert "retry-run" in result.stdout
+    assert "reset-stale-runs" in result.stdout
 
 
 def test_cli_seed_demo_company_help_prints_without_external_services() -> None:
@@ -466,3 +474,174 @@ def test_cli_worker_delegates_to_lifecycle_service(
     assert captured_worker["client"] is client
     assert captured_worker["run_id"] == "11111111-1111-4111-8111-111111111111"
     assert captured_worker["company_id"] is None
+
+
+def test_cli_run_status_prints_operator_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client = object()
+    monkeypatch.setattr(
+        cli,
+        "load_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {
+                "supabase_url": "https://example.supabase.co",
+                "supabase_service_role_key": "service-role",
+            },
+        )(),
+    )
+    monkeypatch.setattr(cli, "_create_supabase_client", lambda _settings: client)
+
+    def record_status(supabase_client: object, **kwargs: Any) -> RunStatusSnapshot:
+        assert supabase_client is client
+        assert kwargs == {
+            "run_id": "11111111-1111-4111-8111-111111111111"
+        }
+        return RunStatusSnapshot(
+            run_id="11111111-1111-4111-8111-111111111111",
+            status=AgentRunStatus.FAILED,
+            created_at="2026-04-18T17:00:00+00:00",
+            started_at="2026-04-18T17:30:00+00:00",
+            completed_at="2026-04-18T17:45:00+00:00",
+            error_details={
+                "code": "graph_failed",
+                "message": "Evidence board is empty.",
+                "source": "graph",
+            },
+            agent_output_count=10,
+            decision_present=True,
+            last_recorded_step="judge",
+        )
+
+    monkeypatch.setattr(cli, "get_run_status", record_status)
+
+    result = cli.main(
+        [
+            "run-status",
+            "--run-id",
+            "11111111-1111-4111-8111-111111111111",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Run: 11111111-1111-4111-8111-111111111111" in captured.out
+    assert "Status: failed" in captured.out
+    assert "Created: 2026-04-18T17:00:00+00:00" in captured.out
+    assert "Started: 2026-04-18T17:30:00+00:00" in captured.out
+    assert "Completed: 2026-04-18T17:45:00+00:00" in captured.out
+    assert "Error: graph_failed from graph - Evidence board is empty." in (
+        captured.out
+    )
+    assert "Agent outputs: 10" in captured.out
+    assert "Decision present: yes" in captured.out
+    assert "Last recorded step: judge" in captured.out
+
+
+def test_cli_retry_run_delegates_and_prints_lineage(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client = object()
+    captured_retry: dict[str, Any] = {}
+    monkeypatch.setattr(
+        cli,
+        "load_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {
+                "supabase_url": "https://example.supabase.co",
+                "supabase_service_role_key": "service-role",
+            },
+        )(),
+    )
+    monkeypatch.setattr(cli, "_create_supabase_client", lambda _settings: client)
+
+    def record_retry(supabase_client: object, **kwargs: Any) -> RetryRunResult:
+        captured_retry["client"] = supabase_client
+        captured_retry.update(kwargs)
+        return RetryRunResult(
+            source_run_id="11111111-1111-4111-8111-111111111111",
+            new_run_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            source_status=AgentRunStatus.FAILED,
+        )
+
+    monkeypatch.setattr(cli, "retry_agent_run", record_retry)
+
+    result = cli.main(
+        [
+            "retry-run",
+            "--run-id",
+            "11111111-1111-4111-8111-111111111111",
+            "--reason",
+            "retry after fixture repair",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Created retry run aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" in captured.out
+    assert "source 11111111-1111-4111-8111-111111111111" in captured.out
+    assert captured_retry == {
+        "client": client,
+        "run_id": "11111111-1111-4111-8111-111111111111",
+        "reason": "retry after fixture repair",
+        "force": False,
+    }
+
+
+def test_cli_reset_stale_runs_delegates_and_prints_count(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client = object()
+    captured_reset: dict[str, Any] = {}
+    monkeypatch.setattr(
+        cli,
+        "load_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {
+                "supabase_url": "https://example.supabase.co",
+                "supabase_service_role_key": "service-role",
+            },
+        )(),
+    )
+    monkeypatch.setattr(cli, "_create_supabase_client", lambda _settings: client)
+
+    def record_reset(supabase_client: object, **kwargs: Any) -> StaleResetResult:
+        captured_reset["client"] = supabase_client
+        captured_reset.update(kwargs)
+        return StaleResetResult(
+            reset_count=1,
+            reset_run_ids=["11111111-1111-4111-8111-111111111111"],
+            skipped_count=2,
+        )
+
+    monkeypatch.setattr(cli, "reset_stale_runs", record_reset)
+
+    result = cli.main(
+        [
+            "reset-stale-runs",
+            "--max-age-minutes",
+            "45",
+            "--reason",
+            "operator confirmed worker stopped",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Reset stale running runs: 1" in captured.out
+    assert "Skipped running runs: 2" in captured.out
+    assert "11111111-1111-4111-8111-111111111111" in captured.out
+    assert captured_reset == {
+        "client": client,
+        "max_age_minutes": 45,
+        "reason": "operator confirmed worker stopped",
+    }

@@ -18,6 +18,12 @@ from bidded.orchestration import (
     create_pending_run_context,
     run_worker_once,
 )
+from bidded.orchestration.run_controls import (
+    RunControlError,
+    get_run_status,
+    reset_stale_runs,
+    retry_agent_run,
+)
 
 DEMO_TENDER_PDF_HINT = "data/demo/incoming/Bilaga Skakrav.pdf"
 
@@ -148,6 +154,59 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional demo company UUID filter when picking the oldest pending run.",
     )
     worker_parser.set_defaults(handler=_run_worker_command)
+
+    status_parser = subparsers.add_parser(
+        "run-status",
+        help="Print status and audit counters for one agent run.",
+        description=(
+            "Print current status, timestamps, errors, output counts, "
+            "decision presence, and last recorded step for one agent run."
+        ),
+    )
+    status_parser.add_argument("--run-id", required=True, help="agent_runs UUID.")
+    status_parser.set_defaults(handler=_run_status_command)
+
+    retry_parser = subparsers.add_parser(
+        "retry-run",
+        help="Create a pending retry run for a failed run.",
+        description=(
+            "Create a new pending run linked to a failed or needs-human-review "
+            "source run. Succeeded source runs require --force."
+        ),
+    )
+    retry_parser.add_argument("--run-id", required=True, help="Source run UUID.")
+    retry_parser.add_argument(
+        "--reason",
+        required=True,
+        help="Operator reason recorded in retry metadata.",
+    )
+    retry_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Allow retrying a succeeded run and record force usage in metadata.",
+    )
+    retry_parser.set_defaults(handler=_run_retry_command)
+
+    reset_parser = subparsers.add_parser(
+        "reset-stale-runs",
+        help="Fail running runs that are older than a configured age.",
+        description=(
+            "Mark running runs as failed when their started_at timestamp exceeds "
+            "the configured age, recording an explicit operator reason."
+        ),
+    )
+    reset_parser.add_argument(
+        "--max-age-minutes",
+        required=True,
+        type=int,
+        help="Minimum running age before a run is considered stale.",
+    )
+    reset_parser.add_argument(
+        "--reason",
+        required=True,
+        help="Operator reason recorded on every stale reset.",
+    )
+    reset_parser.set_defaults(handler=_run_reset_stale_command)
     return parser
 
 
@@ -291,6 +350,84 @@ def _run_worker_command(args: argparse.Namespace) -> int:
     if result.terminal_status is AgentRunStatus.FAILED:
         return 1
     return 0
+
+
+def _run_status_command(args: argparse.Namespace) -> int:
+    settings = load_settings()
+    try:
+        client = _create_supabase_client(settings)
+        result = get_run_status(client, run_id=args.run_id)
+    except (RuntimeError, RunControlError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    print(f"Run: {result.run_id}")
+    print(f"Status: {result.status.value}")
+    print(f"Created: {_display_value(result.created_at)}")
+    print(f"Started: {_display_value(result.started_at)}")
+    print(f"Completed: {_display_value(result.completed_at)}")
+    print(f"Error: {_format_error_details(result.error_details)}")
+    print(f"Agent outputs: {result.agent_output_count}")
+    print(f"Decision present: {'yes' if result.decision_present else 'no'}")
+    print(f"Last recorded step: {_display_value(result.last_recorded_step)}")
+    return 0
+
+
+def _run_retry_command(args: argparse.Namespace) -> int:
+    settings = load_settings()
+    try:
+        client = _create_supabase_client(settings)
+        result = retry_agent_run(
+            client,
+            run_id=args.run_id,
+            reason=args.reason,
+            force=args.force,
+        )
+    except (RuntimeError, RunControlError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    print(
+        f"Created retry run {result.new_run_id} from "
+        f"source {result.source_run_id} ({result.source_status.value})."
+    )
+    return 0
+
+
+def _run_reset_stale_command(args: argparse.Namespace) -> int:
+    settings = load_settings()
+    try:
+        client = _create_supabase_client(settings)
+        result = reset_stale_runs(
+            client,
+            max_age_minutes=args.max_age_minutes,
+            reason=args.reason,
+        )
+    except (RuntimeError, RunControlError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    print(f"Reset stale running runs: {result.reset_count}.")
+    print(f"Skipped running runs: {result.skipped_count}.")
+    if result.reset_run_ids:
+        print(
+            "Reset run IDs: "
+            f"{', '.join(str(run_id) for run_id in result.reset_run_ids)}."
+        )
+    return 0
+
+
+def _display_value(value: object | None) -> str:
+    return str(value) if value is not None else "none"
+
+
+def _format_error_details(error_details: dict[str, Any] | None) -> str:
+    if not error_details:
+        return "none"
+    code = _display_value(error_details.get("code"))
+    source = _display_value(error_details.get("source"))
+    message = _display_value(error_details.get("message"))
+    return f"{code} from {source} - {message}"
 
 
 def _metadata_pair(value: str) -> tuple[str, str]:

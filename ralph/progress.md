@@ -20,6 +20,7 @@ Started: 2026-04-18
 - **Bidded Agent Tool Policy Contract**: `src/bidded/agents/tool_policy.py` is the source of truth for LLM-agent denied tools, bounded retrieval, artifact access, and orchestrator-owned side effects.
 - **Bidded Agent Output Schema Contract**: `src/bidded/agents/schemas.py` is the strict Pydantic surface for RequirementType, Evidence Scout output, motions, rebuttals, Judge decisions, typed Judge reasoning details, evidence refs, material claim evidence-ID validation, validation errors, and specialist role bounds.
 - **Bidded Evidence/Retrieval Contract**: `src/bidded/retrieval` returns deterministic hybrid scores; `src/bidded/evidence` builds nullable typed evidence; recall audit warnings compare chunk/glossary signals to evidence-board requirement coverage before agent requests.
+- **Bidded Operator Controls Contract**: `src/bidded/orchestration/run_controls.py` owns local status/retry/stale-reset controls; retry inserts new pending runs with source lineage, and stale reset uses `status = running` guards plus operator reason metadata.
 
 ## Session Log
 
@@ -213,4 +214,9 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Hardened worker startup with a conditional pending-to-running claim, terminal/double-claim no-op handling, and deterministic lifecycle coverage.
 - **Files**: src/bidded/orchestration/worker.py, tests/test_worker_lifecycle.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
 - **Key learnings**: Claim agent runs with a `status = pending` compare-and-swap before loading graph state so duplicate workers stop without touching audit artifacts.
+---
+## 2026-04-19 03:09 CEST - US-037
+- **Implemented**: Added local operator run controls for status snapshots, retry-run lineage, stale running-run reset, succeeded-run force protection, and mocked persistence failures.
+- **Files**: src/bidded/orchestration/run_controls.py, src/bidded/orchestration/__init__.py, src/bidded/cli/__init__.py, tests/test_operator_run_controls.py, tests/test_cli.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
+- **Key learnings**: Keep operator recovery separate from worker execution; retries create new pending rows, while stale resets use guarded status updates with explicit operator reasons.
 ---

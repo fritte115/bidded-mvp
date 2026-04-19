@@ -568,8 +568,8 @@
         "Tests cover status output, retry lineage, stale reset, terminal protections, and mocked persistence failures; pytest and ruff check pass."
       ],
       "priority": 37,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added run-status, retry-run, and reset-stale-runs CLI controls with lineage metadata, force protection for succeeded retries, guarded stale reset, and deterministic tests. Complete."
     },
     {
       "id": "US-038",

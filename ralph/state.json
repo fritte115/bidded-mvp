@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-037",
-  "storyTitle": "Add operator run controls",
+  "currentStory": "US-038",
+  "storyTitle": "Add live demo smoke command",
   "nextAction": "implement",
-  "progressTokens": 3240,
+  "progressTokens": 3330,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

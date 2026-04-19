@@ -33,6 +33,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Judge decision node | `bidded.orchestration.judge` bygger evidence-locked Judge requests med kravtypad glossary-context, validerar strict `JudgeDecision` output, gate:ar endast typade formella compliance blockers till `no_bid`, append:ar `final_decision` agent_output och skriver Supabase-kompatibla `bid_decisions` payloads med kravtyper i relevanta detaljer. |
 | Pending agent runs | `bidded create-pending-run` validerar vald demo tender, demo company och tender document innan en `pending` `agent_runs`-rad med evidence-locked run config skapas. |
 | Worker lifecycle CLI | `bidded worker` kör en specificerad pending run eller äldsta pending demo-run, uppdaterar `agent_runs`, kör graphen och persisterar normaliserade `agent_outputs` och `bid_decisions`. |
+| Operator run controls | `bidded run-status`, `bidded retry-run` och `bidded reset-stale-runs` visar auditstatus, skapar lineage-kopplade retries och failar stale `running` runs med operator reason. |
 | Demo doctor | `bidded doctor` kontrollerar demo-miljövariabler, Supabase-tabeller, Storage-bucket och optional Anthropic-connectivity utan att skriva ut secrets. |
 | Frontend | Ingen frontend i repot. Lovable är fortsatt tänkt som tunn demo-UI ovanpå Supabase, men de närmaste stories prioriterar demo-hardening innan en ny handoff-story. |
 
@@ -245,6 +246,9 @@ PRD:n beskriver en lokal CLI/worker. Den kan nu:
 - köra en specificerad `agent_run` via ID eller plocka äldsta pending run för demo-bolaget
 - claim:a pending runs med `status = pending`-guard innan graphen startar, så dubbelkörningar stoppas
 - kontrollera demo-miljön med `bidded doctor` innan live demo
+- visa run-status med timestamps, errors, agent-output count, decision presence och senaste graphsteg
+- skapa en ny `pending` retry-run kopplad till failed eller `needs_human_review` source-run utan att mutera immutable `agent_outputs`
+- resetta stale `running` runs till `failed` med explicit operator reason och status-guard
 - uppdatera run-status till `running`, `succeeded`, `failed` eller `needs_human_review`
 - skriva normaliserade `agent_outputs` och `bid_decisions` utan raw full prompts som default audit artifact
 - logga tillräckligt lokalt för demooperation medan Supabase förblir source of truth
@@ -291,6 +295,16 @@ Pending run och worker-körning:
 
 # Eller kör äldsta pending demo-run:
 .venv/bin/bidded worker
+
+.venv/bin/bidded run-status --run-id "$AGENT_RUN_ID"
+
+.venv/bin/bidded retry-run \
+  --run-id "$FAILED_OR_REVIEW_RUN_ID" \
+  --reason "retry after fixing demo input"
+
+.venv/bin/bidded reset-stale-runs \
+  --max-age-minutes 45 \
+  --reason "operator confirmed worker heartbeat is stale"
 ```
 
 ## Miljövariabler
@@ -338,7 +352,7 @@ python3 -m venv .venv
 .venv/bin/ruff check .
 ```
 
-Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandon för bolag och replaybara demo-states, tenderregistreringen, PDF-ingestion med optional chunk embeddings, evidence builders, graph routing shell, worker lifecycle CLI och mocked end-to-end coverage finns; övriga operator- och demo-kommandon byggs i senare stories.
+Core domain-migrationen finns under `supabase/migrations/`. Agent audit-, chunk/evidence-, seed-kommandon för bolag och replaybara demo-states, tenderregistreringen, PDF-ingestion med optional chunk embeddings, evidence builders, graph routing shell, worker lifecycle CLI, operator run controls och mocked end-to-end coverage finns; övriga demo-kommandon byggs i senare stories.
 
 ## Teststrategi
 
