@@ -60,6 +60,7 @@ def test_cli_help_prints_without_external_services() -> None:
     assert "seed-demo-company" in result.stdout
     assert "seed-demo-states" in result.stdout
     assert "prepare-run" in result.stdout
+    assert "prepare-manifest-run" in result.stdout
     assert "doctor" in result.stdout
     assert "demo-smoke" in result.stdout
     assert "run-status" in result.stdout
@@ -710,6 +711,70 @@ def test_cli_prepare_run_delegates_to_service(
             "44444444-4444-4444-8444-444444444441",
             "44444444-4444-4444-8444-444444444442",
         ],
+        "bucket_name": "procurement-fixtures",
+    }
+
+
+def test_cli_prepare_manifest_run_delegates_to_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    client = object()
+    manifest_path = tmp_path / "procurement-manifest.json"
+    manifest_path.write_text("{}", encoding="utf-8")
+    captured_prepare: dict[str, Any] = {}
+    monkeypatch.setattr(
+        cli,
+        "load_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {
+                "supabase_url": "https://example.supabase.co",
+                "supabase_service_role_key": "service-role",
+                "supabase_storage_bucket": "procurement-fixtures",
+            },
+        )(),
+    )
+    monkeypatch.setattr(cli, "_create_supabase_client", lambda _settings: client)
+
+    def record_prepare(
+        supabase_client: object,
+        **kwargs: Any,
+    ) -> SimpleNamespace:
+        captured_prepare["client"] = supabase_client
+        captured_prepare.update(kwargs)
+        return SimpleNamespace(
+            manifest_path=manifest_path,
+            tender_id="33333333-3333-4333-8333-333333333333",
+            company_id="22222222-2222-4222-8222-222222222222",
+            document_ids=(
+                "44444444-4444-4444-8444-444444444441",
+                "44444444-4444-4444-8444-444444444442",
+            ),
+            agent_run_id="11111111-1111-4111-8111-111111111111",
+            document_results=(),
+            tender_evidence_count=8,
+            company_evidence_count=12,
+            evidence_count=20,
+            warnings=(),
+            audit=None,
+        )
+
+    monkeypatch.setattr(cli, "prepare_procurement_manifest_run", record_prepare)
+
+    result = cli.main(["prepare-manifest-run", str(manifest_path)])
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert f"Prepared manifest procurement from {manifest_path}" in captured.out
+    assert "Prepared pending agent run 11111111-1111-4111-8111-111111111111" in (
+        captured.out
+    )
+    assert captured_prepare == {
+        "client": client,
+        "manifest_path": manifest_path,
         "bucket_name": "procurement-fixtures",
     }
 

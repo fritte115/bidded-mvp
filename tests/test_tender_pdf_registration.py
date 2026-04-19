@@ -153,6 +153,36 @@ def test_register_demo_tender_pdf_uploads_and_persists_document(
     assert document_conflict == "storage_path"
 
 
+def test_register_demo_tender_pdf_persists_manifest_metadata(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "01 Administrativa foreskrifter.pdf"
+    _write_pdf(pdf_path)
+    client = RecordingSupabaseClient()
+
+    register_demo_tender_pdf(
+        client,
+        pdf_path=pdf_path,
+        bucket_name="procurement-fixtures",
+        tender_title="Seven PDF procurement",
+        issuing_authority="Example Municipality",
+        source_label="01 Administrative instructions",
+        procurement_document_role="main_tender",
+        created_via="bidded_procurement_manifest",
+    )
+
+    tender_payload, _tender_conflict = client.tables["tenders"].upserts[0]
+    document_payload, _document_conflict = client.tables["documents"].upserts[0]
+    assert tender_payload["metadata"]["registered_via"] == (
+        "bidded_procurement_manifest"
+    )
+    assert document_payload["document_role"] == "tender_document"
+    assert document_payload["metadata"] == {
+        "registered_via": "bidded_procurement_manifest",
+        "source_label": "01 Administrative instructions",
+        "procurement_document_role": "main_tender",
+        "demo_company_id": "company-1",
+    }
+
+
 def test_register_demo_tender_pdf_rejects_missing_file(tmp_path: Path) -> None:
     missing_pdf = tmp_path / "missing.pdf"
 

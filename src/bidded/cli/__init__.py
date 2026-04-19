@@ -44,8 +44,10 @@ from bidded.orchestration import (
     AgentRunStatus,
     PendingRunContextError,
     PrepareRunError,
+    ProcurementManifestError,
     WorkerLifecycleError,
     create_pending_run_context,
+    prepare_procurement_manifest_run,
     prepare_procurement_run,
     run_worker_once,
 )
@@ -182,6 +184,24 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     prepare_run_parser.set_defaults(handler=_run_prepare_run_command)
+
+    manifest_run_parser = subparsers.add_parser(
+        "prepare-manifest-run",
+        help="Prepare a local multi-PDF procurement manifest.",
+        description=(
+            "Register every PDF listed in a local gitignored procurement "
+            "manifest, then run preparation for the complete document set."
+        ),
+    )
+    manifest_run_parser.add_argument(
+        "manifest_path",
+        type=Path,
+        help=(
+            "Path to a JSON procurement manifest, typically "
+            "data/demo/incoming/<procurement-name>/procurement-manifest.json."
+        ),
+    )
+    manifest_run_parser.set_defaults(handler=_run_prepare_manifest_run_command)
 
     doctor_parser = subparsers.add_parser(
         "doctor",
@@ -563,6 +583,29 @@ def _run_prepare_run_command(args: argparse.Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return 2
 
+    _print_prepare_run_result(result)
+    return 0
+
+
+def _run_prepare_manifest_run_command(args: argparse.Namespace) -> int:
+    settings = load_settings()
+    try:
+        client = _create_supabase_client(settings)
+        result = prepare_procurement_manifest_run(
+            client,
+            manifest_path=args.manifest_path,
+            bucket_name=settings.supabase_storage_bucket,
+        )
+    except (
+        RuntimeError,
+        TenderPdfRegistrationError,
+        ProcurementManifestError,
+        PrepareRunError,
+    ) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    print(f"Prepared manifest procurement from {result.manifest_path}.")
     _print_prepare_run_result(result)
     return 0
 

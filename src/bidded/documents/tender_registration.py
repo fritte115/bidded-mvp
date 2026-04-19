@@ -67,6 +67,9 @@ def register_demo_tender_pdf(
     issuing_authority: str,
     procurement_reference: str | None = None,
     procurement_metadata: Mapping[str, Any] | None = None,
+    source_label: str = "registered tender PDF",
+    procurement_document_role: str | None = None,
+    created_via: str = "bidded_cli",
 ) -> TenderPdfRegistrationResult:
     """Upload a local PDF and register it as the demo tender document."""
     path = Path(pdf_path)
@@ -86,6 +89,7 @@ def register_demo_tender_pdf(
         procurement_reference=procurement_reference,
         procurement_metadata=dict(procurement_metadata or {}),
         demo_company_id=company_id,
+        created_via=created_via,
     )
     client.storage.from_(bucket_name).upload(
         storage_path,
@@ -99,6 +103,9 @@ def register_demo_tender_pdf(
         storage_path=storage_path,
         checksum_sha256=checksum_sha256,
         original_filename=path.name,
+        source_label=source_label,
+        procurement_document_role=procurement_document_role,
+        created_via=created_via,
     )
 
     return TenderPdfRegistrationResult(
@@ -143,6 +150,7 @@ def _upsert_tender(
     procurement_reference: str | None,
     procurement_metadata: dict[str, Any],
     demo_company_id: str,
+    created_via: str,
 ) -> str:
     payload: dict[str, Any] = {
         "tenant_key": "demo",
@@ -155,7 +163,7 @@ def _upsert_tender(
             "agent_output_language": "en",
         },
         "metadata": {
-            "registered_via": "bidded_cli",
+            "registered_via": created_via,
             "demo_company_id": demo_company_id,
         },
     }
@@ -175,7 +183,17 @@ def _upsert_tender_document(
     storage_path: str,
     checksum_sha256: str,
     original_filename: str,
+    source_label: str,
+    procurement_document_role: str | None,
+    created_via: str,
 ) -> str:
+    metadata: dict[str, Any] = {
+        "registered_via": created_via,
+        "source_label": source_label.strip() or "registered tender PDF",
+        "demo_company_id": demo_company_id,
+    }
+    if procurement_document_role is not None:
+        metadata["procurement_document_role"] = procurement_document_role
     payload: dict[str, Any] = {
         "tenant_key": "demo",
         "tender_id": tender_id,
@@ -186,11 +204,7 @@ def _upsert_tender_document(
         "document_role": "tender_document",
         "parse_status": "pending",
         "original_filename": original_filename,
-        "metadata": {
-            "registered_via": "bidded_cli",
-            "source_label": "registered tender PDF",
-            "demo_company_id": demo_company_id,
-        },
+        "metadata": metadata,
     }
     response = (
         client.table("documents")

@@ -31,7 +31,7 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Specialist motion node | `bidded.orchestration.specialist_motions` bygger evidence-locked Round 1 requests utan peer motions eller privat context, skickar kravtypad glossary-context, validerar strict `Round1Motion` output och tillåter formella Compliance-blockers bara för exclusion/qualification-evidens. |
 | Focused rebuttal node | `bidded.orchestration.specialist_rebuttals` bygger Round 2 requests med shared evidence board, alla validerade Round 1-motions, fokuspunkter för oenighet/blockers/missing info och append:ar fyra `round_2_rebuttal` agent_outputs först efter validering. |
 | Judge decision node | `bidded.orchestration.judge` bygger evidence-locked Judge requests med kravtypad glossary-context, validerar strict `JudgeDecision` output, gate:ar endast typade formella compliance blockers till `no_bid`, append:ar `final_decision` agent_output och skriver Supabase-kompatibla `bid_decisions` payloads med kravtyper i relevanta detaljer. |
-| Prepare and pending agent runs | `bidded prepare-run` validerar en uppladdad uppsättning tenderdokument, kör eller återanvänder PDF-ingestion, bygger tender- och bolagsevidens, skriver en läsbar preparation audit till run-metadata och skapar en `pending` run; `bidded create-pending-run` finns kvar som enklare run-context-kommando. |
+| Prepare and pending agent runs | `bidded prepare-run` validerar en uppladdad uppsättning tenderdokument, kör eller återanvänder PDF-ingestion, bygger tender- och bolagsevidens, skriver en läsbar preparation audit till run-metadata och skapar en `pending` run; `bidded prepare-manifest-run` registrerar och förbereder ett lokalt gitignored sju-PDF-fixture från manifest; `bidded create-pending-run` finns kvar som enklare run-context-kommando. |
 | Worker lifecycle CLI | `bidded worker` kör en specificerad pending run eller äldsta pending demo-run, uppdaterar `agent_runs`, kör graphen och persisterar normaliserade `agent_outputs` och `bid_decisions`. |
 | Operator run controls | `bidded run-status`, `bidded retry-run`, `bidded reset-stale-runs` och `bidded export-decision` visar auditstatus, demo trace, skapar lineage-kopplade retries, failar stale `running` runs och exporterar beslut med evidens. |
 | Demo doctor | `bidded doctor` kontrollerar demo-miljövariabler, Supabase-tabeller, Storage-bucket och optional Anthropic-connectivity utan att skriva ut secrets. |
@@ -315,6 +315,69 @@ Pending run och worker-körning:
   --company-id "$COMPANY_ID" \
   --document-id "$DOCUMENT_ID" \
   --document-id "$ATTACHMENT_DOCUMENT_ID"
+
+For a real multi-PDF procurement package, keep the files in a local
+gitignored directory such as `data/demo/incoming/<procurement-name>/` and add a
+JSON manifest beside the PDFs:
+
+```json
+{
+  "manifest_version": 1,
+  "tender_title": "Example seven-PDF procurement",
+  "issuing_authority": "Example Municipality",
+  "procurement_reference": "REF-2026-007",
+  "procurement_metadata": { "procedure": "open" },
+  "documents": [
+    {
+      "path": "01-administrativa-foreskrifter.pdf",
+      "source_label": "01 Administrative instructions",
+      "document_role": "main_tender"
+    },
+    {
+      "path": "02-uteslutningsgrunder-kvalificering.pdf",
+      "source_label": "02 Exclusion and qualification",
+      "document_role": "qualification_appendix"
+    },
+    {
+      "path": "03-utvarderingsmodell.pdf",
+      "source_label": "03 Evaluation model",
+      "document_role": "evaluation_model"
+    },
+    {
+      "path": "04-behovsbeskrivning.pdf",
+      "source_label": "04 Requirements appendix",
+      "document_role": "requirements_appendix"
+    },
+    {
+      "path": "05-avtalsvillkor.pdf",
+      "source_label": "05 Contract terms",
+      "document_role": "contract_terms"
+    },
+    {
+      "path": "06-prisbilaga.pdf",
+      "source_label": "06 Pricing appendix",
+      "document_role": "pricing_appendix"
+    },
+    {
+      "path": "07-dpa.pdf",
+      "source_label": "07 Data processing agreement",
+      "document_role": "dpa"
+    }
+  ]
+}
+```
+
+Run the replayable local workflow from that manifest:
+
+```bash
+.venv/bin/bidded prepare-manifest-run \
+  data/demo/incoming/<procurement-name>/procurement-manifest.json
+```
+
+The command uploads/registers the seven local PDFs, stores each `source_label`
+and optional procurement role in document metadata, then calls the same
+preparation path as `prepare-run`. Do not add the PDFs or customer manifest to
+git; automated tests use synthetic PDFs and mocked rows instead.
 
 .venv/bin/bidded worker --run-id "$AGENT_RUN_ID"
 

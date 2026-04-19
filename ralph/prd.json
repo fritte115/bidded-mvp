@@ -900,8 +900,8 @@
         "README documents how to run the local multi-PDF preparation flow safely."
       ],
       "priority": 59,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added JSON manifest workflow/CLI for local gitignored seven-PDF fixtures, source-label/role registration metadata, deterministic tests, and README flow. Complete."
     },
     {
       "id": "US-060",

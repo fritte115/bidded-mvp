@@ -57,6 +57,14 @@ from bidded.orchestration.prepare_run import (
     PrepareRunResult,
     prepare_procurement_run,
 )
+from bidded.orchestration.procurement_manifest import (
+    ProcurementManifest,
+    ProcurementManifestDocument,
+    ProcurementManifestError,
+    ProcurementManifestRunResult,
+    load_procurement_manifest,
+    prepare_procurement_manifest_run,
+)
 from bidded.orchestration.run_controls import (
     DemoTraceEntry,
     RetryRunResult,
@@ -153,6 +161,10 @@ __all__ = [
     "PrepareRunError",
     "PrepareRunResult",
     "PreparedDocumentSummary",
+    "ProcurementManifest",
+    "ProcurementManifestDocument",
+    "ProcurementManifestError",
+    "ProcurementManifestRunResult",
     "RetryRunResult",
     "RequirementType",
     "Round1MotionResult",
@@ -200,8 +212,10 @@ __all__ = [
     "graph_routing_edge_table",
     "get_run_status",
     "judge_decision_result_from_agent_output",
+    "load_procurement_manifest",
     "persist_agent_outputs",
     "persist_final_decision",
+    "prepare_procurement_manifest_run",
     "prepare_procurement_run",
     "round_1_motion_result_from_agent_output",
     "round_2_rebuttal_result_from_agent_output",
