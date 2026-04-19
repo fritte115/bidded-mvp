@@ -15,13 +15,13 @@ Started: 2026-04-18
 - **Bidded CLI Boundary**: Keep CLI help/package imports free of live client construction; create external clients only inside real command execution paths and keep command services injectable for tests.
 - **Bidded Document Pipeline Contract**: Keep tender registration, PDF ingestion, and chunk embedding persistence in `src/bidded/documents`; registered text-PDFs use mocked Storage, PyMuPDF extraction, deterministic page chunks, optional Python-owned embeddings, and parser status metadata.
 - **Bidded Pending Run Contract**: Create `agent_runs` through an orchestration service that validates demo rows, inserts `pending`, and leaves processing for workers that claim via `status = pending` updates.
-- **Bidded Agent Audit Contract**: `agent_outputs` are immutable rows keyed by `agent_role`, `round_name`, and `output_type`; Judge `bid_decisions` surface evidence IDs, source outputs, and replayable fixtures via metadata.
+- **Bidded Agent Audit Contract**: `agent_outputs` are immutable rows keyed by `agent_role`, `round_name`, and `output_type`; audit/run metadata carries deterministic prompt/schema/retrieval/model versions; Judge `bid_decisions` surface evidence IDs, source outputs, and replayable fixtures via metadata.
 - **Bidded Graph State/Routing Contract**: `BidRunState.apply_node_update` enforces node ownership and reducers; `src/bidded/orchestration/graph.py` owns the fixed LangGraph shell, preflight checks, Evidence Scout audit append, explicit edge table, bounded retry/stop policy, mocked handlers, and terminal routing.
 - **Bidded Agent Tool Policy Contract**: `src/bidded/agents/tool_policy.py` is the source of truth for LLM-agent denied tools, bounded retrieval, artifact access, and orchestrator-owned side effects.
 - **Bidded Agent Output Schema Contract**: `src/bidded/agents/schemas.py` is the strict Pydantic surface for RequirementType, Evidence Scout output, motions, rebuttals, Judge decisions, typed Judge reasoning details, evidence refs, material claim evidence-ID validation, validation errors, and specialist role bounds.
 - **Bidded Evidence/Retrieval Contract**: `src/bidded/retrieval` returns deterministic hybrid scores; `src/bidded/evidence` builds nullable typed evidence; recall audit warnings compare chunk/glossary signals to evidence-board requirement coverage before agent requests.
 - **Bidded Operator Controls Contract**: `run_controls.py` owns status/demo-trace/retry/stale-reset controls; `decision_export.py` reads persisted decisions, agent outputs, and cited evidence into local Markdown/JSON without DB mutation.
-- **Bidded Golden Eval Contract**: `src/bidded/evals/golden_runner.py` compares recorded or injected golden outcomes against allowed verdicts, hard blocker gates, missing info/actions, unsupported-claim rejection, validation errors, resolved evidence refs, and material-claim citation coverage; `bidded eval-golden` is deterministic and live-service-free.
+- **Bidded Golden Eval Contract**: `src/bidded/evals/golden_runner.py` compares recorded or injected golden outcomes against allowed verdicts, hard blocker gates, missing info/actions, unsupported-claim rejection, validation errors, resolved evidence refs, material-claim citation coverage, and version metadata warnings; `bidded eval-golden` is deterministic and live-service-free.
 
 ## Session Log
 
@@ -260,4 +260,9 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added allowed-verdict regression checks, formal blocker no-bid enforcement, missing-evidence non-gating outcomes, and CLI diagnostics for golden eval failures.
 - **Files**: src/bidded/fixtures/golden_cases.py, src/bidded/evals/golden_runner.py, src/bidded/cli/__init__.py, tests/test_golden_demo_cases.py, tests/test_golden_eval_runner.py, tests/test_cli.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
 - **Key learnings**: Model multi-verdict eval tolerance explicitly in fixture expectations instead of weakening blocker, missing-info, or evidence-reference assertions.
+---
+## 2026-04-19 04:43 CEST - US-046
+- **Implemented**: Added deterministic prompt/schema/retrieval/model version metadata for worker audit rows and golden eval JSON/CLI output, with non-blocking eval warnings for legacy missing metadata.
+- **Files**: src/bidded/versioning.py, src/bidded/orchestration/worker.py, src/bidded/evals/golden_runner.py, src/bidded/cli/__init__.py, tests/test_worker_lifecycle.py, tests/test_golden_eval_runner.py, tests/test_cli.py, ralph/prd.json, ralph/state.json, ralph/progress.md
+- **Key learnings**: Keep version provenance centralized and normalize legacy/missing eval metadata to defaults while surfacing warnings only in eval output.
 ---

@@ -703,8 +703,8 @@
         "Tests cover metadata population, warning behavior, JSON serialization, and backwards-compatible loading of older runs without version fields; pytest and ruff check pass."
       ],
       "priority": 46,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added deterministic version metadata for worker audit rows, golden eval reports, JSON, CLI summaries, and legacy warning handling. Complete."
     },
     {
       "id": "US-047",

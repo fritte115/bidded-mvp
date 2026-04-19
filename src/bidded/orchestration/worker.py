@@ -19,6 +19,7 @@ from bidded.orchestration.state import (
     RuntimeErrorState,
     Verdict,
 )
+from bidded.versioning import normalize_version_metadata, version_metadata_dict
 
 DEFAULT_WORKER_NAME = "bidded_cli_worker"
 
@@ -547,6 +548,9 @@ def _worker_metadata(
     demo_trace: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     merged = dict(metadata)
+    merged["version_metadata"] = version_metadata_dict(
+        normalize_version_metadata(_mapping(merged.get("version_metadata")))
+    )
     if demo_trace is not None:
         merged["demo_trace"] = _sanitize_demo_trace_entries(demo_trace)
     worker = dict(_mapping(merged.get("worker")))
@@ -716,6 +720,7 @@ def _agent_output_payload(
     run_id: UUID,
     tenant_key: str,
 ) -> dict[str, Any]:
+    version_metadata = version_metadata_dict(normalize_version_metadata(None))
     return {
         "tenant_key": tenant_key,
         "agent_run_id": str(run_id),
@@ -723,13 +728,14 @@ def _agent_output_payload(
         "round_name": output.round_name,
         "output_type": output.output_type,
         "validated_payload": output.payload,
-        "model_metadata": {},
+        "model_metadata": version_metadata,
         "validation_errors": [
             error.model_dump(mode="json") for error in output.validation_errors
         ],
         "metadata": {
             "source": DEFAULT_WORKER_NAME,
             "audit_artifact": "validated_payload",
+            "version_metadata": version_metadata,
             "evidence_refs": [
                 evidence_ref.model_dump(mode="json")
                 for evidence_ref in output.evidence_refs

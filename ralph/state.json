@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-046",
-  "storyTitle": "Track prompt schema versions",
+  "currentStory": "US-047",
+  "storyTitle": "Diff normalized decisions",
   "nextAction": "implement",
-  "progressTokens": 3945,
+  "progressTokens": 4020,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

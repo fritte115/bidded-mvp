@@ -211,6 +211,37 @@ def test_worker_runs_specified_pending_run_and_persists_audit_rows() -> None:
     assert bid_decision["evidence_ids"] == [str(EVIDENCE_ID)]
 
 
+def test_worker_persists_version_metadata_for_mocked_runs() -> None:
+    client = RecordingWorkerClient()
+
+    result = run_worker_once(
+        client,
+        run_id=RUN_ID,
+        now_factory=lambda: datetime(2026, 4, 18, 18, 0, tzinfo=UTC),
+    )
+
+    assert result.terminal_status is AgentRunStatus.SUCCEEDED
+    expected_metadata = {
+        "prompt_version": "bidded_prompt_v1",
+        "schema_version": "bidded_agent_output_schema_v1",
+        "retrieval_version": "bidded_hybrid_retrieval_v1",
+        "model_name": "mocked_graph_shell",
+    }
+    assert client.rows["agent_runs"][0]["metadata"]["version_metadata"] == (
+        expected_metadata
+    )
+
+    agent_outputs = client.inserts["agent_outputs"][0]
+    assert isinstance(agent_outputs, list)
+    assert all(
+        output["model_metadata"] == expected_metadata for output in agent_outputs
+    )
+    assert all(
+        output["metadata"]["version_metadata"] == expected_metadata
+        for output in agent_outputs
+    )
+
+
 def test_worker_claims_run_before_graph_execution() -> None:
     client = RecordingWorkerClient()
     captured_state: dict[str, Any] = {}

@@ -15,6 +15,13 @@ from bidded.orchestration.state import (
     StrictStateModel,
     Verdict,
 )
+from bidded.versioning import (
+    GOLDEN_EVAL_FIXTURE_VERSION,
+    VersionMetadata,
+    default_version_metadata,
+    normalize_version_metadata,
+    version_metadata_warnings,
+)
 
 
 class GoldenEvalError(ValueError):
@@ -115,6 +122,7 @@ class GoldenActualOutcome(StrictStateModel):
     validation_errors: tuple[str, ...] = ()
     evidence_refs: tuple[EvidenceRef, ...] = Field(default_factory=tuple)
     coverage_claims: tuple[EvidenceCoverageClaim, ...] = ()
+    version_metadata: VersionMetadata | None = None
 
 
 class GoldenCaseEvalResult(StrictStateModel):
@@ -140,6 +148,12 @@ class GoldenCaseEvalResult(StrictStateModel):
     evidence_coverage: EvidenceCoverageScore = Field(
         default_factory=_default_evidence_coverage_score
     )
+    version_metadata: VersionMetadata = Field(
+        default_factory=lambda: default_version_metadata(
+            eval_fixture_version=GOLDEN_EVAL_FIXTURE_VERSION
+        )
+    )
+    version_warnings: tuple[str, ...] = ()
 
 
 class GoldenEvalReport(StrictStateModel):
@@ -150,6 +164,12 @@ class GoldenEvalReport(StrictStateModel):
     passed_count: int
     failed_count: int
     results: tuple[GoldenCaseEvalResult, ...]
+    version_metadata: VersionMetadata = Field(
+        default_factory=lambda: default_version_metadata(
+            eval_fixture_version=GOLDEN_EVAL_FIXTURE_VERSION
+        )
+    )
+    version_warnings: tuple[str, ...] = ()
 
 
 GoldenOutcomeProvider = Callable[[GoldenDemoCase], GoldenActualOutcome]
@@ -164,8 +184,16 @@ def run_golden_evals(
 
     cases = _select_cases(case_id)
     provider = outcome_provider or recorded_golden_outcome
+    version_metadata = default_version_metadata(
+        eval_fixture_version=GOLDEN_EVAL_FIXTURE_VERSION
+    )
     results = tuple(
-        evaluate_golden_case(case, actual=provider(case)) for case in cases
+        evaluate_golden_case(
+            case,
+            actual=provider(case),
+            fallback_version_metadata=version_metadata,
+        )
+        for case in cases
     )
     passed_count = sum(1 for result in results if result.passed)
     failed_count = len(results) - passed_count
@@ -175,6 +203,12 @@ def run_golden_evals(
         passed_count=passed_count,
         failed_count=failed_count,
         results=results,
+        version_metadata=version_metadata,
+        version_warnings=tuple(
+            f"{result.case_id}: {warning}"
+            for result in results
+            for warning in result.version_warnings
+        ),
     )
 
 
@@ -190,6 +224,9 @@ def recorded_golden_outcome(case: GoldenDemoCase) -> GoldenActualOutcome:
         validation_errors=case.expected.validation_errors,
         evidence_refs=case.expected.required_evidence_refs,
         coverage_claims=_recorded_coverage_claims(case),
+        version_metadata=default_version_metadata(
+            eval_fixture_version=GOLDEN_EVAL_FIXTURE_VERSION
+        ),
     )
 
 
@@ -197,9 +234,18 @@ def evaluate_golden_case(
     case: GoldenDemoCase,
     *,
     actual: GoldenActualOutcome,
+    fallback_version_metadata: VersionMetadata | None = None,
 ) -> GoldenCaseEvalResult:
     """Compare one actual outcome against the golden case expectations."""
 
+    version_metadata = normalize_version_metadata(
+        actual.version_metadata or fallback_version_metadata,
+        eval_fixture_version=GOLDEN_EVAL_FIXTURE_VERSION,
+    )
+    version_warnings = version_metadata_warnings(
+        actual.version_metadata,
+        require_eval_fixture_version=True,
+    )
     evidence_reference_failures = _evidence_reference_failures(
         actual.evidence_refs,
         required_refs=case.expected.required_evidence_refs,
@@ -278,6 +324,8 @@ def evaluate_golden_case(
         actual_validation_errors=actual.validation_errors,
         evidence_reference_failures=evidence_reference_failures,
         evidence_coverage=evidence_coverage,
+        version_metadata=version_metadata,
+        version_warnings=version_warnings,
     )
 
 

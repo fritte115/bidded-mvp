@@ -10,7 +10,9 @@ from bidded.evals.golden_runner import (
     EvidenceCoverageClaim,
     EvidenceCoverageClaimType,
     GoldenActualOutcome,
+    GoldenCaseEvalResult,
     GoldenEvalError,
+    GoldenEvalReport,
     run_golden_evals,
     write_golden_eval_json,
 )
@@ -340,6 +342,75 @@ def test_golden_eval_runner_writes_stable_json(tmp_path: Path) -> None:
     assert payload["results"][0]["expected_verdict"] == "bid"
     assert payload["results"][0]["actual_verdict"] == "bid"
     assert payload["results"][0]["evidence_coverage"]["passed"] is True
+
+
+def test_golden_eval_runner_includes_version_metadata_in_json(
+    tmp_path: Path,
+) -> None:
+    report = run_golden_evals(case_id="obvious_bid")
+    json_path = tmp_path / "evals" / "golden-with-versions.json"
+
+    write_golden_eval_json(report, json_path)
+
+    expected_metadata = {
+        "prompt_version": "bidded_prompt_v1",
+        "schema_version": "bidded_agent_output_schema_v1",
+        "retrieval_version": "bidded_hybrid_retrieval_v1",
+        "model_name": "mocked_graph_shell",
+        "eval_fixture_version": "golden_demo_cases_v1",
+    }
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert payload["version_metadata"] == expected_metadata
+    assert payload["version_warnings"] == []
+    assert payload["results"][0]["version_metadata"] == expected_metadata
+    assert payload["results"][0]["version_warnings"] == []
+
+
+def test_golden_eval_warns_when_actual_version_metadata_is_missing() -> None:
+    def legacy_outcome(case: GoldenDemoCase) -> GoldenActualOutcome:
+        return _expected_outcome_with_claim(case)
+
+    report = run_golden_evals(
+        case_id="obvious_bid",
+        outcome_provider=legacy_outcome,
+    )
+
+    expected_warning = (
+        "missing version metadata: prompt_version, schema_version, "
+        "retrieval_version, model_name, eval_fixture_version"
+    )
+    result = report.results[0]
+    assert report.passed
+    assert result.version_warnings == (expected_warning,)
+    assert report.version_warnings == (f"obvious_bid: {expected_warning}",)
+    assert result.version_metadata.prompt_version == "bidded_prompt_v1"
+    assert result.version_metadata.eval_fixture_version == "golden_demo_cases_v1"
+
+
+def test_golden_eval_models_load_legacy_payloads_without_version_fields() -> None:
+    legacy_result = {
+        "case_id": "obvious_bid",
+        "title": "Obvious bid from matched proof",
+        "passed": True,
+        "expected_verdict": "bid",
+        "actual_verdict": "bid",
+    }
+
+    result = GoldenCaseEvalResult.model_validate(legacy_result)
+    report = GoldenEvalReport.model_validate(
+        {
+            "passed": True,
+            "total_count": 1,
+            "passed_count": 1,
+            "failed_count": 0,
+            "results": [legacy_result],
+        }
+    )
+
+    assert result.version_metadata.prompt_version == "bidded_prompt_v1"
+    assert result.version_warnings == ()
+    assert report.version_metadata.eval_fixture_version == "golden_demo_cases_v1"
+    assert report.version_warnings == ()
 
 
 def _expected_outcome_with_claim(

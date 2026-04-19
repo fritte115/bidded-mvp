@@ -661,6 +661,9 @@ def _print_demo_smoke_result(result: DemoSmokeResult) -> None:
 
 def _print_golden_eval_report(report: GoldenEvalReport) -> None:
     print(f"Golden evals: {report.passed_count}/{report.total_count} passed.")
+    print(f"Version metadata: {_format_version_metadata(report.version_metadata)}")
+    for warning in report.version_warnings:
+        print(f"WARNING {warning}")
     for result in report.results:
         _print_golden_case_eval_result(result)
 
@@ -745,6 +748,22 @@ def _print_issue_tuple(label: str, values: tuple[str, ...]) -> None:
 
 def _source_type_values(values: tuple[Any, ...]) -> str:
     return ", ".join(value.value for value in values) or "none"
+
+
+def _format_version_metadata(metadata: Any) -> str:
+    fields = (
+        "prompt_version",
+        "schema_version",
+        "retrieval_version",
+        "model_name",
+        "eval_fixture_version",
+    )
+    values = [
+        f"{field}={value}"
+        for field in fields
+        if (value := getattr(metadata, field, None)) is not None
+    ]
+    return "; ".join(values) or "none"
 
 
 def _verdict_values(values: tuple[Any, ...]) -> str:

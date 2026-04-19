@@ -1013,6 +1013,13 @@ def test_cli_eval_golden_runs_selected_case_and_writes_json(
     captured = capsys.readouterr()
     assert result == 0
     assert "Golden evals: 1/1 passed" in captured.out
+    assert (
+        "Version metadata: prompt_version=bidded_prompt_v1; "
+        "schema_version=bidded_agent_output_schema_v1; "
+        "retrieval_version=bidded_hybrid_retrieval_v1; "
+        "model_name=mocked_graph_shell; "
+        "eval_fixture_version=golden_demo_cases_v1"
+    ) in captured.out
     assert "PASS obvious_bid" in captured.out
     assert "Wrote JSON" in captured.out
     assert '"case_id": "obvious_bid"' in json_path.read_text(encoding="utf-8")
@@ -1027,6 +1034,9 @@ def test_cli_eval_golden_returns_nonzero_for_failed_expectations(
         total_count=1,
         passed_count=0,
         failed_count=1,
+        version_warnings=(
+            "hard_compliance_no_bid: missing version metadata: prompt_version",
+        ),
         results=(
             GoldenCaseEvalResult(
                 case_id="hard_compliance_no_bid",
@@ -1074,6 +1084,10 @@ def test_cli_eval_golden_returns_nonzero_for_failed_expectations(
     captured = capsys.readouterr()
     assert result == 1
     assert "Golden evals: 0/1 passed" in captured.out
+    assert (
+        "WARNING hard_compliance_no_bid: missing version metadata: prompt_version"
+        in captured.out
+    )
     assert "FAIL hard_compliance_no_bid" in captured.out
     assert "Allowed verdicts: no_bid; actual: bid" in captured.out
     assert (
