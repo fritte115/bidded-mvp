@@ -99,22 +99,41 @@ def run_worker_once(
     normalized_run_id = _normalize_uuid(selected_run.get("id"), "agent_runs.id")
     status = AgentRunStatus(str(selected_run.get("status")))
     if status is not AgentRunStatus.PENDING:
-        raise WorkerLifecycleError(
-            f"Agent run {normalized_run_id} must be pending, not {status.value}."
+        message = "No pending demo agent run found."
+        _log(log, message)
+        return WorkerRunResult(
+            run_id=None,
+            terminal_status=None,
+            visited_nodes=(),
+            agent_output_count=0,
+            decision_verdict=None,
+            message=message,
         )
 
     metadata = _mapping(selected_run.get("metadata"))
     started_at = _timestamp(now)
-    _log(log, f"Starting agent run {normalized_run_id}.")
-    metadata = _update_run_status(
+    claimed_run = _claim_worker_run(
         client,
+        selected_run=selected_run,
         run_id=normalized_run_id,
         tenant_key=tenant_key,
-        status=AgentRunStatus.RUNNING,
         timestamp=started_at,
         metadata=metadata,
-        error_details=None,
     )
+    if claimed_run is None:
+        message = "No pending demo agent run found."
+        _log(log, message)
+        return WorkerRunResult(
+            run_id=None,
+            terminal_status=None,
+            visited_nodes=(),
+            agent_output_count=0,
+            decision_verdict=None,
+            message=message,
+        )
+    selected_run = claimed_run
+    metadata = _mapping(selected_run.get("metadata"))
+    _log(log, f"Starting agent run {normalized_run_id}.")
 
     try:
         state = build_bid_run_state_from_supabase(
@@ -415,6 +434,40 @@ def _update_run_status(
         str(run_id),
     ).execute()
     return next_metadata
+
+
+def _claim_worker_run(
+    client: SupabaseWorkerClient,
+    *,
+    selected_run: Mapping[str, Any],
+    run_id: UUID,
+    tenant_key: str,
+    timestamp: str,
+    metadata: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    next_metadata = _worker_metadata(
+        metadata,
+        status=AgentRunStatus.RUNNING,
+        timestamp=timestamp,
+    )
+    payload: dict[str, Any] = {
+        "status": AgentRunStatus.RUNNING.value,
+        "metadata": next_metadata,
+        "error_details": None,
+        "started_at": timestamp,
+    }
+    rows = _response_rows(
+        client.table("agent_runs")
+        .update(payload)
+        .eq("tenant_key", tenant_key)
+        .eq("id", str(run_id))
+        .eq("status", AgentRunStatus.PENDING.value)
+        .execute()
+    )
+    if not rows:
+        return None
+    claimed_run = {**selected_run, **dict(rows[0])}
+    return claimed_run
 
 
 def _terminal_metadata(

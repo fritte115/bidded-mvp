@@ -243,6 +243,7 @@ PRD:n beskriver en lokal CLI/worker. Den kan nu:
 - ladda upp PDF:en till Supabase Storage och spara dokumentrad med checksumma
 - skapa en `pending` agent run utan att köra LLM eller dokumentprocessing
 - köra en specificerad `agent_run` via ID eller plocka äldsta pending run för demo-bolaget
+- claim:a pending runs med `status = pending`-guard innan graphen startar, så dubbelkörningar stoppas
 - kontrollera demo-miljön med `bidded doctor` innan live demo
 - uppdatera run-status till `running`, `succeeded`, `failed` eller `needs_human_review`
 - skriva normaliserade `agent_outputs` och `bid_decisions` utan raw full prompts som default audit artifact

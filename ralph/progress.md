@@ -9,12 +9,12 @@ Started: 2026-04-18
 - **Current PRD Context**: Work from `ralph/state.json`; implement one `ralph/prd.json` story at a time in priority order.
 - **Bidded Runtime Target**: Python package code belongs under `src/bidded`; tests and baseline gates must not require live Claude, live embeddings, or live Supabase.
 - **Bidded Evidence Contract**: Material claims require excerpt-level `evidence_items` with source-specific provenance, `source_metadata.source_label`, and nullable `requirement_type`; formal blockers require exclusion/qualification tender evidence, while unsupported points become assumptions, missing_info, validation errors, or potential blockers.
-- **Bidded Orchestration Contract**: The orchestrator owns Supabase writes, validation, status transitions, worker lifecycle, and persistence; LLM agents produce validated artifacts only.
+- **Bidded Orchestration Contract**: The orchestrator owns Supabase writes, validation, status transitions, worker lifecycle claims, and persistence; LLM agents produce validated artifacts only.
 - **Bidded Quality Gates**: Use deterministic pytest tests and Ruff for story completion; live smoke checks are optional unless a story explicitly requires them.
 - **Bidded Supabase Migrations**: Keep hosted Supabase SQL under `supabase/migrations/` with deterministic pytest contract tests, demo `tenant_key = 'demo'` checks, pgvector RPC/index contracts, and no Auth/RLS unless a story adds it.
 - **Bidded CLI Boundary**: Keep CLI help/package imports free of live client construction; create external clients only inside real command execution paths and keep command services injectable for tests.
 - **Bidded Document Pipeline Contract**: Keep tender registration, PDF ingestion, and chunk embedding persistence in `src/bidded/documents`; registered text-PDFs use mocked Storage, PyMuPDF extraction, deterministic page chunks, optional Python-owned embeddings, and parser status metadata.
-- **Bidded Pending Run Contract**: Create `agent_runs` through an orchestration service that validates demo company, tender, and tender document rows, inserts `pending`, and leaves processing for later graph steps.
+- **Bidded Pending Run Contract**: Create `agent_runs` through an orchestration service that validates demo rows, inserts `pending`, and leaves processing for workers that claim via `status = pending` updates.
 - **Bidded Agent Audit Contract**: `agent_outputs` are immutable rows keyed by `agent_role`, `round_name`, and `output_type`; Judge `bid_decisions` surface evidence IDs, source outputs, and replayable fixtures via metadata.
 - **Bidded Graph State/Routing Contract**: `BidRunState.apply_node_update` enforces node ownership and reducers; `src/bidded/orchestration/graph.py` owns the fixed LangGraph shell, preflight checks, Evidence Scout audit append, explicit edge table, bounded retry/stop policy, mocked handlers, and terminal routing.
 - **Bidded Agent Tool Policy Contract**: `src/bidded/agents/tool_policy.py` is the source of truth for LLM-agent denied tools, bounded retrieval, artifact access, and orchestrator-owned side effects.
@@ -208,4 +208,9 @@ No Ralph story sessions have completed yet.
 - **Implemented**: Added deterministic replayable demo-state seeding for pending, succeeded, failed, and needs_human_review runs with fixture-owned metadata, valid evidence refs, decisions, and CLI wiring.
 - **Files**: src/bidded/db/seed_demo_states.py, src/bidded/cli/__init__.py, tests/test_demo_state_seed.py, tests/test_cli.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md
 - **Key learnings**: Seed immutable audit fixtures by selecting existing fixture rows first and inserting only missing `agent_outputs`, while upserting deterministic fixture-owned source rows by ID.
+---
+## 2026-04-19 02:58 CEST - US-036
+- **Implemented**: Hardened worker startup with a conditional pending-to-running claim, terminal/double-claim no-op handling, and deterministic lifecycle coverage.
+- **Files**: src/bidded/orchestration/worker.py, tests/test_worker_lifecycle.py, README.md, ralph/prd.json, ralph/state.json, ralph/progress.md, ralph/CLAUDE.md
+- **Key learnings**: Claim agent runs with a `status = pending` compare-and-swap before loading graph state so duplicate workers stop without touching audit artifacts.
 ---

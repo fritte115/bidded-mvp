@@ -1,9 +1,9 @@
 {
   "branch": "ralph/bidded-swarm-core",
-  "currentStory": "US-036",
-  "storyTitle": "Harden worker claiming",
+  "currentStory": "US-037",
+  "storyTitle": "Add operator run controls",
   "nextAction": "implement",
-  "progressTokens": 3165,
+  "progressTokens": 3240,
   "compactionNeeded": false,
   "compactionThreshold": 10000,
   "lastUpdated": "2026-04-19"

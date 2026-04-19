@@ -553,8 +553,8 @@
         "Tests cover normal claim, double-claim, terminal-run rejection, and no-pending-run behavior; pytest and ruff check pass."
       ],
       "priority": 36,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Hardened worker claiming with status=pending conditional start updates, terminal/double-claim no-ops, and lifecycle tests. Complete."
     },
     {
       "id": "US-037",

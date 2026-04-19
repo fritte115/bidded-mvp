@@ -4,6 +4,8 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+import pytest
+
 from bidded.orchestration import (
     AgentOutputState,
     AgentRunStatus,
@@ -14,8 +16,10 @@ from bidded.orchestration import (
     GraphRunResult,
     RequirementType,
     Verdict,
+    run_bidded_graph_shell,
 )
 from bidded.orchestration.worker import (
+    DEFAULT_WORKER_NAME,
     build_bid_run_state_from_supabase,
     run_worker_once,
 )
@@ -70,6 +74,24 @@ class RecordingWorkerQuery:
 
     def execute(self) -> object:
         if self.update_payload is not None:
+            if (
+                self.table_name == "agent_runs"
+                and self.client.skip_next_agent_run_update
+            ):
+                self.client.skip_next_agent_run_update = False
+                for row in self.client.rows["agent_runs"]:
+                    if row.get("id") == str(RUN_ID):
+                        row["status"] = "running"
+                        row["started_at"] = "2026-04-18T17:59:00+00:00"
+                        row["metadata"] = {
+                            "worker": {
+                                "name": "other_worker",
+                                "last_status": "running",
+                                "updated_at": "2026-04-18T17:59:00+00:00",
+                            }
+                        }
+                return type("Response", (), {"data": []})()
+
             self.client.updates.setdefault(self.table_name, []).append(
                 (self.update_payload, self.filters)
             )
@@ -119,6 +141,7 @@ class RecordingWorkerClient:
         self.inserts: dict[str, list[dict[str, Any] | list[dict[str, Any]]]] = {}
         self.updates: dict[str, list[tuple[dict[str, Any], list[tuple[str, str]]]]] = {}
         self.table_names: list[str] = []
+        self.skip_next_agent_run_update = False
 
     def table(self, table_name: str) -> RecordingWorkerQuery:
         self.table_names.append(table_name)
@@ -142,6 +165,7 @@ def test_worker_runs_specified_pending_run_and_persists_audit_rows() -> None:
     run_updates = client.updates["agent_runs"]
     assert run_updates[0][0]["status"] == "running"
     assert run_updates[0][0]["started_at"] == "2026-04-18T18:00:00+00:00"
+    assert ("status", "pending") in run_updates[0][1]
     assert run_updates[-1][0]["status"] == "succeeded"
     assert run_updates[-1][0]["completed_at"] == "2026-04-18T18:00:00+00:00"
     assert client.rows["agent_runs"][0]["status"] == "succeeded"
@@ -163,6 +187,119 @@ def test_worker_runs_specified_pending_run_and_persists_audit_rows() -> None:
     assert bid_decision["agent_run_id"] == str(RUN_ID)
     assert bid_decision["verdict"] == "conditional_bid"
     assert bid_decision["evidence_ids"] == [str(EVIDENCE_ID)]
+
+
+def test_worker_claims_run_before_graph_execution() -> None:
+    client = RecordingWorkerClient()
+    captured_state: dict[str, Any] = {}
+
+    def recording_runner(state: Any) -> GraphRunResult:
+        captured_state["status"] = state.status
+        captured_state["metadata"] = state.run_context["metadata"]
+        return run_bidded_graph_shell(state)
+
+    result = run_worker_once(
+        client,
+        run_id=RUN_ID,
+        graph_runner=recording_runner,
+        now_factory=lambda: datetime(2026, 4, 18, 18, 0, tzinfo=UTC),
+    )
+
+    assert result.terminal_status is AgentRunStatus.SUCCEEDED
+    assert captured_state["status"] is AgentRunStatus.RUNNING
+    assert captured_state["metadata"]["worker"]["name"] == DEFAULT_WORKER_NAME
+    assert captured_state["metadata"]["worker"]["last_status"] == "running"
+    assert captured_state["metadata"]["worker"]["updated_at"] == (
+        "2026-04-18T18:00:00+00:00"
+    )
+    assert client.rows["agent_runs"][0]["started_at"] == (
+        "2026-04-18T18:00:00+00:00"
+    )
+
+
+@pytest.mark.parametrize("status", ["succeeded", "failed", "needs_human_review"])
+def test_worker_does_not_claim_terminal_run(status: str) -> None:
+    client = RecordingWorkerClient()
+    terminal_row = _pending_agent_run(
+        status=status,
+        started_at="2026-04-18T17:30:00+00:00",
+        completed_at="2026-04-18T17:45:00+00:00",
+    )
+    client.rows["agent_runs"] = [terminal_row.copy()]
+
+    def forbidden_runner(_state: Any) -> GraphRunResult:
+        raise AssertionError("terminal runs must not execute the graph")
+
+    result = run_worker_once(
+        client,
+        run_id=RUN_ID,
+        graph_runner=forbidden_runner,
+        now_factory=lambda: datetime(2026, 4, 18, 18, 0, tzinfo=UTC),
+    )
+
+    assert result.run_id is None
+    assert result.terminal_status is None
+    assert result.agent_output_count == 0
+    assert "No pending demo agent run found." == result.message
+    assert client.rows["agent_runs"][0] == terminal_row
+    assert "agent_runs" not in client.updates
+    assert "agent_outputs" not in client.inserts
+    assert "bid_decisions" not in client.inserts
+
+
+def test_worker_returns_no_run_when_pending_claim_was_already_taken() -> None:
+    client = RecordingWorkerClient()
+    client.skip_next_agent_run_update = True
+
+    def forbidden_runner(_state: Any) -> GraphRunResult:
+        raise AssertionError("double-claimed runs must not execute the graph")
+
+    result = run_worker_once(
+        client,
+        run_id=RUN_ID,
+        graph_runner=forbidden_runner,
+        now_factory=lambda: datetime(2026, 4, 18, 18, 0, tzinfo=UTC),
+    )
+
+    assert result.run_id is None
+    assert result.terminal_status is None
+    assert result.agent_output_count == 0
+    assert result.message == "No pending demo agent run found."
+    assert client.rows["agent_runs"][0]["status"] == "running"
+    assert client.rows["agent_runs"][0]["metadata"]["worker"]["name"] == (
+        "other_worker"
+    )
+    assert "agent_runs" not in client.updates
+    assert "agent_outputs" not in client.inserts
+    assert "bid_decisions" not in client.inserts
+
+
+def test_worker_returns_no_run_when_no_pending_run_exists() -> None:
+    client = RecordingWorkerClient()
+    client.rows["agent_runs"] = [
+        _pending_agent_run(
+            status="succeeded",
+            started_at="2026-04-18T17:30:00+00:00",
+            completed_at="2026-04-18T17:45:00+00:00",
+        )
+    ]
+
+    def forbidden_runner(_state: Any) -> GraphRunResult:
+        raise AssertionError("no-pending runs must not execute the graph")
+
+    result = run_worker_once(
+        client,
+        graph_runner=forbidden_runner,
+        now_factory=lambda: datetime(2026, 4, 18, 18, 0, tzinfo=UTC),
+    )
+
+    assert result.run_id is None
+    assert result.terminal_status is None
+    assert result.agent_output_count == 0
+    assert result.message == "No pending demo agent run found."
+    assert "agent_runs" not in client.updates
+    assert "agent_outputs" not in client.inserts
+    assert "bid_decisions" not in client.inserts
 
 
 def test_worker_loads_typed_and_legacy_requirement_type_evidence() -> None:
