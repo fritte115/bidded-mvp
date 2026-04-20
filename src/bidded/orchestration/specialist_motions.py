@@ -15,7 +15,10 @@ from bidded.orchestration.evidence_recall import (
     EvidenceRecallWarning,
     audit_evidence_recall,
 )
-from bidded.orchestration.evidence_refs import resolve_evidence_ref_dict_against_board
+from bidded.orchestration.evidence_refs import (
+    coerce_evidence_refs,
+    resolve_evidence_ref_dict_against_board,
+)
 from bidded.orchestration.graph import (
     GraphRouteNode,
     InvalidGraphOutput,
@@ -164,22 +167,18 @@ def build_round_1_specialist_request(
     )
 
 
-def _resolve_ref_against_board(
-    ref_dict: dict[str, Any],
-    board: Sequence[EvidenceItemState],
-) -> dict[str, Any]:
-    return resolve_evidence_ref_dict_against_board(ref_dict, board)
-
-
 def _coerce_refs_list(
     refs: Any,
     board: Sequence[EvidenceItemState],
-) -> list[Any]:
-    if not isinstance(refs, list):
-        return refs
-    return [
-        _resolve_ref_against_board(r, board) if isinstance(r, dict) else r for r in refs
-    ]
+) -> list[dict[str, Any]]:
+    """Normalize LLM-produced ``evidence_refs`` via the shared canonicalizer.
+
+    Drops non-dict items, fills missing evidence_id from evidence_key (and
+    vice versa) where the match is unambiguous, and drops refs that still
+    don't resolve to a board item. See
+    :func:`bidded.orchestration.evidence_refs.coerce_evidence_refs`.
+    """
+    return coerce_evidence_refs(refs, board)
 
 
 def _merge_title_detail_into_claim(item: dict[str, Any]) -> dict[str, Any]:
@@ -208,18 +207,32 @@ def _coerce_claim_list(
     items: Any,
     board: Sequence[EvidenceItemState],
 ) -> list[Any]:
+    """Normalize each claim in a claim-array field.
+
+    Merges title/detail aliases into the required ``claim`` field, canonicalizes
+    each evidence_ref via the shared helper, and **drops claims whose refs list
+    is empty after canonicalization**. The ``SupportedClaim`` schema requires
+    ``evidence_refs`` with ``min_length=1``; leaving empty-ref claims in place
+    would trip ``model_validate`` and abort the run.
+    """
     if not isinstance(items, list):
         return items
-    result = []
+    result: list[Any] = []
     for item in items:
-        if isinstance(item, dict):
-            out = _merge_title_detail_into_claim(item)
-            refs = out.get("evidence_refs")
-            if refs is not None:
-                out["evidence_refs"] = _coerce_refs_list(refs, board)
-            result.append(out)
-        else:
-            result.append(item)
+        if not isinstance(item, dict):
+            # Non-dict claims have no salvageable shape — drop silently
+            # rather than passing hallucinations through to Pydantic.
+            continue
+        out = _merge_title_detail_into_claim(item)
+        refs = out.get("evidence_refs")
+        canonical_refs = _coerce_refs_list(refs, board) if refs is not None else []
+        if not canonical_refs:
+            # Schema requires at least one evidence_ref per claim. A claim
+            # with zero resolvable refs is a hallucinated citation with
+            # nothing behind it — drop the whole claim.
+            continue
+        out["evidence_refs"] = canonical_refs
+        result.append(out)
     return result
 
 
@@ -235,14 +248,179 @@ def _coerce_validation_error_item(item: Any) -> Any:
     return item
 
 
+# Top-level keys the Round1Motion schema accepts (see agents/schemas.py). The
+# coercer whitelists against this set so LLM-invented extras (e.g.
+# "evaluation_summary", "reasoning") don't trip ``extra="forbid"`` on the
+# strict schema.
+_ROUND_1_MOTION_ALLOWED_KEYS = frozenset(
+    {
+        "agent_role",
+        "vote",
+        "confidence",
+        "top_findings",
+        "role_specific_risks",
+        "formal_blockers",
+        "potential_blockers",
+        "assumptions",
+        "missing_info",
+        "potential_evidence_gaps",
+        "recommended_actions",
+        "validation_errors",
+    }
+)
+
+
+def _normalize_requirement_type_in_place(item: Any) -> None:
+    """If ``item`` is a dict with a ``requirement_type`` string, normalize it
+    to the ``RequirementType`` enum value form. Unknown values are dropped
+    (set to None) rather than raising.
+    """
+    if not isinstance(item, dict) or "requirement_type" not in item:
+        return
+    value = item["requirement_type"]
+    if value is None or isinstance(value, RequirementType):
+        return
+    if not isinstance(value, str):
+        item["requirement_type"] = None
+        return
+    normalized = value.strip().lower().replace(" ", "_").replace("-", "_")
+    try:
+        item["requirement_type"] = RequirementType(normalized).value
+    except ValueError:
+        # LLM invented a value not in the enum (e.g. "iso_certification").
+        # Drop rather than fail — it's metadata, not load-bearing.
+        item["requirement_type"] = None
+
+
+def _coerce_formal_blockers_for_role(
+    out: dict[str, Any],
+    evidence_board: Sequence[EvidenceItemState],
+) -> None:
+    """Apply formal_blockers coercion in place.
+
+    Pre-validate fixes for the two Pydantic checks that otherwise terminate
+    the run:
+
+    * Non-compliance roles may not populate ``formal_blockers``
+      ([schemas.py] ``validate_specialist_motion``). Any content the LLM
+      misfiled there is migrated to ``potential_blockers`` so the concern
+      survives; ``formal_blockers`` is then cleared.
+    * Compliance officer's ``formal_blockers`` whose evidence isn't
+      classified as ``exclusion_ground`` / ``qualification_requirement``
+      gate to no_bid automatically — too strong a penalty for an LLM
+      misclassification. Those claims are demoted to ``potential_blockers``
+      so the Judge still weighs them, but they don't force the verdict.
+    """
+    role = out.get("agent_role")
+    formal = out.get("formal_blockers")
+    if not isinstance(formal, list):
+        return
+
+    if role != AgentRole.COMPLIANCE_OFFICER.value:
+        # Step B.3: non-compliance role — migrate every formal_blocker entry
+        # into potential_blockers and clear the formal list.
+        potential = out.get("potential_blockers")
+        if not isinstance(potential, list):
+            potential = []
+        out["potential_blockers"] = [*potential, *formal]
+        out["formal_blockers"] = []
+        return
+
+    # Step B.4: compliance role — demote formal_blockers whose evidence
+    # doesn't qualify (requirement_type not in the formal-blocker set).
+    kept_formal: list[Any] = []
+    demoted: list[Any] = []
+    for claim in formal:
+        if not isinstance(claim, dict):
+            demoted.append(claim)
+            continue
+        if _claim_dict_has_formal_blocker_evidence(claim, evidence_board):
+            kept_formal.append(claim)
+        else:
+            demoted.append(claim)
+
+    if demoted:
+        potential = out.get("potential_blockers")
+        if not isinstance(potential, list):
+            potential = []
+        out["potential_blockers"] = [*potential, *demoted]
+    out["formal_blockers"] = kept_formal
+
+
+def _claim_dict_has_formal_blocker_evidence(
+    claim: dict[str, Any],
+    evidence_board: Sequence[EvidenceItemState],
+) -> bool:
+    """Pre-Pydantic formal-blocker evidence check.
+
+    Operates on raw dict claims (before Pydantic validation), looking up each
+    evidence_ref against the board to check its ``requirement_type``. Returns
+    True iff at least one of the claim's evidence refs points at a
+    tender_document evidence item whose requirement_type is in
+    :data:`_FORMAL_BLOCKER_REQUIREMENT_TYPES` (exclusion_ground or
+    qualification_requirement).
+    """
+    refs = claim.get("evidence_refs")
+    if not isinstance(refs, list):
+        return False
+    for ref in refs:
+        if not isinstance(ref, dict):
+            continue
+        key = ref.get("evidence_key")
+        source_type = ref.get("source_type")
+        evidence_id = ref.get("evidence_id")
+        for item in evidence_board:
+            if (
+                item.evidence_key == key
+                and item.source_type.value == source_type
+                and item.evidence_id is not None
+                and str(item.evidence_id) == str(evidence_id)
+                and _is_formal_blocker_evidence(item)
+            ):
+                return True
+    return False
+
+
 def _coerce_round1_motion_mapping(
     raw: Mapping[str, Any],
     evidence_board: Sequence[EvidenceItemState],
 ) -> dict[str, Any]:
-    """Normalize field aliases and resolve evidence_ids before Pydantic validation."""
+    """Heal LLM-drift shape issues before strict Pydantic validation.
+
+    The four checks below run *before* ``Round1Motion.model_validate`` so that
+    any Pydantic ``@model_validator`` — which otherwise fires inside
+    ``model_validate`` and aborts the run with an un-coerceable error — sees
+    already-healed data.
+
+    1. Normalize ``agent_role`` case/whitespace.
+    2. Whitelist top-level keys so LLM-invented extras don't trip
+       ``extra="forbid"`` on the strict schema.
+    3. Canonicalize every claim's evidence_refs via the shared helper (which
+       drops refs that can't be resolved to a board item, and drops claims
+       whose refs become empty).
+    4. Clear ``formal_blockers`` for non-compliance roles (preserving content
+       under ``potential_blockers``); demote compliance officer's
+       formal_blockers whose evidence isn't exclusion_ground /
+       qualification_requirement.
+    5. Normalize ``requirement_type`` strings to the enum form; drop unknowns.
+    """
     out = dict(raw)
+
+    # Step 1: normalize role string so the whitelist and subsequent checks
+    # see the canonical enum-value form.
     if "agent_role" in out:
         out["agent_role"] = _normalize_agent_role(out["agent_role"])
+
+    # Step 2: whitelist top-level keys. Pydantic's ``extra="forbid"`` will
+    # otherwise reject any LLM-invented extra (e.g. "evaluation_summary")
+    # without the coercer getting a chance to run.
+    for extra_key in list(out.keys()):
+        if extra_key not in _ROUND_1_MOTION_ALLOWED_KEYS:
+            out.pop(extra_key, None)
+
+    # Step 3: canonicalize evidence_refs on every claim array, and drop
+    # title/detail aliases so SupportedClaim's strict schema accepts the
+    # result.
     for field in (
         "top_findings",
         "role_specific_risks",
@@ -252,6 +430,25 @@ def _coerce_round1_motion_mapping(
         val = out.get(field)
         if isinstance(val, list):
             out[field] = _coerce_claim_list(val, evidence_board)
+
+    # Step 4: fix formal_blockers *before* Pydantic validates. Must run after
+    # step 3 so evidence_refs are canonicalized (allowing _claim_dict_has_
+    # formal_blocker_evidence to match against the board).
+    _coerce_formal_blockers_for_role(out, evidence_board)
+
+    # Step 5: normalize requirement_type strings anywhere a claim or finding
+    # carries one.
+    for field in (
+        "top_findings",
+        "role_specific_risks",
+        "formal_blockers",
+        "potential_blockers",
+    ):
+        val = out.get(field)
+        if isinstance(val, list):
+            for item in val:
+                _normalize_requirement_type_in_place(item)
+
     validation_errors = out.get("validation_errors")
     if isinstance(validation_errors, list):
         out["validation_errors"] = [
@@ -291,6 +488,13 @@ def validate_round_1_motion_output(
             field_path="agent_role",
         )
 
+    # Defensible coercion: drop claims whose evidence refs do not resolve
+    # against the board. The canonicalizer already tried every field-swap the
+    # LLM commonly makes; anything still unresolvable is a hallucinated
+    # citation with no audit trail. Dropping it lets the run proceed on the
+    # claims that ARE grounded rather than failing the whole motion.
+    output = _drop_unsupported_claims(output, evidence_board=evidence_board)
+
     if not output.top_findings:
         raise Round1MotionValidationError(
             "Round 1 specialist motions require at least one evidence-backed finding.",
@@ -325,10 +529,12 @@ def validate_round_1_motion_output(
         evidence_board=evidence_board,
         field_name="formal_blockers",
     )
-    _validate_formal_blocker_requirement_types(
-        output.formal_blockers,
-        evidence_board=evidence_board,
-    )
+    # NOTE: the formal_blockers requirement_type check and non-compliance
+    # clearing now happen pre-validate inside `_coerce_round1_motion_mapping`.
+    # By the time we reach here, formal_blockers contains only entries whose
+    # evidence is exclusion_ground / qualification_requirement AND the agent
+    # is compliance_officer — so the historical `_coerce_invalid_formal_blockers`
+    # call that used to live here is a no-op and has been removed.
     _validate_supported_claims(
         output.potential_blockers,
         evidence_board=evidence_board,
@@ -466,6 +672,48 @@ def _is_formal_blocker_evidence(evidence: EvidenceItemState) -> bool:
         evidence.source_type is EvidenceSourceType.TENDER_DOCUMENT
         and evidence.requirement_type in _FORMAL_BLOCKER_REQUIREMENT_TYPES
     )
+
+
+def _drop_unsupported_claims(
+    output: Round1Motion,
+    *,
+    evidence_board: Sequence[EvidenceItemState],
+) -> Round1Motion:
+    """Drop claims whose evidence refs cannot be resolved against the board,
+    and drop evidence refs within kept claims that don't resolve. A claim
+    with zero resolvable refs is removed entirely (the schema requires at
+    least one ref per claim). This tolerates LLM citation drift without
+    crashing the run.
+    """
+    changed = False
+    updates: dict[str, list[Any]] = {}
+    for field_name in (
+        "top_findings",
+        "role_specific_risks",
+        "formal_blockers",
+        "potential_blockers",
+    ):
+        original_claims: Sequence[Any] = getattr(output, field_name)
+        kept_claims: list[Any] = []
+        for claim in original_claims:
+            resolved_refs = [
+                ref
+                for ref in claim.evidence_refs
+                if _matching_evidence_item(ref, evidence_board) is not None
+            ]
+            if not resolved_refs:
+                changed = True
+                continue
+            if len(resolved_refs) != len(claim.evidence_refs):
+                changed = True
+                kept_claims.append(claim.model_copy(update={"evidence_refs": resolved_refs}))
+            else:
+                kept_claims.append(claim)
+        updates[field_name] = kept_claims
+
+    if not changed:
+        return output
+    return output.model_copy(update=updates)
 
 
 def _all_material_evidence_refs(output: Round1Motion) -> list[EvidenceReference]:

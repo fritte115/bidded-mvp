@@ -33,6 +33,17 @@ from bidded.orchestration.state import EvidenceItemState
 def _catalog(board: Sequence[EvidenceItemState]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for e in board:
+        # `requirement_type` is the classification used by the orchestrator to
+        # gate which evidence a specialist may cite for formal_blockers. Expose
+        # it on every row so the LLM can filter without guessing.
+        requirement_type: str | None = None
+        raw_req_type = getattr(e, "requirement_type", None)
+        if raw_req_type is not None:
+            requirement_type = (
+                raw_req_type.value
+                if hasattr(raw_req_type, "value")
+                else str(raw_req_type)
+            )
         rows.append(
             {
                 "evidence_key": e.evidence_key,
@@ -42,6 +53,7 @@ def _catalog(board: Sequence[EvidenceItemState]) -> list[dict[str, Any]]:
                 "normalized_meaning": (e.normalized_meaning or "")[:800],
                 "field_path": e.field_path,
                 "category": e.category,
+                "requirement_type": requirement_type,
             }
         )
     return rows
@@ -194,7 +206,20 @@ class AnthropicRound1Model:
                 "concrete evidence_ref for an item, do NOT put it in those arrays. "
                 "Instead, put the plain text into potential_evidence_gaps (a list "
                 "of strings) or missing_info. An empty evidence_refs array is "
-                "invalid and the run will fail."
+                "invalid and the run will fail. "
+                "HARD RULE for formal_blockers — EVERY formal_blocker claim MUST "
+                "cite at least one evidence_ref whose source_type is "
+                "'tender_document' AND whose requirement_type is EXACTLY one of: "
+                "'exclusion_ground' or 'qualification_requirement'. Check the "
+                "`requirement_type` field on each catalog row before citing. If "
+                "NO catalog row has requirement_type='exclusion_ground' or "
+                "'qualification_requirement', you MUST return formal_blockers: [] "
+                "and surface the concern via potential_blockers or missing_info "
+                "instead. A compliance concern grounded in any other "
+                "requirement_type (shall_requirement, submission_document, "
+                "contract_obligation, quality_management, financial_standing, "
+                "legal_or_regulatory_reference) belongs in potential_blockers, "
+                "NOT formal_blockers."
             )
         )
         data = anthropic_complete_json(

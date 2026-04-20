@@ -1,8 +1,8 @@
-// Deterministic mock bid estimator.
+// Deterministic bid estimator.
 // Structured so a future edge function can swap in real numbers without
 // changing the UI: same input shape, same output shape.
 
-import { company } from "@/data/mock";
+import type { Company } from "@/data/mock";
 
 export interface BidEstimateInput {
   id: string;
@@ -61,7 +61,7 @@ function roundTo(n: number, step = 5): number {
   return Math.round(n / step) * step;
 }
 
-export function estimateBid(p: BidEstimateInput): BidEstimate {
+export function estimateBid(p: BidEstimateInput, company: Company): BidEstimate {
   const targetMargin = parseTargetMargin(company.financialAssumptions.targetMargin);
   const fitMultiplier = FIT_MULTIPLIER[p.strategicFit];
 

@@ -23,6 +23,7 @@ import {
   createBid,
   fetchBid,
   updateBid,
+  fetchCompany,
 } from "@/lib/api";
 import { decisionToEstimateInput } from "@/lib/bidIntegrationMapping";
 import { bidStatusLabel, bidStatusOrder, type BidStatus, type DecisionSummary } from "@/data/mock";
@@ -129,6 +130,12 @@ export default function BidEditor() {
     enabled: isEditMode,
   });
 
+  const { data: companyData } = useQuery({
+    queryKey: ["company"],
+    queryFn: fetchCompany,
+  });
+  const company = companyData?.company;
+
   const [procurementId, setProcurementId] = useState<string>(
     params.get("procurement") ?? "",
   );
@@ -166,9 +173,9 @@ export default function BidEditor() {
     selectedDecision?.isDraftable ? selectedDecision : null;
 
   const estimate = useMemo(() => {
-    if (!procRow) return null;
-    return estimateBid(decisionToEstimateInput(selectedDecision, procRow.id));
-  }, [procRow, selectedDecision]);
+    if (!procRow || !company) return null;
+    return estimateBid(decisionToEstimateInput(selectedDecision, procRow.id), company);
+  }, [procRow, selectedDecision, company]);
 
   useEffect(() => {
     if (isEditMode && existingBid) {
@@ -197,13 +204,14 @@ export default function BidEditor() {
 
   const onPickProcurement = (id: string) => {
     setProcurementId(id);
+    if (!company) return;
     const decision =
       decisions.find(
         (d) =>
           d.tenderId === id &&
           (d.verdict === "BID" || d.verdict === "CONDITIONAL_BID"),
       ) ?? decisions.find((d) => d.tenderId === id);
-    const e = estimateBid(decisionToEstimateInput(decision ?? null, id));
+    const e = estimateBid(decisionToEstimateInput(decision ?? null, id), company);
     setRate(e.recommendedRate);
     setMargin(e.inputs.targetMarginPct);
     if (!isEditMode) {

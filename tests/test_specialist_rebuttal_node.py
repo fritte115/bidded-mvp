@@ -90,9 +90,14 @@ class InvalidEvidenceRound2Model(RecordingRound2Model):
     def draft_rebuttal(self, request: Round2RebuttalRequest) -> dict[str, Any]:
         payload = super().draft_rebuttal(request)
         if request.agent_role is AgentRole.RED_TEAM:
-            payload["targeted_disagreements"][0]["evidence_refs"][0]["evidence_id"] = (
-                str(UNKNOWN_EVIDENCE_ID)
-            )
+            # Fully hallucinated ref: both evidence_id AND evidence_key are
+            # unknown so the canonicalizer has nothing to rescue. The drop-pass
+            # will strip this ref, leaving the rebuttal with zero refs on the
+            # targeted_disagreement — which Pydantic will reject because the
+            # schema requires min_length=1 on evidence_refs.
+            ref = payload["targeted_disagreements"][0]["evidence_refs"][0]
+            ref["evidence_id"] = str(UNKNOWN_EVIDENCE_ID)
+            ref["evidence_key"] = "TENDER-HALLUCINATED-DOES-NOT-EXIST"
         return payload
 
 
@@ -269,7 +274,13 @@ def test_round_2_rebuttals_read_motions_and_persist_audit_rows() -> None:
     assert red_team_row.payload["revised_stance"] == "no_bid"
 
 
-def test_invalid_round_2_rebuttal_fails_before_round_2_persistence() -> None:
+def test_invalid_round_2_rebuttal_drops_hallucinated_disagreement() -> None:
+    """A Round 2 rebuttal whose targeted_disagreement cites fully hallucinated
+    evidence (unresolvable by key OR id) gets that disagreement dropped rather
+    than failing the whole run. The rebuttal's other focus points (unsupported
+    claims, blocker challenges, missing info) still satisfy the "must focus on
+    something" rule, so the run proceeds.
+    """
     handlers = replace(
         default_graph_node_handlers(),
         round_1_specialist=_round_1_motion,
@@ -278,20 +289,18 @@ def test_invalid_round_2_rebuttal_fails_before_round_2_persistence() -> None:
 
     result = run_bidded_graph_shell(_ready_state(), handlers=handlers)
 
-    assert result.visited_nodes[-3:] == (
-        GraphRouteNode.ROUND_2_JOIN,
-        GraphRouteNode.FAILED,
-        GraphRouteNode.END,
-    )
-    assert result.state.status is AgentRunStatus.FAILED
-    assert result.state.retry_counts == {GraphRouteNode.ROUND_2_RED_TEAM.value: 2}
+    assert result.state.status is AgentRunStatus.SUCCEEDED
     assert set(result.state.motions) == set(SpecialistRole)
-    assert result.state.rebuttals == {}
-    assert any(
-        output.round_name == "round_1_motion" for output in result.state.agent_outputs
+    # Red Team's rebuttal persists, with the hallucinated disagreement dropped.
+    red_team_rebuttal = next(
+        output
+        for output in result.state.agent_outputs
+        if output.round_name == "round_2_rebuttal"
+        and output.agent_role == "red_team"
     )
-    assert not any(
-        output.round_name == "round_2_rebuttal" for output in result.state.agent_outputs
-    )
-    assert result.state.validation_errors
-    assert "not present in evidence_board" in result.state.validation_errors[-1].message
+    hallucinated_keys = {
+        ref["evidence_key"]
+        for d in red_team_rebuttal.payload.get("targeted_disagreements", [])
+        for ref in d.get("evidence_refs", [])
+    }
+    assert "TENDER-HALLUCINATED-DOES-NOT-EXIST" not in hallucinated_keys
