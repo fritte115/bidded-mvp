@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -26,6 +27,7 @@ import {
 } from "@/data/mock";
 import { decisionToEstimateInput } from "@/lib/bidIntegrationMapping";
 import { estimateBid, formatSEK } from "@/lib/bidEstimator";
+import { fetchCompany } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -72,8 +74,15 @@ function relativeDeadline(d: Date): { label: string; tone: string } {
 }
 
 export function BidCard({ bid, onMove, onEdit }: Props) {
-  const estimate = bid.decision
-    ? estimateBid(decisionToEstimateInput(bid.decision, bid.procurementId))
+  const { data: companyData } = useQuery({
+    queryKey: ["company"],
+    queryFn: fetchCompany,
+  });
+  const estimate = bid.decision && companyData
+    ? estimateBid(
+        decisionToEstimateInput(bid.decision, bid.procurementId),
+        companyData.company,
+      )
     : null;
   const deltaPct = estimate
     ? Math.round(((bid.rateSEK - estimate.recommendedRate) / estimate.recommendedRate) * 1000) / 10

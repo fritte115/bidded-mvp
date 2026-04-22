@@ -122,16 +122,68 @@ export interface Run {
 
 export interface Company {
   name: string;
+  legalName?: string;
   orgNumber: string;
+  vatNumber?: string;
+  founded?: number;
   size: string;
+  headcount?: number;
   hq: string;
+  offices?: string[];
+  website?: string;
+  email?: string;
+  phone?: string;
+  description?: string;
+  leadership?: { name: string; title: string; email?: string }[];
+  industries?: string[];
   capabilities: string[];
   certifications: { name: string; issuer: string; validUntil: string }[];
-  references: { client: string; scope: string; value: string; year: number }[];
+  references: {
+    client: string;
+    scope: string;
+    value: string;
+    year: number;
+    sector?: string;
+    duration?: string;
+    outcome?: string;
+  }[];
   financialAssumptions: {
     revenueRange: string;
     targetMargin: string;
     maxContractSize: string;
+  };
+  financials?: {
+    year: number;
+    revenueMSEK: number;
+    ebitMarginPct: number;
+    headcount: number;
+  }[];
+  teamComposition?: { role: string; count: number; avgYears: number }[];
+  insurance?: { type: string; insurer: string; coverage: string }[];
+  frameworkAgreements?: {
+    name: string;
+    authority: string;
+    validUntil: string;
+    status: "Active" | "Expiring" | "Expired";
+  }[];
+  securityPosture?: {
+    item: string;
+    status: "Implemented" | "Partial" | "Planned";
+    note?: string;
+  }[];
+  sustainability?: {
+    co2ReductionPct: number;
+    renewableEnergyPct: number;
+    diversityPct: number;
+    codeOfConductSigned: boolean;
+  };
+  bidStats?: {
+    totalBids: number;
+    won: number;
+    lost: number;
+    inProgress: number;
+    winRatePct: number;
+    avgContractMSEK: number;
   };
 }
 

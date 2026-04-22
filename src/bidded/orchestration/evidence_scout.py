@@ -19,7 +19,11 @@ from bidded.orchestration.evidence_recall import (
     EvidenceRecallWarning,
     audit_evidence_recall,
 )
-from bidded.orchestration.evidence_refs import resolve_evidence_ref_dict_against_board
+from bidded.orchestration.evidence_refs import (
+    coerce_evidence_refs,
+    resolve_evidence_ref_dict_against_board,
+)
+from bidded.requirements import RequirementType
 from bidded.orchestration.graph import GraphRouteNode, InvalidGraphOutput, ScoutHandler
 from bidded.orchestration.state import (
     BidRunState,
@@ -210,22 +214,15 @@ def _merge_title_detail_into_claim(item: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _resolve_ref_against_board(
-    ref_dict: dict[str, Any],
-    board: Sequence[EvidenceItemState],
-) -> dict[str, Any]:
-    return resolve_evidence_ref_dict_against_board(ref_dict, board)
-
-
 def _coerce_refs_list(
     refs: Any,
     board: Sequence[EvidenceItemState],
-) -> list[Any]:
-    if not isinstance(refs, list):
-        return refs
-    return [
-        _resolve_ref_against_board(r, board) if isinstance(r, dict) else r for r in refs
-    ]
+) -> list[dict[str, Any]]:
+    """Normalize LLM-produced ``evidence_refs`` via the shared canonicalizer.
+
+    See :func:`bidded.orchestration.evidence_refs.coerce_evidence_refs`.
+    """
+    return coerce_evidence_refs(refs, board)
 
 
 _FINDING_ALLOWED_KEYS = frozenset(
@@ -233,14 +230,45 @@ _FINDING_ALLOWED_KEYS = frozenset(
 )
 
 
+def _normalize_requirement_type(value: Any) -> Any:
+    """Coerce a free-text ``requirement_type`` string to the enum value form.
+
+    The LLM sometimes emits e.g. ``"Qualification Requirement"`` or
+    ``"shall-requirement"`` rather than the canonical ``"shall_requirement"``.
+    Unknown values are dropped (set to None) rather than raising — it's
+    metadata, not load-bearing.
+    """
+    if value is None or isinstance(value, RequirementType):
+        return value
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower().replace(" ", "_").replace("-", "_")
+    try:
+        return RequirementType(normalized).value
+    except ValueError:
+        return None
+
+
 def _coerce_finding_item(
     item: dict[str, Any],
     board: Sequence[EvidenceItemState],
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
+    """Normalize one scout finding dict.
+
+    Returns ``None`` when the finding cannot be made schema-valid — specifically
+    when after canonicalization there are zero resolvable evidence_refs (the
+    schema requires ``min_length=1``). The caller drops ``None`` results so the
+    finding doesn't survive into ``model_validate``.
+    """
     out = _merge_title_detail_into_claim(item)
     refs = out.get("evidence_refs")
-    if refs is not None:
-        out["evidence_refs"] = _coerce_refs_list(refs, board)
+    out["evidence_refs"] = _coerce_refs_list(refs, board) if refs is not None else []
+    if not out["evidence_refs"]:
+        # A finding with zero resolvable refs is a hallucinated citation with
+        # nothing behind it. Drop the whole finding.
+        return None
+    if "requirement_type" in out:
+        out["requirement_type"] = _normalize_requirement_type(out["requirement_type"])
     # Whitelist: drop any extra keys Claude invents (relevance_note, etc.)
     return {k: v for k, v in out.items() if k in _FINDING_ALLOWED_KEYS}
 
@@ -268,12 +296,50 @@ def _normalize_agent_role(value: Any) -> Any:
     return value
 
 
+_EVIDENCE_SCOUT_ALLOWED_KEYS = frozenset(
+    {
+        "agent_role",
+        "findings",
+        "missing_info",
+        "potential_blockers",
+        "validation_errors",
+    }
+)
+
+# Keys that indicate a semantic role violation (not drift) and must NOT be
+# silently stripped by the whitelist. ``verdict`` / ``vote`` / ``recommendation``
+# would mean the scout started issuing bid recommendations, which the PRD
+# explicitly prohibits ("Evidence Scout extracts facts but does not recommend
+# bid/no-bid"). These are kept in the payload so Pydantic's ``extra="forbid"``
+# rejects them loudly rather than letting the scout overreach go unnoticed.
+_EVIDENCE_SCOUT_FORBIDDEN_SEMANTIC_KEYS = frozenset(
+    {"verdict", "vote", "recommendation"}
+)
+
+
 def _coerce_evidence_scout_mapping(
     raw: Mapping[str, Any],
     evidence_board: Sequence[EvidenceItemState],
 ) -> dict[str, Any]:
-    """Normalize field aliases and resolve evidence_ids before Pydantic validation."""
+    """Heal LLM-drift shape issues before strict Pydantic validation.
+
+    Matches the Round 1 / Round 2 coercer: whitelists top-level keys so
+    extras don't trip ``extra="forbid"``, canonicalizes each finding's
+    evidence_refs via the shared helper, drops findings that end up with
+    zero resolvable refs (schema requires ``min_length=1``), and normalizes
+    ``agent_role``.
+    """
     out = dict(raw)
+
+    # Whitelist top-level keys. Keys in the "forbidden semantic" set (verdict,
+    # vote, recommendation) are preserved so Pydantic's ``extra="forbid"``
+    # rejects them — a scout producing those would be a role-boundary
+    # violation, not a typo-grade drift we want to silently heal.
+    for extra_key in list(out.keys()):
+        if extra_key in _EVIDENCE_SCOUT_FORBIDDEN_SEMANTIC_KEYS:
+            continue
+        if extra_key not in _EVIDENCE_SCOUT_ALLOWED_KEYS:
+            out.pop(extra_key, None)
 
     # Normalize agent_role: 'Evidence Scout' → 'evidence_scout'
     if "agent_role" in out:
@@ -281,10 +347,15 @@ def _coerce_evidence_scout_mapping(
 
     findings = out.get("findings")
     if isinstance(findings, list):
-        out["findings"] = [
-            _coerce_finding_item(f, evidence_board) if isinstance(f, dict) else f
-            for f in findings
-        ]
+        coerced_findings: list[dict[str, Any]] = []
+        for f in findings:
+            if not isinstance(f, dict):
+                continue
+            coerced = _coerce_finding_item(f, evidence_board)
+            if coerced is None:
+                continue
+            coerced_findings.append(coerced)
+        out["findings"] = coerced_findings
 
     blockers = out.get("potential_blockers")
     if isinstance(blockers, list):
@@ -304,7 +375,16 @@ def validate_evidence_scout_output(
     *,
     evidence_board: Sequence[EvidenceItemState],
 ) -> EvidenceScoutOutput:
-    """Validate strict scout schema and evidence refs against the board."""
+    """Validate strict scout schema and evidence refs against the board.
+
+    Defensible coercion: findings whose evidence refs do not resolve against
+    the board are dropped rather than failing the whole run. The canonicalizer
+    already tries every field-swap the LLM commonly makes; if a ref is *still*
+    unresolvable, it is a hallucinated citation with no audit trail and cannot
+    be trusted. Dropping it lets the swarm continue with the findings it *can*
+    substantiate — the scout's remaining findings, plus potential_blockers /
+    missing_info, are still enough material for Round 1 specialists.
+    """
 
     try:
         if isinstance(raw_output, EvidenceScoutOutput):
@@ -319,6 +399,8 @@ def validate_evidence_scout_output(
             field_path=_field_path_from_validation_error(exc),
         ) from exc
 
+    output = _drop_unresolvable_refs(output, evidence_board=evidence_board)
+
     for finding_index, finding in enumerate(output.findings):
         _validate_evidence_refs(
             finding.evidence_refs,
@@ -327,6 +409,38 @@ def validate_evidence_scout_output(
         )
 
     return output
+
+
+def _drop_unresolvable_refs(
+    output: EvidenceScoutOutput,
+    *,
+    evidence_board: Sequence[EvidenceItemState],
+) -> EvidenceScoutOutput:
+    """Remove evidence_refs that do not match any board item; drop findings
+    left with zero refs (the scout schema requires at least one per finding).
+    """
+    kept_findings: list[Any] = []
+    for finding in output.findings:
+        resolved_refs = [
+            ref
+            for ref in finding.evidence_refs
+            if _matching_evidence_item(ref, evidence_board) is not None
+        ]
+        if not resolved_refs:
+            # Scout finding without any resolvable citation — drop it. The
+            # concern may already be surfaced via potential_blockers /
+            # missing_info; if not, Round 1 specialists will still have the
+            # full evidence_board to reason from.
+            continue
+        kept_findings.append(finding.model_copy(update={"evidence_refs": resolved_refs}))
+
+    if len(kept_findings) == len(output.findings) and all(
+        len(a.evidence_refs) == len(b.evidence_refs)
+        for a, b in zip(kept_findings, output.findings, strict=False)
+    ):
+        return output
+
+    return output.model_copy(update={"findings": kept_findings})
 
 
 def scout_output_state_from_agent_output(

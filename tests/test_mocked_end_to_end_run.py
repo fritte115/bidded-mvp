@@ -115,8 +115,14 @@ def test_mocked_end_to_end_run_persists_evidence_locked_swarm(
     terminal_state = graph_results[0].state
     assert terminal_state.status is AgentRunStatus.SUCCEEDED
     assert terminal_state.retry_counts[GraphRouteNode.ROUND_1_COMPLIANCE.value] == 1
+    # Attempt 1 emitted a finding with empty evidence_refs. The pre-validate
+    # coercer drops claims with zero resolvable refs, so the payload now
+    # fails the "at least one evidence-backed finding" check on
+    # ``top_findings`` instead of the per-claim ``min_length=1`` check on
+    # ``evidence_refs``. Both indicate the same underlying problem
+    # (an unverifiable claim) and both trigger a retry.
     assert any(
-        "evidence_refs" in str(error.field_path)
+        error.field_path == "top_findings"
         and "Unverified subcontractor" not in error.message
         for error in terminal_state.validation_errors
     )

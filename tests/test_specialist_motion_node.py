@@ -135,6 +135,54 @@ class MutatedEvidenceKeyModel(RecordingRound1Model):
         return payload
 
 
+class UuidPastedIntoBothFieldsModel(RecordingRound1Model):
+    """Simulates the LLM pasting the same UUID into evidence_key AND evidence_id.
+
+    Observed in production (see the SiS tender run logs). The canonicalizer's
+    "key-as-id" match branch rescues this by recognizing the evidence_key
+    slot contains what's actually a UUID.
+    """
+
+    def draft_motion(self, request: Round1SpecialistRequest) -> dict[str, Any]:
+        payload = super().draft_motion(request)
+        for field in ("top_findings", "role_specific_risks"):
+            for claim in payload.get(field, []):
+                for ref in claim.get("evidence_refs", []):
+                    if ref.get("evidence_id") == str(TENDER_EVIDENCE_ID):
+                        ref["evidence_key"] = str(TENDER_EVIDENCE_ID)
+        return payload
+
+
+class MissingEvidenceIdModel(RecordingRound1Model):
+    """Simulates the LLM emitting only ``evidence_key`` without ``evidence_id``.
+
+    ``SupportedClaim.validate_evidence_ids`` would reject a null evidence_id
+    pre-coercion; the shared canonicalizer fills it in by looking up the key
+    against the evidence board.
+    """
+
+    def draft_motion(self, request: Round1SpecialistRequest) -> dict[str, Any]:
+        payload = super().draft_motion(request)
+        for field in ("top_findings", "role_specific_risks"):
+            for claim in payload.get(field, []):
+                for ref in claim.get("evidence_refs", []):
+                    ref.pop("evidence_id", None)
+        return payload
+
+
+class ExtraTopLevelKeyModel(RecordingRound1Model):
+    """Simulates the LLM adding an un-schema'd top-level key like
+    ``evaluation_summary``. ``StrictAgentOutputModel`` sets
+    ``extra="forbid"`` so without the whitelist step this would abort.
+    """
+
+    def draft_motion(self, request: Round1SpecialistRequest) -> dict[str, Any]:
+        payload = super().draft_motion(request)
+        payload["evaluation_summary"] = "Looks like a solid opportunity."
+        payload["reasoning"] = "Strong alignment with prior engagements."
+        return payload
+
+
 def _ready_state() -> BidRunState:
     return BidRunState(
         run_id=RUN_ID,
@@ -369,7 +417,14 @@ def test_compliance_request_includes_evidence_recall_warnings() -> None:
     assert "financial_standing" in request.evidence_recall_warnings[0].missing_info
 
 
-def test_non_compliance_formal_blocker_fails_before_round_1_persistence() -> None:
+def test_non_compliance_formal_blocker_is_migrated_to_potential_blocker() -> None:
+    """A non-compliance specialist that wrongly populates ``formal_blockers``
+    no longer aborts the run. The pre-validate coercer migrates every entry
+    into ``potential_blockers`` and clears ``formal_blockers``, so the
+    Pydantic ``@model_validator`` that would have rejected it never fires.
+    The concern is preserved — the Judge still weighs it — but it does not
+    automatically gate to no_bid.
+    """
     handlers = replace(
         default_graph_node_handlers(),
         round_1_specialist=build_round_1_specialist_handler(
@@ -379,32 +434,33 @@ def test_non_compliance_formal_blocker_fails_before_round_1_persistence() -> Non
 
     result = run_bidded_graph_shell(_ready_state(), handlers=handlers)
 
-    assert result.visited_nodes[:2] == (
-        GraphRouteNode.PREFLIGHT,
-        GraphRouteNode.EVIDENCE_SCOUT,
+    assert result.state.status is AgentRunStatus.SUCCEEDED
+    win_motion = next(
+        output
+        for output in result.state.agent_outputs
+        if output.round_name == "round_1_motion"
+        and output.agent_role == SpecialistRole.WIN_STRATEGIST.value
     )
-    assert set(result.visited_nodes[2:6]) == {
-        GraphRouteNode.ROUND_1_COMPLIANCE,
-        GraphRouteNode.ROUND_1_WIN_STRATEGIST,
-        GraphRouteNode.ROUND_1_DELIVERY_CFO,
-        GraphRouteNode.ROUND_1_RED_TEAM,
-    }
-    assert result.visited_nodes[-3:] == (
-        GraphRouteNode.ROUND_1_JOIN,
-        GraphRouteNode.FAILED,
-        GraphRouteNode.END,
-    )
-    assert result.state.status is AgentRunStatus.FAILED
-    assert result.state.retry_counts == {GraphRouteNode.ROUND_1_WIN_STRATEGIST.value: 2}
-    assert result.state.motions == {}
-    assert not any(
-        output.round_name == "round_1_motion" for output in result.state.agent_outputs
-    )
-    assert result.state.validation_errors
-    assert "formal_blockers" in result.state.validation_errors[-1].message
+    # formal_blockers is empty on the persisted motion...
+    assert win_motion.payload["formal_blockers"] == []
+    # ...and the blocker text survives under potential_blockers with its
+    # original evidence_ref intact.
+    migrated = [
+        b
+        for b in win_motion.payload["potential_blockers"]
+        if b["claim"] == "Win Strategist must not mark formal blockers."
+    ]
+    assert len(migrated) == 1
+    assert migrated[0]["evidence_refs"][0]["evidence_key"] == "TENDER-SHALL-001"
 
 
-def test_financial_proof_gap_cannot_be_compliance_formal_blocker() -> None:
+def test_financial_proof_gap_demoted_to_potential_blocker() -> None:
+    """A compliance_officer claim that cites FINANCIAL_STANDING evidence as a
+    formal_blocker should be auto-demoted to potential_blockers rather than
+    failing the whole run. Formal blockers gate to no_bid and therefore require
+    exclusion_ground or qualification_requirement evidence; financial-standing
+    concerns still surface as potential blockers for the Judge to weigh.
+    """
     handlers = replace(
         default_graph_node_handlers(),
         round_1_specialist=build_round_1_specialist_handler(
@@ -417,16 +473,24 @@ def test_financial_proof_gap_cannot_be_compliance_formal_blocker() -> None:
         handlers=handlers,
     )
 
-    assert result.state.status is AgentRunStatus.FAILED
-    assert result.state.motions == {}
-    assert not any(
-        output.round_name == "round_1_motion" for output in result.state.agent_outputs
+    assert result.state.status is AgentRunStatus.SUCCEEDED
+    compliance_motion = next(
+        output
+        for output in result.state.agent_outputs
+        if output.round_name == "round_1_motion"
+        and output.agent_role == "compliance_officer"
     )
-    assert result.state.validation_errors
-    assert "formal_blockers" in result.state.validation_errors[-1].field_path
-    assert "exclusion_ground or qualification_requirement" in (
-        result.state.validation_errors[-1].message
-    )
+    # The claim is no longer in formal_blockers...
+    assert compliance_motion.payload["formal_blockers"] == []
+    # ...it has been demoted to potential_blockers, preserving the claim text
+    # and the same evidence_ref.
+    demoted = [
+        b
+        for b in compliance_motion.payload["potential_blockers"]
+        if b["claim"] == "Missing credit report evidence is a hard no-bid blocker."
+    ]
+    assert len(demoted) == 1
+    assert demoted[0]["evidence_refs"][0]["evidence_key"] == "TENDER-FINANCIAL-001"
 
 
 def test_round_1_canonicalizes_evidence_key_from_matching_id() -> None:
@@ -465,3 +529,88 @@ def _financial_ref() -> dict[str, str]:
         "source_type": "tender_document",
         "evidence_id": str(FINANCIAL_EVIDENCE_ID),
     }
+
+
+def test_round_1_heals_uuid_pasted_into_evidence_key() -> None:
+    """Classic LLM drift: same UUID in both evidence_key and evidence_id.
+
+    Pre-coercion canonicalizer recognizes the key slot holds a UUID and
+    rebuilds the ref from the board item that matches. Without this healing
+    SupportedClaim.validate_evidence_ids would pass (id is present) but the
+    downstream board-membership check would fail because evidence_key
+    doesn't match any board item.
+    """
+    handlers = replace(
+        default_graph_node_handlers(),
+        round_1_specialist=build_round_1_specialist_handler(
+            UuidPastedIntoBothFieldsModel()
+        ),
+    )
+
+    result = run_bidded_graph_shell(_ready_state(), handlers=handlers)
+
+    assert result.state.status is AgentRunStatus.SUCCEEDED
+    motion_rows = [
+        output
+        for output in result.state.agent_outputs
+        if output.round_name == "round_1_motion"
+    ]
+    assert motion_rows
+    # Every persisted evidence_ref carries the canonical human-readable key,
+    # not the UUID the LLM accidentally pasted there.
+    for output in motion_rows:
+        for claim in output.payload["top_findings"]:
+            for ref in claim["evidence_refs"]:
+                if ref["evidence_id"] == str(TENDER_EVIDENCE_ID):
+                    assert ref["evidence_key"] == "TENDER-SHALL-001"
+
+
+def test_round_1_fills_missing_evidence_id_from_key() -> None:
+    """LLM emits only ``evidence_key``; the canonicalizer fills the missing
+    evidence_id from the board (since the key is unambiguous).
+    """
+    handlers = replace(
+        default_graph_node_handlers(),
+        round_1_specialist=build_round_1_specialist_handler(MissingEvidenceIdModel()),
+    )
+
+    result = run_bidded_graph_shell(_ready_state(), handlers=handlers)
+
+    assert result.state.status is AgentRunStatus.SUCCEEDED
+    motion_rows = [
+        output
+        for output in result.state.agent_outputs
+        if output.round_name == "round_1_motion"
+    ]
+    assert motion_rows
+    for output in motion_rows:
+        for claim in output.payload["top_findings"]:
+            for ref in claim["evidence_refs"]:
+                # Every ref is canonical: key, source_type, AND evidence_id.
+                assert ref.get("evidence_id") is not None
+                assert len(ref["evidence_id"]) > 0
+
+
+def test_round_1_drops_extra_top_level_keys() -> None:
+    """LLM sprinkles unspec'd keys like ``evaluation_summary``. The
+    top-level whitelist strips them pre-validate so Pydantic's
+    ``extra="forbid"`` doesn't trip.
+    """
+    handlers = replace(
+        default_graph_node_handlers(),
+        round_1_specialist=build_round_1_specialist_handler(ExtraTopLevelKeyModel()),
+    )
+
+    result = run_bidded_graph_shell(_ready_state(), handlers=handlers)
+
+    assert result.state.status is AgentRunStatus.SUCCEEDED
+    motion_rows = [
+        output
+        for output in result.state.agent_outputs
+        if output.round_name == "round_1_motion"
+    ]
+    assert motion_rows
+    # Persisted payload doesn't carry the stripped extras.
+    for output in motion_rows:
+        assert "evaluation_summary" not in output.payload
+        assert "reasoning" not in output.payload
