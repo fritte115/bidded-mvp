@@ -24,6 +24,7 @@ import {
   bidStatusLabel,
   bidStatusOrder,
   formatDate,
+  verdictLabel,
 } from "@/data/mock";
 import { decisionToEstimateInput } from "@/lib/bidIntegrationMapping";
 import { estimateBid, formatSEK } from "@/lib/bidEstimator";
@@ -124,7 +125,7 @@ export function BidCard({ bid, onMove, onEdit }: Props) {
             Agent decision
           </span>
           <span className="whitespace-nowrap font-mono text-[11px] font-semibold tabular-nums text-foreground">
-            {bid.decision.verdict.replace(/_/g, " ")} · {bid.decision.confidence}%
+            {verdictLabel[bid.decision.verdict]} · {bid.decision.confidence}%
           </span>
         </div>
       )}

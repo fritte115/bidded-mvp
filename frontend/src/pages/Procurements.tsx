@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/table";
 import { StatusBadge } from "@/components/StatusBadge";
 import { VerdictBadge } from "@/components/VerdictBadge";
-import { formatRelativeTime } from "@/data/mock";
+import { formatRelativeTime, runDisplayId } from "@/data/mock";
 import { fetchProcurements, deleteProcurement, startAgentRun } from "@/lib/api";
 import { ParseStatusBadge } from "@/components/ParseStatusBadge";
 import {
@@ -58,11 +58,6 @@ import {
 } from "@/components/ui/alert-dialog";
 
 type RunFilter = "all" | "not_run" | "running" | "done";
-
-/** Short display ID from UUID */
-function shortRunId(id: string): string {
-  return `RUN-${id.replace(/-/g, "").slice(0, 4).toUpperCase()}`;
-}
 
 export default function Procurements() {
   const navigate = useNavigate();
@@ -336,7 +331,7 @@ export default function Procurements() {
                               className="group inline-flex flex-col leading-tight"
                             >
                               <span className="font-medium text-foreground group-hover:text-primary group-hover:underline">
-                                {shortRunId(run.id)}
+                                {runDisplayId(run.id)}
                               </span>
                               <span className="text-xs text-muted-foreground">
                                 {formatRelativeTime(run.startedAt)}

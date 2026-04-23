@@ -1,4 +1,4 @@
-import type { Verdict } from "@/data/mock";
+import { humanizeVerdictText, type Verdict } from "@/data/mock";
 
 export type MemoBlock =
   | { type: "paragraph"; text: string }
@@ -67,7 +67,7 @@ function splitSentences(text: string): string[] {
 }
 
 function cleanSentence(text: string): string {
-  return text
+  return humanizeVerdictText(text)
     .replace(/^\s*(?:and\s+)?/i, "")
     .replace(/\s+/g, " ")
     .replace(/[,\s]+$/g, "")
