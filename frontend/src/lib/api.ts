@@ -12,6 +12,7 @@
 
 import {
   company as mockCompany,
+  bidDrafts as mockBidDrafts,
   bids as mockBids,
   findRun as findMockRun,
   latestRunForProcurement,
@@ -20,6 +21,7 @@ import {
   type AgentMotion,
   type AgentName,
   type Bid,
+  type BidResponseDraft,
   type BidStatus,
   type Company,
   type ComplianceMatrixRow,
@@ -45,6 +47,7 @@ import {
   mapCompareRows,
   mapDecisionRow,
 } from "@/lib/bidIntegrationMapping";
+import { mapBidDraftPayload, type RawBidResponseDraft } from "@/lib/bidDraftMapping";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -52,6 +55,7 @@ import {
 
 const MOCK_MODE_WRITE_MESSAGE =
   "Frontend is running in mock mode because the public Supabase env vars are missing. Copy frontend/.env.example to frontend/.env to enable live writes.";
+const generatedMockBidDrafts = new Map<string, BidResponseDraft>();
 
 /** "SE" → "Sweden", fallback to the raw value */
 const COUNTRY_NAMES: Record<string, string> = {
@@ -1896,4 +1900,56 @@ export async function startAgentRun(tenderId: string): Promise<string> {
   }
   const data = (await res.json()) as { run_id: string };
   return data.run_id;
+}
+
+export async function fetchLatestBidDraft(runId: string): Promise<BidResponseDraft | null> {
+  if (isMockMode()) {
+    const generatedDraft = generatedMockBidDrafts.get(runId);
+    if (generatedDraft) return generatedDraft;
+    return mockBidDrafts.find((draft) => draft.runId === runId) ?? null;
+  }
+
+  const res = await fetch(
+    `${AGENT_API_URL}/api/bid-drafts/latest?run_id=${encodeURIComponent(runId)}`,
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
+  }
+  const payload = (await res.json()) as RawBidResponseDraft;
+  return mapBidDraftPayload(payload, publicUrlForStoragePath);
+}
+
+export async function generateBidDraft(
+  runId: string,
+  bidId?: string,
+): Promise<BidResponseDraft> {
+  if (isMockMode()) {
+    const draft =
+      mockBidDrafts.find((draft) => draft.runId === runId) ?? {
+        ...mockBidDrafts[0],
+        runId,
+        bidId,
+      };
+    generatedMockBidDrafts.set(runId, draft);
+    return draft;
+  }
+
+  const res = await fetch(`${AGENT_API_URL}/api/bid-drafts/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ run_id: runId, bid_id: bidId ?? null }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
+  }
+  const payload = (await res.json()) as RawBidResponseDraft;
+  return mapBidDraftPayload(payload, publicUrlForStoragePath);
+}
+
+function publicUrlForStoragePath(storagePath: string): string | undefined {
+  if (!supabase) return undefined;
+  return supabase.storage.from(BUCKET_NAME).getPublicUrl(storagePath).data.publicUrl;
 }

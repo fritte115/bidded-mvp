@@ -6,6 +6,11 @@ from bidded.documents.chunk_embeddings import (
     DocumentChunkEmbeddingResult,
     populate_document_chunk_embeddings,
 )
+from bidded.documents.company_kb import (
+    CompanyKbPdfRegistrationResult,
+    CompanyKbRegistrationError,
+    register_company_kb_pdf,
+)
 from bidded.documents.pdf_ingestion import (
     ExtractedPdfPage,
     PdfDocumentChunk,
@@ -13,6 +18,7 @@ from bidded.documents.pdf_ingestion import (
     PdfIngestionResult,
     build_document_chunks,
     ensure_tender_evidence_items_for_document,
+    ingest_company_kb_pdf_document,
     ingest_tender_pdf_document,
 )
 from bidded.documents.tender_registration import (
@@ -26,6 +32,8 @@ __all__ = [
     "ChunkEmbeddingError",
     "DocumentChunkEmbeddingResult",
     "ExtractedPdfPage",
+    "CompanyKbPdfRegistrationResult",
+    "CompanyKbRegistrationError",
     "PdfDocumentChunk",
     "PdfIngestionError",
     "PdfIngestionResult",
@@ -33,7 +41,9 @@ __all__ = [
     "TenderPdfRegistrationResult",
     "build_document_chunks",
     "ensure_tender_evidence_items_for_document",
+    "ingest_company_kb_pdf_document",
     "ingest_tender_pdf_document",
     "populate_document_chunk_embeddings",
+    "register_company_kb_pdf",
     "register_demo_tender_pdf",
 ]

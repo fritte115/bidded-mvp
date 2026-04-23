@@ -13,7 +13,6 @@ from bidded.agents.schemas import (
 )
 from bidded.orchestration.evidence_refs import (
     coerce_evidence_refs,
-    resolve_evidence_ref_dict_against_board,
 )
 from bidded.orchestration.graph import (
     GraphRouteNode,
@@ -627,7 +626,9 @@ def _drop_unsupported_rebuttal_refs(
 
     def _kept(refs: Sequence[EvidenceReference]) -> list[EvidenceReference]:
         return [
-            ref for ref in refs if _matching_evidence_item(ref, evidence_board) is not None
+            ref
+            for ref in refs
+            if _matching_evidence_item(ref, evidence_board) is not None
         ]
 
     new_top_refs = _kept(output.evidence_refs)

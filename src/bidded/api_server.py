@@ -20,7 +20,10 @@ from bidded.llm.factory import resolve_graph_handlers
 from bidded.orchestration import (
     PendingRunContextError,
     WorkerLifecycleError,
+    bid_response_draft_to_payload,
     create_pending_run_context,
+    fetch_latest_bid_response_draft,
+    generate_bid_response_draft,
     run_worker_once,
 )
 from bidded.retrieval import RetrievalError
@@ -38,6 +41,11 @@ class StartRunRequest(BaseModel):
     tender_id: str
 
 
+class GenerateBidDraftRequest(BaseModel):
+    run_id: str
+    bid_id: str | None = None
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -53,8 +61,9 @@ def resync_company_evidence() -> dict[str, Any]:
     upsert can bypass RLS on `evidence_items`.
     """
     settings = load_settings()
-    from supabase import create_client  # noqa: PLC0415
     from uuid import UUID  # noqa: PLC0415
+
+    from supabase import create_client  # noqa: PLC0415
 
     client = create_client(settings.supabase_url, settings.supabase_service_role_key)
 
@@ -227,6 +236,39 @@ def start_run(req: StartRunRequest) -> dict[str, str]:
     threading.Thread(target=_run_worker, daemon=True).start()
 
     return {"run_id": run_id}
+
+
+@app.post("/api/bid-drafts/generate")
+def generate_bid_draft(req: GenerateBidDraftRequest) -> dict[str, Any]:
+    settings = load_settings()
+    from supabase import create_client  # noqa: PLC0415
+
+    client = create_client(settings.supabase_url, settings.supabase_service_role_key)
+    try:
+        draft = generate_bid_response_draft(
+            client,
+            run_id=req.run_id,
+            bid_id=req.bid_id,
+            storage_bucket=(
+                getattr(settings, "supabase_storage_bucket", None)
+                or "public-procurements"
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return bid_response_draft_to_payload(draft)
+
+
+@app.get("/api/bid-drafts/latest")
+def latest_bid_draft(run_id: str) -> dict[str, Any]:
+    settings = load_settings()
+    from supabase import create_client  # noqa: PLC0415
+
+    client = create_client(settings.supabase_url, settings.supabase_service_role_key)
+    draft = fetch_latest_bid_response_draft(client, run_id=run_id)
+    if draft is None:
+        raise HTTPException(status_code=404, detail=f"No draft for run {run_id}.")
+    return bid_response_draft_to_payload(draft)
 
 
 # ---------------------------------------------------------------------------

@@ -63,6 +63,19 @@ def _pgvector_search_sql() -> str:
     return migration_files[0].read_text()
 
 
+def _bid_response_draft_sql() -> str:
+    migration_files = sorted(
+        (PROJECT_ROOT / "supabase" / "migrations").glob(
+            "*_create_bid_response_drafts.sql"
+        )
+    )
+
+    assert [path.name for path in migration_files] == [
+        "20260423133000_create_bid_response_drafts.sql"
+    ]
+    return migration_files[0].read_text()
+
+
 def _table_body(sql: str, table_name: str) -> str:
     match = re.search(
         rf"create table if not exists public\.{table_name}\s*\((?P<body>.*?)\);",
@@ -442,3 +455,38 @@ def test_pgvector_search_migration_adds_index_and_rpc_contract() -> None:
     ) in sql
     assert "dc.embedding <=> query_embedding" in sql
     assert "least(greatest(match_count, 1), 50)" in sql
+
+
+def test_bid_response_drafts_store_evidence_locked_draft_packets() -> None:
+    sql = _bid_response_draft_sql().lower()
+    table_body = _table_body(sql, "bid_response_drafts")
+
+    for required_fragment in [
+        "id uuid primary key default gen_random_uuid()",
+        "created_at timestamptz not null default now()",
+        "updated_at timestamptz not null default now()",
+        "tenant_key text not null default 'demo'",
+        "tender_id uuid not null references public.tenders(id) on delete cascade",
+        "agent_run_id uuid not null references public.agent_runs(id) on delete cascade",
+        "bid_id uuid references public.bids(id) on delete set null",
+        "status text not null",
+        "language text not null",
+        "pricing_snapshot jsonb not null default '{}'::jsonb",
+        "answers jsonb not null default '[]'::jsonb",
+        "attachment_manifest jsonb not null default '[]'::jsonb",
+        "missing_info jsonb not null default '[]'::jsonb",
+        "source_evidence_keys jsonb not null default '[]'::jsonb",
+        "metadata jsonb not null default '{}'::jsonb",
+        (
+            "constraint bid_response_drafts_status_check "
+            "check (status in ('draft', 'needs_review', 'blocked'))"
+        ),
+        "constraint bid_response_drafts_language_check check (language <> '')",
+    ]:
+        assert required_fragment in table_body
+
+    assert "jsonb_typeof(pricing_snapshot) = 'object'" in table_body
+    assert "jsonb_typeof(answers) = 'array'" in table_body
+    assert "jsonb_typeof(attachment_manifest) = 'array'" in table_body
+    assert "create index if not exists bid_response_drafts_run_created_idx" in sql
+    assert "create trigger bid_response_drafts_set_updated_at" in sql

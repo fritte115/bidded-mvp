@@ -5,6 +5,12 @@ from types import SimpleNamespace
 from typing import Any
 
 from bidded import api_server
+from bidded.orchestration.bid_response_draft import (
+    BidDraftAnswer,
+    BidDraftAttachment,
+    BidResponseDraft,
+    PricingSnapshot,
+)
 
 RUN_ID = "11111111-1111-4111-8111-111111111111"
 COMPANY_ID = "22222222-2222-4222-8222-222222222222"
@@ -158,3 +164,116 @@ def test_start_run_parses_pending_documents_and_starts_worker(
         "document_ids": [DOCUMENT_ID_1, DOCUMENT_ID_2],
     }
     assert captured["workers"] == [(client, RUN_ID, print, {"graph": "handlers"})]
+
+
+def test_generate_bid_draft_endpoint_delegates_to_service(
+    monkeypatch: Any,
+) -> None:
+    client = FakeSupabaseClient()
+    settings = SimpleNamespace(
+        supabase_url="https://example.supabase.co",
+        supabase_service_role_key="service-role",
+        supabase_storage_bucket="public-procurements",
+    )
+    captured: dict[str, Any] = {}
+    draft = _sample_draft()
+
+    monkeypatch.setattr(api_server, "load_settings", lambda: settings)
+    monkeypatch.setitem(
+        sys.modules,
+        "supabase",
+        SimpleNamespace(create_client=lambda _url, _key: client),
+    )
+
+    def record_generate(supabase_client: object, **kwargs: Any) -> BidResponseDraft:
+        captured["client"] = supabase_client
+        captured.update(kwargs)
+        return draft
+
+    monkeypatch.setattr(api_server, "generate_bid_response_draft", record_generate)
+
+    result = api_server.generate_bid_draft(
+        api_server.GenerateBidDraftRequest(run_id=RUN_ID, bid_id=None)
+    )
+
+    assert result["run_id"] == RUN_ID
+    assert result["pricing"]["rate_sek"] == 1330
+    assert result["attachments"][0]["status"] == "attached"
+    assert captured == {
+        "client": client,
+        "run_id": RUN_ID,
+        "bid_id": None,
+        "storage_bucket": "public-procurements",
+    }
+
+
+def test_latest_bid_draft_endpoint_returns_404_when_missing(
+    monkeypatch: Any,
+) -> None:
+    client = FakeSupabaseClient()
+    settings = SimpleNamespace(
+        supabase_url="https://example.supabase.co",
+        supabase_service_role_key="service-role",
+        supabase_storage_bucket="public-procurements",
+    )
+    monkeypatch.setattr(api_server, "load_settings", lambda: settings)
+    monkeypatch.setitem(
+        sys.modules,
+        "supabase",
+        SimpleNamespace(create_client=lambda _url, _key: client),
+    )
+    monkeypatch.setattr(
+        api_server,
+        "fetch_latest_bid_response_draft",
+        lambda _client, *, run_id: None,
+    )
+
+    try:
+        api_server.latest_bid_draft(run_id=RUN_ID)
+    except api_server.HTTPException as exc:
+        assert exc.status_code == 404
+        assert "No draft" in str(exc.detail)
+    else:  # pragma: no cover - proves the endpoint raises
+        raise AssertionError("Expected HTTPException")
+
+
+def _sample_draft() -> BidResponseDraft:
+    return BidResponseDraft(
+        run_id=RUN_ID,
+        tender_id=TENDER_ID,
+        bid_id=None,
+        language="sv",
+        status="needs_review",
+        verdict="conditional_bid",
+        confidence=0.76,
+        pricing=PricingSnapshot(
+            source="bid_row",
+            rate_sek=1330,
+            margin_pct=14,
+            hours_estimated=800,
+            total_value_sek=1_064_000,
+        ),
+        answers=[
+            BidDraftAnswer(
+                question_id="TENDER-ISO",
+                prompt="ISO certificate required.",
+                answer="Bifoga ISO-certifikat.",
+                status="drafted",
+                evidence_keys=["TENDER-ISO", "COMPANY-ISO"],
+                required_attachment_types=["certificate"],
+            )
+        ],
+        attachments=[
+            BidDraftAttachment(
+                filename="iso.pdf",
+                storage_path="demo/company-kb/iso.pdf",
+                checksum_sha256="a" * 64,
+                attachment_type="certificate",
+                required_by_evidence_key="TENDER-ISO",
+                status="attached",
+                source_evidence_keys=["TENDER-ISO", "COMPANY-ISO"],
+            )
+        ],
+        missing_info=["Confirm project manager."],
+        source_evidence_keys=["TENDER-ISO", "COMPANY-ISO"],
+    )

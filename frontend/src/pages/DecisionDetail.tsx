@@ -11,7 +11,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { fetchRunDetail } from "@/lib/api";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, FileCheck2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const statusTone = {
@@ -51,9 +51,16 @@ export default function DecisionDetail() {
         title="Decision Detail"
         description={run.tenderName}
         actions={
-          <Button asChild variant="outline">
-            <Link to="/decisions"><ArrowLeft className="h-4 w-4" /> All decisions</Link>
-          </Button>
+          <>
+            <Button asChild variant="outline">
+              <Link to="/decisions"><ArrowLeft className="h-4 w-4" /> All decisions</Link>
+            </Button>
+            <Button asChild>
+              <Link to={`/drafts/${run.id}`}>
+                <FileCheck2 className="h-4 w-4" /> Draft anbud
+              </Link>
+            </Button>
+          </>
         }
       />
 
