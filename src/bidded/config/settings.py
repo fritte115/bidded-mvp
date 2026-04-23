@@ -15,8 +15,10 @@ from bidded.embeddings import (
 
 EmbeddingMode = Literal["disabled", "live", "mock"]
 SwarmBackend = Literal["auto", "anthropic", "evidence_locked"]
+AnthropicModelRouting = Literal["mixed", "single"]
 
 _DEFAULT_MESSAGES_MODEL = "claude-sonnet-4-6"
+_DEFAULT_FAST_MODEL = "claude-haiku-4-5"
 _KNOWN_INVALID_ANTHROPIC_MODELS: dict[str, str] = {
     "claude-sonnet-4-20250514": _DEFAULT_MESSAGES_MODEL,
     "claude-3-5-sonnet-20241022": _DEFAULT_MESSAGES_MODEL,
@@ -29,6 +31,9 @@ class BiddedSettings(BaseSettings):
     anthropic_api_key: str | None = None
     bidded_swarm_backend: SwarmBackend = "auto"
     bidded_anthropic_model: str = _DEFAULT_MESSAGES_MODEL
+    bidded_anthropic_fast_model: str = _DEFAULT_FAST_MODEL
+    bidded_anthropic_reasoning_model: str | None = None
+    bidded_anthropic_model_routing: AnthropicModelRouting = "mixed"
     openai_api_key: str | None = None
     supabase_url: str | None = None
     supabase_service_role_key: str | None = None
@@ -41,16 +46,29 @@ class BiddedSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra="ignore")
 
-    @field_validator("bidded_swarm_backend", mode="before")
+    @field_validator(
+        "bidded_swarm_backend",
+        "bidded_anthropic_model_routing",
+        mode="before",
+    )
     @classmethod
-    def _normalize_swarm_backend(cls, value: object) -> object:
+    def _normalize_lowercase_setting(cls, value: object) -> object:
         if isinstance(value, str):
             return value.strip().lower()
         return value
 
-    @field_validator("bidded_anthropic_model", mode="after")
+    @field_validator(
+        "bidded_anthropic_model",
+        "bidded_anthropic_fast_model",
+        "bidded_anthropic_reasoning_model",
+        mode="before",
+    )
     @classmethod
-    def _normalize_anthropic_model(cls, value: str) -> str:
+    def _normalize_anthropic_model(cls, value: object) -> object:
+        if value is None:
+            return value
+        if not isinstance(value, str):
+            return value
         stripped = value.strip()
         return _KNOWN_INVALID_ANTHROPIC_MODELS.get(stripped, stripped)
 
@@ -70,6 +88,8 @@ class BiddedSettings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_embedding_contract(self) -> Self:
+        if not self.bidded_anthropic_reasoning_model:
+            self.bidded_anthropic_reasoning_model = self.bidded_anthropic_model
         validate_embedding_contract(
             provider=self.embedding_provider,
             model=self.embedding_model,

@@ -15,9 +15,7 @@ from bidded.orchestration.evidence_recall import (
     EvidenceRecallWarning,
     audit_evidence_recall,
 )
-from bidded.orchestration.evidence_refs import (
-    coerce_evidence_refs,
-)
+from bidded.orchestration.evidence_refs import coerce_evidence_refs
 from bidded.orchestration.graph import (
     GraphRouteNode,
     InvalidGraphOutput,
