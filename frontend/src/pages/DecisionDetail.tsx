@@ -1,4 +1,5 @@
 import { Link, useParams } from "react-router-dom";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -6,11 +7,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { VerdictBadge } from "@/components/VerdictBadge";
 import { ConfidenceBar } from "@/components/ConfidenceBar";
 import { EvidenceBadge } from "@/components/EvidenceBadge";
+import { CitationSourceSheet } from "@/components/CitationSourceSheet";
 import { JudgeMemo } from "@/components/JudgeVerdictSummary";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { fetchRunDetail } from "@/lib/api";
+import { humanizeVerdictText, runDisplayId, verdictLabel } from "@/data/mock";
 import { ArrowLeft, FileCheck2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -29,12 +32,24 @@ const sevTone = {
 
 export default function DecisionDetail() {
   const { id = "" } = useParams();
+  const [selectedCitationId, setSelectedCitationId] = useState<string | null>(null);
 
   const { data: run, isLoading } = useQuery({
     queryKey: ["run-detail", id],
     queryFn: () => fetchRunDetail(id),
     enabled: !!id,
   });
+
+  const evidenceById = useMemo(
+    () => new Map((run?.evidence ?? []).map((evidence) => [evidence.id, evidence])),
+    [run?.evidence],
+  );
+  const selectedEvidence = selectedCitationId
+    ? (evidenceById.get(selectedCitationId) ?? null)
+    : null;
+  const handleCitationClick = (citationId: string) => {
+    setSelectedCitationId(citationId);
+  };
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading decision…</p>;
@@ -72,7 +87,7 @@ export default function DecisionDetail() {
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Final Verdict</p>
               <VerdictBadge verdict={j.verdict} size="lg" />
               <p className="text-sm text-muted-foreground">
-                Run <span className="font-mono">{run.id.slice(0, 8)}</span>
+                {runDisplayId(run)}
               </p>
             </div>
             <div className="min-w-[220px]">
@@ -88,10 +103,14 @@ export default function DecisionDetail() {
         <Card className="lg:col-span-2">
           <CardContent className="space-y-4 p-5">
             <Section title="Judge Memo">
-              <JudgeMemo memo={j.citedMemo} verdict={j.verdict} />
+              <JudgeMemo
+                memo={j.citedMemo}
+                verdict={j.verdict}
+                onCitationClick={handleCitationClick}
+              />
             </Section>
             <Section title="Disagreement">
-              <p className="text-sm text-muted-foreground">{j.disagreement}</p>
+              <p className="text-sm text-muted-foreground">{humanizeVerdictText(j.disagreement)}</p>
             </Section>
             <Section title="Compliance Matrix">
               <Table>
@@ -116,7 +135,13 @@ export default function DecisionDetail() {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
-                          {r.evidence.map((e) => <EvidenceBadge key={e} id={e} />)}
+                          {r.evidence.map((e) => (
+                            <EvidenceBadge
+                              key={e}
+                              id={e}
+                              onClick={() => handleCitationClick(e)}
+                            />
+                          ))}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -155,7 +180,7 @@ export default function DecisionDetail() {
             </Section>
             <Section title="Recommended Actions">
               <ol className="list-decimal space-y-1.5 pl-5 text-sm">
-                {j.recommendedActions.map((a, i) => <li key={i}>{a}</li>)}
+                {j.recommendedActions.map((a, i) => <li key={i}>{humanizeVerdictText(a)}</li>)}
               </ol>
             </Section>
           </CardContent>
@@ -168,9 +193,9 @@ export default function DecisionDetail() {
                 Vote Summary
               </h4>
               <div className="space-y-2">
-                <VoteRow label="BID" count={j.voteSummary.BID} total={4} tone="success" />
-                <VoteRow label="NO BID" count={j.voteSummary.NO_BID} total={4} tone="danger" />
-                <VoteRow label="CONDITIONAL BID" count={j.voteSummary.CONDITIONAL_BID} total={4} tone="warning" />
+                <VoteRow label={verdictLabel.BID} count={j.voteSummary.BID} total={4} tone="success" />
+                <VoteRow label={verdictLabel.NO_BID} count={j.voteSummary.NO_BID} total={4} tone="danger" />
+                <VoteRow label={verdictLabel.CONDITIONAL_BID} count={j.voteSummary.CONDITIONAL_BID} total={4} tone="warning" />
               </div>
             </CardContent>
           </Card>
@@ -184,7 +209,7 @@ export default function DecisionDetail() {
                 <ul className="space-y-1.5">
                   {j.complianceBlockers.map((b, i) => (
                     <li key={i} className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-sm">
-                      {b}
+                      {humanizeVerdictText(b)}
                     </li>
                   ))}
                 </ul>
@@ -201,7 +226,7 @@ export default function DecisionDetail() {
                 <ul className="space-y-1.5">
                   {j.potentialBlockers.map((b, i) => (
                     <li key={i} className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-sm">
-                      {b}
+                      {humanizeVerdictText(b)}
                     </li>
                   ))}
                 </ul>
@@ -216,7 +241,7 @@ export default function DecisionDetail() {
                   Missing Information
                 </h4>
                 <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                  {j.missingInfo.map((m, i) => <li key={i}>{m}</li>)}
+                  {j.missingInfo.map((m, i) => <li key={i}>{humanizeVerdictText(m)}</li>)}
                 </ul>
               </CardContent>
             </Card>
@@ -228,12 +253,27 @@ export default function DecisionDetail() {
                 Cited Evidence
               </h4>
               <div className="flex flex-wrap gap-1.5">
-                {j.evidenceIds.map((e) => <EvidenceBadge key={e} id={e} />)}
+                {j.evidenceIds.map((e) => (
+                  <EvidenceBadge
+                    key={e}
+                    id={e}
+                    onClick={() => handleCitationClick(e)}
+                  />
+                ))}
               </div>
             </CardContent>
           </Card>
         </div>
       </div>
+      <CitationSourceSheet
+        open={selectedCitationId !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedCitationId(null);
+        }}
+        citationId={selectedCitationId}
+        evidence={selectedEvidence}
+        evidenceBoardHref={`/runs/${run.id}/evidence`}
+      />
     </>
   );
 }

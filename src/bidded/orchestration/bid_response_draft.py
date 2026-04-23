@@ -605,7 +605,11 @@ def _matching_company_evidence(
 ) -> Mapping[str, Any] | None:
     for row in sorted(company_evidence, key=lambda item: str(item.get("evidence_key"))):
         metadata = _mapping(row.get("metadata"))
-        row_attachment_type = str(metadata.get("attachment_type") or "")
+        source_metadata = _mapping(row.get("source_metadata"))
+        row_attachment_type = _attachment_type_from_company_metadata(
+            metadata,
+            source_metadata,
+        )
         if row_attachment_type == attachment_type:
             return row
         inferred = infer_attachment_type(
@@ -614,7 +618,7 @@ def _matching_company_evidence(
                     str(row.get("category") or ""),
                     str(row.get("excerpt") or ""),
                     str(row.get("normalized_meaning") or ""),
-                    str(_mapping(row.get("source_metadata")).get("source_label") or ""),
+                    str(source_metadata.get("source_label") or ""),
                 ]
             )
         )
@@ -683,8 +687,30 @@ def _company_evidence_document_id(evidence: Mapping[str, Any]) -> str:
     return str(
         metadata.get("source_document_id")
         or source_metadata.get("source_document_id")
+        or evidence.get("document_id")
         or ""
     )
+
+
+def _attachment_type_from_company_metadata(
+    metadata: Mapping[str, Any],
+    source_metadata: Mapping[str, Any],
+) -> str:
+    attachment_type = str(metadata.get("attachment_type") or "")
+    if attachment_type:
+        return attachment_type
+    kb_document_type = str(
+        metadata.get("kb_document_type")
+        or source_metadata.get("kb_document_type")
+        or ""
+    )
+    return {
+        "certification": "certificate",
+        "cv_profile": "cv",
+        "case_study": "reference_case",
+        "policy_process": "policy_document",
+        "financial_pricing": "pricing_document",
+    }.get(kb_document_type, "")
 
 
 def _evidence_source_label(evidence: Mapping[str, Any]) -> str:

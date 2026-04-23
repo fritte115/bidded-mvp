@@ -24,6 +24,7 @@ import {
   bidStatusLabel,
   bidStatusOrder,
   formatDate,
+  verdictLabel,
 } from "@/data/mock";
 import { decisionToEstimateInput } from "@/lib/bidIntegrationMapping";
 import { estimateBid, formatSEK } from "@/lib/bidEstimator";
@@ -34,6 +35,7 @@ interface Props {
   bid: Bid;
   onMove: (id: string, status: BidStatus) => void;
   onEdit?: (id: string) => void;
+  canManage?: boolean;
 }
 
 function marginTone(pct: number): string {
@@ -73,7 +75,7 @@ function relativeDeadline(d: Date): { label: string; tone: string } {
   return { label: `in ${days}d`, tone: "text-muted-foreground" };
 }
 
-export function BidCard({ bid, onMove, onEdit }: Props) {
+export function BidCard({ bid, onMove, onEdit, canManage = true }: Props) {
   const { data: companyData } = useQuery({
     queryKey: ["company"],
     queryFn: fetchCompany,
@@ -124,7 +126,7 @@ export function BidCard({ bid, onMove, onEdit }: Props) {
             Agent decision
           </span>
           <span className="whitespace-nowrap font-mono text-[11px] font-semibold tabular-nums text-foreground">
-            {bid.decision.verdict.replace(/_/g, " ")} · {bid.decision.confidence}%
+            {verdictLabel[bid.decision.verdict]} · {bid.decision.confidence}%
           </span>
         </div>
       )}
@@ -197,7 +199,7 @@ export function BidCard({ bid, onMove, onEdit }: Props) {
       {/* Footer — quiet actions, pinned */}
       <div className="mt-3 flex items-center justify-between gap-1">
         <div className="flex items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100">
-          {onEdit && (
+          {canManage && onEdit && (
             <Button
               variant="ghost"
               size="icon"
@@ -233,29 +235,31 @@ export function BidCard({ bid, onMove, onEdit }: Props) {
             </Link>
           </Button>
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground"
-            >
-              Move
-              <ChevronDown className="h-3 w-3 opacity-60" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Move to</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {bidStatusOrder
-              .filter((s) => s !== bid.status)
-              .map((s) => (
-                <DropdownMenuItem key={s} onClick={() => onMove(bid.id, s)}>
-                  {bidStatusLabel[s]}
-                </DropdownMenuItem>
-              ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {canManage && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+              >
+                Move
+                <ChevronDown className="h-3 w-3 opacity-60" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Move to</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {bidStatusOrder
+                .filter((s) => s !== bid.status)
+                .map((s) => (
+                  <DropdownMenuItem key={s} onClick={() => onMove(bid.id, s)}>
+                    {bidStatusLabel[s]}
+                  </DropdownMenuItem>
+                ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
     </div>
   );

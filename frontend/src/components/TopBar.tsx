@@ -1,7 +1,16 @@
-import { Bell } from "lucide-react";
+import { Bell, LogOut } from "lucide-react";
 import { useLocation, Link } from "react-router-dom";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useAuth } from "@/lib/auth";
 import biddedMark from "@/assets/bidded-mark.png";
 
 const titles: { match: (p: string) => boolean; title: string }[] = [
@@ -23,7 +32,15 @@ const titles: { match: (p: string) => boolean; title: string }[] = [
 
 export function TopBar() {
   const { pathname } = useLocation();
+  const { displayName, organizationName, role, signOut, user } = useAuth();
   const title = titles.find((t) => t.match(pathname))?.title ?? "Bidded";
+  const label = displayName ?? user?.email ?? "User";
+  const initials = label
+    .split(/[\s@.]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
 
   return (
     <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-border bg-background/80 px-4 backdrop-blur">
@@ -41,9 +58,29 @@ export function TopBar() {
         <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
           <Bell className="h-4 w-4" />
         </Button>
-        <div className="h-8 w-8 rounded-full border border-border bg-gradient-to-br from-primary/20 to-primary/40 text-xs font-semibold text-primary flex items-center justify-center">
-          MS
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-primary/10 text-xs font-semibold text-primary"
+            >
+              {initials || "U"}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-64">
+            <DropdownMenuLabel>
+              <span className="block truncate text-sm">{label}</span>
+              <span className="block truncate text-xs font-normal text-muted-foreground">
+                {organizationName ?? "No organization"} · {role ?? "no role"}
+              </span>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => void signOut()}>
+              <LogOut className="h-4 w-4" />
+              Sign out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );

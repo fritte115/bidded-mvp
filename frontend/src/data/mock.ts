@@ -774,12 +774,16 @@ export function findRun(id: string) {
   return runs.find((r) => r.id === id);
 }
 
-/** Friendly run label, e.g. "Run #1042". Stable for a given run id. */
-export function runDisplayId(run: Pick<Run, "id">) {
-  // Sum char codes → 4-digit number in [1000, 9999]
+/** Friendly run label, e.g. "Run 1". Stable for a given run id. */
+export function runDisplayId(run: Pick<Run, "id"> | string) {
+  const id = typeof run === "string" ? run : run.id;
+  const knownIndex = runs.findIndex((r) => r.id === id);
+  if (knownIndex >= 0) return `Run ${knownIndex + 1}`;
+
+  // Fall back to a small stable number for live ids that are not in mock data.
   let sum = 0;
-  for (let i = 0; i < run.id.length; i++) sum = (sum + run.id.charCodeAt(i) * (i + 1)) % 9000;
-  return `#${1000 + sum}`;
+  for (let i = 0; i < id.length; i++) sum = (sum + id.charCodeAt(i) * (i + 1)) % 99;
+  return `Run ${sum + 1}`;
 }
 
 /** Latest run for a procurement, by startedAt (desc). */
@@ -812,16 +816,28 @@ export function findProcurement(id: string) {
 export const findTender = findProcurement;
 
 export const verdictLabel: Record<Verdict, string> = {
-  BID: "BID",
-  NO_BID: "NO BID",
-  CONDITIONAL_BID: "CONDITIONAL BID",
+  BID: "Bid",
+  NO_BID: "No bid",
+  CONDITIONAL_BID: "Conditional bid",
 };
 
 export const verdictLabelShort: Record<Verdict, string> = {
-  BID: "BID",
-  NO_BID: "NO BID",
-  CONDITIONAL_BID: "COND.",
+  BID: "Bid",
+  NO_BID: "No bid",
+  CONDITIONAL_BID: "Cond.",
 };
+
+export function humanizeVerdictText(text: string) {
+  const normalized = text
+    .replace(/\bNOT\s+BID\b/gi, "not bid")
+    .replace(/\bCONDITIONAL[_\s-]+BID\b/gi, "conditional bid")
+    .replace(/\bNO[_\s-]+BID\b/gi, "no bid")
+    .replace(/\bBID\b/g, "bid");
+
+  return normalized.replace(/^(bid|no bid|conditional bid)\b/, (match) =>
+    match.charAt(0).toUpperCase() + match.slice(1),
+  );
+}
 
 export function formatDate(iso: string) {
   return new Date(iso).toLocaleString("sv-SE", {

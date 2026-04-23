@@ -1,5 +1,7 @@
-import { Link, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,12 +25,15 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { EvidenceBadge } from "@/components/EvidenceBadge";
+import { CitationSourceSheet } from "@/components/CitationSourceSheet";
 import { AgentMotionCard } from "@/components/AgentMotionCard";
 import { JudgeVerdictSummary } from "@/components/JudgeVerdictSummary";
 import { PipelineStep, type StepState } from "@/components/PipelineStep";
-import { fetchRunDetail } from "@/lib/api";
-import type { EvidenceCategory } from "@/data/mock";
+import { archiveAgentRun, fetchRunDetail } from "@/lib/api";
+import { usePermissions } from "@/lib/auth";
+import { humanizeVerdictText, runDisplayId, type EvidenceCategory } from "@/data/mock";
 import {
+  Archive,
   ArrowLeft,
   Download,
   RefreshCw,
@@ -62,24 +67,39 @@ const severityToneMap = {
   High: "bg-danger/10 text-danger border-danger/30",
 } as const;
 
-function runDisplayId(id: string): string {
-  let sum = 0;
-  for (let i = 0; i < id.length; i++) sum = (sum + id.charCodeAt(i) * (i + 1)) % 9000;
-  return `#${1000 + sum}`;
-}
-
 export default function RunDetail() {
   const { id = "" } = useParams();
+  const [selectedCitationId, setSelectedCitationId] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const permissions = usePermissions();
+  const [isArchiving, setIsArchiving] = useState(false);
 
   const { data: run, isLoading } = useQuery({
     queryKey: ["run-detail", id],
     queryFn: () => fetchRunDetail(id),
     enabled: !!id,
     refetchInterval: (query) => {
-      const status = query.state.data?.status;
-      return status === "running" || status === "pending" ? 5_000 : false;
+      const run = query.state.data;
+      const status = run?.status;
+      const shouldRefetch =
+        !run?.isArchived &&
+        !run?.isStale &&
+        (status === "running" || status === "pending");
+      return shouldRefetch ? 5_000 : false;
     },
   });
+
+  const evidenceById = useMemo(
+    () => new Map((run?.evidence ?? []).map((evidence) => [evidence.id, evidence])),
+    [run?.evidence],
+  );
+  const selectedEvidence = selectedCitationId
+    ? (evidenceById.get(selectedCitationId) ?? null)
+    : null;
+  const handleCitationClick = (citationId: string) => {
+    setSelectedCitationId(citationId);
+  };
 
   if (isLoading) {
     return (
@@ -106,10 +126,13 @@ export default function RunDetail() {
   const currentStep = stageRank[run.stage] ?? 1;
 
   const stepStates = (function (): Record<1 | 2 | 3 | 4, StepState> {
+    if (run.isArchived) {
+      return { 1: "pending", 2: "pending", 3: "pending", 4: "pending" };
+    }
     if (run.status === "succeeded") {
       return { 1: "completed", 2: "completed", 3: "completed", 4: "completed" };
     }
-    if (run.status === "running") {
+    if (run.status === "running" && !run.isStale) {
       const s: Record<1 | 2 | 3 | 4, StepState> = {
         1: "pending", 2: "pending", 3: "pending", 4: "pending",
       };
@@ -118,7 +141,7 @@ export default function RunDetail() {
       s[currentStep] = "running";
       return s;
     }
-    if (run.status === "failed") {
+    if (run.status === "failed" || run.isStale) {
       const s: Record<1 | 2 | 3 | 4, StepState> = {
         1: "pending", 2: "pending", 3: "pending", 4: "pending",
       };
@@ -138,10 +161,35 @@ export default function RunDetail() {
     items: run.evidence.filter((e) => e.category === cat),
   }));
 
+  async function handleArchiveRun() {
+    if (!permissions.canDeleteRuns) return;
+    setIsArchiving(true);
+    try {
+      await archiveAgentRun(run.id, "operator archived run from detail view");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["active-runs"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] }),
+        queryClient.invalidateQueries({ queryKey: ["decisions"] }),
+        queryClient.invalidateQueries({ queryKey: ["procurements"] }),
+        queryClient.invalidateQueries({ queryKey: ["compare-rows"] }),
+        queryClient.invalidateQueries({ queryKey: ["bids"] }),
+        queryClient.invalidateQueries({ queryKey: ["run-detail", run.id] }),
+      ]);
+      toast.success("Run archived");
+      navigate("/procurements");
+    } catch (err) {
+      toast.error("Archive failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setIsArchiving(false);
+    }
+  }
+
   return (
     <>
       <PageHeader
-        title={runDisplayId(run.id)}
+        title={runDisplayId(run)}
         description={run.tenderName}
         actions={
           <>
@@ -165,21 +213,37 @@ export default function RunDetail() {
         }
       />
 
-      {run.status === "failed" && (
+      {(run.status === "failed" || run.isStale) && (
         <Card className="mb-4 border-danger/40 bg-danger/5">
           <CardContent className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-2 text-sm">
               <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
               <div>
-                <p className="font-medium text-danger">Run failed at: {run.stage}</p>
+                <p className="font-medium text-danger">
+                  {run.isStale ? "Run stalled at" : "Run failed at"}: {run.stage}
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  The orchestrator stopped before a decision could be reached. Review inputs and re-run.
+                  {run.isStale
+                    ? "The worker is no longer updating this run. Archive it or start a fresh run."
+                    : "The orchestrator stopped before a decision could be reached. Review inputs and re-run."}
                 </p>
               </div>
             </div>
-            <Button variant="outline" size="sm" className="shrink-0">
-              <RefreshCw className="h-3 w-3" /> Re-run
-            </Button>
+            <div className="flex shrink-0 gap-2">
+              {permissions.canDeleteRuns && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleArchiveRun}
+                  disabled={isArchiving}
+                >
+                  <Archive className="h-3 w-3" /> Archive
+                </Button>
+              )}
+              <Button variant="outline" size="sm">
+                <RefreshCw className="h-3 w-3" /> Re-run
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -228,7 +292,11 @@ export default function RunDetail() {
                           <ul className="space-y-2.5 py-2">
                             {items.map((e) => (
                               <li key={e.id} className="flex gap-3">
-                                <EvidenceBadge id={e.id} className="mt-0.5 shrink-0" />
+                                <EvidenceBadge
+                                  id={e.id}
+                                  className="mt-0.5 shrink-0"
+                                  onClick={() => handleCitationClick(e.id)}
+                                />
                                 <div className="text-sm">
                                   <p className="leading-snug">{e.excerpt}</p>
                                   <p className="mt-1 font-mono text-[11px] text-muted-foreground">
@@ -256,7 +324,11 @@ export default function RunDetail() {
             ) : (
               <div className="grid min-w-0 grid-cols-1 items-start gap-4 md:grid-cols-2 2xl:grid-cols-4">
                 {run.round1.map((m) => (
-                  <AgentMotionCard key={m.agent} motion={m} />
+                  <AgentMotionCard
+                    key={m.agent}
+                    motion={m}
+                    onCitationClick={handleCitationClick}
+                  />
                 ))}
               </div>
             )}
@@ -268,7 +340,12 @@ export default function RunDetail() {
             ) : (
               <div className="grid min-w-0 grid-cols-1 items-start gap-4 md:grid-cols-2 2xl:grid-cols-4">
                 {run.round2.map((m) => (
-                  <AgentMotionCard key={m.agent} motion={m} highlightDisagreement />
+                  <AgentMotionCard
+                    key={m.agent}
+                    motion={m}
+                    highlightDisagreement
+                    onCitationClick={handleCitationClick}
+                  />
                 ))}
               </div>
             )}
@@ -285,6 +362,7 @@ export default function RunDetail() {
                     confidence={run.judge.confidence}
                     citedMemo={run.judge.citedMemo}
                     voteSummary={run.judge.voteSummary}
+                    onCitationClick={handleCitationClick}
                   />
 
                   {run.judge.disagreement && (
@@ -292,7 +370,7 @@ export default function RunDetail() {
                       <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-warning">
                         Disagreement
                       </p>
-                      {run.judge.disagreement}
+                      {humanizeVerdictText(run.judge.disagreement)}
                     </div>
                   )}
 
@@ -319,7 +397,13 @@ export default function RunDetail() {
                             </TableCell>
                             <TableCell>
                               <div className="flex flex-wrap gap-1">
-                                {r.evidence.map((e) => <EvidenceBadge key={e} id={e} />)}
+                                {r.evidence.map((e) => (
+                                  <EvidenceBadge
+                                    key={e}
+                                    id={e}
+                                    onClick={() => handleCitationClick(e)}
+                                  />
+                                ))}
                               </div>
                             </TableCell>
                           </TableRow>
@@ -338,7 +422,7 @@ export default function RunDetail() {
                           className="flex items-start gap-2 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-sm"
                         >
                           <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-danger" />
-                          {b}
+                          {humanizeVerdictText(b)}
                         </li>
                       ))}
                     </ul>
@@ -354,7 +438,7 @@ export default function RunDetail() {
                           className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-sm"
                         >
                           <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-warning" />
-                          {b}
+                          {humanizeVerdictText(b)}
                         </li>
                       ))}
                     </ul>
@@ -392,19 +476,25 @@ export default function RunDetail() {
 
                   <CollapsibleSection title="Missing Information">
                     <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                      {run.judge.missingInfo.map((m, i) => <li key={i}>{m}</li>)}
+                      {run.judge.missingInfo.map((m, i) => <li key={i}>{humanizeVerdictText(m)}</li>)}
                     </ul>
                   </CollapsibleSection>
 
                   <CollapsibleSection title="Recommended Actions" defaultOpen>
                     <ol className="list-decimal space-y-1.5 pl-5 text-sm">
-                      {run.judge.recommendedActions.map((a, i) => <li key={i}>{a}</li>)}
+                      {run.judge.recommendedActions.map((a, i) => <li key={i}>{humanizeVerdictText(a)}</li>)}
                     </ol>
                   </CollapsibleSection>
 
                   <CollapsibleSection title="Cited Evidence">
                     <div className="flex flex-wrap gap-1.5">
-                      {run.judge.evidenceIds.map((e) => <EvidenceBadge key={e} id={e} />)}
+                      {run.judge.evidenceIds.map((e) => (
+                        <EvidenceBadge
+                          key={e}
+                          id={e}
+                          onClick={() => handleCitationClick(e)}
+                        />
+                      ))}
                     </div>
                   </CollapsibleSection>
                 </CardContent>
@@ -412,6 +502,15 @@ export default function RunDetail() {
             )}
           </PipelineStep>
       </div>
+      <CitationSourceSheet
+        open={selectedCitationId !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedCitationId(null);
+        }}
+        citationId={selectedCitationId}
+        evidence={selectedEvidence}
+        evidenceBoardHref={`/runs/${run.id}/evidence`}
+      />
     </>
   );
 }
