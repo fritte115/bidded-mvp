@@ -20,7 +20,6 @@ import {
 import {
   formatDate,
   formatDuration,
-  humanizeVerdictText,
   runDisplayId,
 } from "@/data/mock";
 import {
@@ -30,6 +29,7 @@ import {
   archiveAgentRun,
 } from "@/lib/api";
 import { usePermissions } from "@/lib/auth";
+import { renderFormattedText } from "@/lib/richText";
 import {
   Archive,
   FileText,
@@ -288,7 +288,7 @@ export default function Dashboard() {
                   </div>
                   <ConfidenceBar value={r.confidence} className="mb-3" />
                   <p className="line-clamp-2 text-xs text-muted-foreground">
-                    {humanizeVerdictText(r.topReason)}
+                    {renderFormattedText(r.topReason)}
                   </p>
                   <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
                     <span>{formatDate(r.completedAt ?? r.startedAt)}</span>

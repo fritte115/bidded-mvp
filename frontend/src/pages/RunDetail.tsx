@@ -32,8 +32,9 @@ import { PipelineStep, type StepState } from "@/components/PipelineStep";
 import { ParseStatusBadge } from "@/components/ParseStatusBadge";
 import { archiveAgentRun, fetchRunDetail } from "@/lib/api";
 import { usePermissions } from "@/lib/auth";
-import { humanizeVerdictText, runDisplayId, type EvidenceCategory } from "@/data/mock";
 import { isDuplicateJudgeDisagreement } from "@/lib/judgeMemo";
+import { renderFormattedText } from "@/lib/richText";
+import { runDisplayId, type EvidenceCategory } from "@/data/mock";
 import {
   Archive,
   ArrowLeft,
@@ -441,7 +442,7 @@ export default function RunDetail() {
                       <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-warning">
                         Disagreement
                       </p>
-                      {humanizeVerdictText(run.judge.disagreement)}
+                      {renderFormattedText(run.judge.disagreement)}
                     </div>
                   )}
 
@@ -493,7 +494,7 @@ export default function RunDetail() {
                           className="flex items-start gap-2 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-sm"
                         >
                           <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-danger" />
-                          {humanizeVerdictText(b)}
+                          {renderFormattedText(b)}
                         </li>
                       ))}
                     </ul>
@@ -509,7 +510,7 @@ export default function RunDetail() {
                           className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-sm"
                         >
                           <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-warning" />
-                          {humanizeVerdictText(b)}
+                          {renderFormattedText(b)}
                         </li>
                       ))}
                     </ul>
@@ -547,13 +548,13 @@ export default function RunDetail() {
 
                   <CollapsibleSection title="Missing Information">
                     <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                      {run.judge.missingInfo.map((m, i) => <li key={i}>{humanizeVerdictText(m)}</li>)}
+                      {run.judge.missingInfo.map((m, i) => <li key={i}>{renderFormattedText(m)}</li>)}
                     </ul>
                   </CollapsibleSection>
 
                   <CollapsibleSection title="Recommended Actions" defaultOpen>
                     <ol className="list-decimal space-y-1.5 pl-5 text-sm">
-                      {run.judge.recommendedActions.map((a, i) => <li key={i}>{humanizeVerdictText(a)}</li>)}
+                      {run.judge.recommendedActions.map((a, i) => <li key={i}>{renderFormattedText(a)}</li>)}
                     </ol>
                   </CollapsibleSection>
 

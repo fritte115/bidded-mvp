@@ -23,7 +23,8 @@ import { EmptyState } from "@/components/EmptyState";
 import { BidRecommendation } from "@/components/BidRecommendation";
 import { fetchCompareRows } from "@/lib/api";
 import { buildBidDraftPath } from "@/lib/bidIntegrationMapping";
-import { humanizeVerdictText, verdictLabel, type Verdict } from "@/data/mock";
+import { renderFormattedText } from "@/lib/richText";
+import { verdictLabel, type Verdict } from "@/data/mock";
 import {
   ArrowRight,
   BookOpen,
@@ -330,7 +331,7 @@ export default function Compare() {
                             <div className="flex gap-2">
                               <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                               <p className="line-clamp-3 text-sm leading-relaxed text-foreground">
-                                {humanizeVerdictText(p.topReason)}
+                                {renderFormattedText(p.topReason)}
                               </p>
                             </div>
                           </TableCell>
