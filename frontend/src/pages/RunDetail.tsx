@@ -298,54 +298,47 @@ export default function RunDetail() {
       )}
 
       {run.documents.length > 0 && (
-        <Card className="mb-4">
-          <CardContent className="space-y-3 p-4">
-            <div>
-              <p className="text-sm font-medium text-foreground">Submitted files</p>
-              <p className="text-xs text-muted-foreground">
-                The tender documents linked to this run.
-              </p>
-            </div>
-            <ul className="space-y-2">
-              {run.documents.map((document) => (
-                <li
-                  key={document.originalFilename}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2"
-                >
-                  <div className="flex min-w-0 items-center gap-2">
-                    {document.publicUrl ? (
-                      <a
-                        href={document.publicUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex min-w-0 items-center gap-1 text-sm text-foreground hover:text-primary hover:underline"
-                        aria-label={`Open ${document.originalFilename}`}
-                      >
-                        <span className="truncate">{document.originalFilename}</span>
-                        <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-                      </a>
-                    ) : (
-                      <span className="text-sm text-foreground">
-                        {document.originalFilename}
-                      </span>
-                    )}
-                    {document.publicUrl && (
-                      <a
-                        href={document.publicUrl}
-                        download={document.originalFilename}
-                        className="inline-flex items-center justify-center rounded-sm p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                        aria-label={`Download ${document.originalFilename}`}
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                      </a>
-                    )}
-                  </div>
-                  <DocumentParseIndicator status={document.parseStatus} />
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
+        <section className="mb-4 space-y-3">
+          <p className="text-sm font-medium text-foreground">Submitted files</p>
+          <ul className="space-y-2">
+            {run.documents.map((document) => (
+              <li
+                key={document.originalFilename}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  {document.publicUrl ? (
+                    <a
+                      href={document.publicUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex min-w-0 items-center gap-1 text-sm text-foreground hover:text-primary hover:underline"
+                      aria-label={`Open ${document.originalFilename}`}
+                    >
+                      <span className="truncate">{document.originalFilename}</span>
+                      <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                    </a>
+                  ) : (
+                    <span className="text-sm text-foreground">
+                      {document.originalFilename}
+                    </span>
+                  )}
+                  {document.publicUrl && (
+                    <a
+                      href={document.publicUrl}
+                      download={document.originalFilename}
+                      className="inline-flex items-center justify-center rounded-sm p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      aria-label={`Download ${document.originalFilename}`}
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                    </a>
+                  )}
+                </div>
+                <DocumentParseIndicator status={document.parseStatus} />
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       <div className="min-w-0">

@@ -99,6 +99,9 @@ describe("RunDetail", () => {
       "/runs/run-123/evidence",
     );
     expect(screen.getByText("Submitted files")).toBeInTheDocument();
+    expect(
+      screen.queryByText("The tender documents linked to this run."),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open city-crm-main.pdf" })).toHaveAttribute(
       "href",
       "https://example.supabase.co/storage/v1/object/public/public-procurements/city-crm-main.pdf",
