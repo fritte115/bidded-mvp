@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -25,6 +25,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { EvidenceBadge } from "@/components/EvidenceBadge";
+import { CitationSourceSheet } from "@/components/CitationSourceSheet";
 import { AgentMotionCard } from "@/components/AgentMotionCard";
 import { JudgeVerdictSummary } from "@/components/JudgeVerdictSummary";
 import { PipelineStep, type StepState } from "@/components/PipelineStep";
@@ -68,6 +69,7 @@ const severityToneMap = {
 
 export default function RunDetail() {
   const { id = "" } = useParams();
+  const [selectedCitationId, setSelectedCitationId] = useState<string | null>(null);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const permissions = usePermissions();
@@ -87,6 +89,17 @@ export default function RunDetail() {
       return shouldRefetch ? 5_000 : false;
     },
   });
+
+  const evidenceById = useMemo(
+    () => new Map((run?.evidence ?? []).map((evidence) => [evidence.id, evidence])),
+    [run?.evidence],
+  );
+  const selectedEvidence = selectedCitationId
+    ? (evidenceById.get(selectedCitationId) ?? null)
+    : null;
+  const handleCitationClick = (citationId: string) => {
+    setSelectedCitationId(citationId);
+  };
 
   if (isLoading) {
     return (
@@ -279,7 +292,11 @@ export default function RunDetail() {
                           <ul className="space-y-2.5 py-2">
                             {items.map((e) => (
                               <li key={e.id} className="flex gap-3">
-                                <EvidenceBadge id={e.id} className="mt-0.5 shrink-0" />
+                                <EvidenceBadge
+                                  id={e.id}
+                                  className="mt-0.5 shrink-0"
+                                  onClick={() => handleCitationClick(e.id)}
+                                />
                                 <div className="text-sm">
                                   <p className="leading-snug">{e.excerpt}</p>
                                   <p className="mt-1 font-mono text-[11px] text-muted-foreground">
@@ -307,7 +324,11 @@ export default function RunDetail() {
             ) : (
               <div className="grid min-w-0 grid-cols-1 items-start gap-4 md:grid-cols-2 2xl:grid-cols-4">
                 {run.round1.map((m) => (
-                  <AgentMotionCard key={m.agent} motion={m} />
+                  <AgentMotionCard
+                    key={m.agent}
+                    motion={m}
+                    onCitationClick={handleCitationClick}
+                  />
                 ))}
               </div>
             )}
@@ -319,7 +340,12 @@ export default function RunDetail() {
             ) : (
               <div className="grid min-w-0 grid-cols-1 items-start gap-4 md:grid-cols-2 2xl:grid-cols-4">
                 {run.round2.map((m) => (
-                  <AgentMotionCard key={m.agent} motion={m} highlightDisagreement />
+                  <AgentMotionCard
+                    key={m.agent}
+                    motion={m}
+                    highlightDisagreement
+                    onCitationClick={handleCitationClick}
+                  />
                 ))}
               </div>
             )}
@@ -336,6 +362,7 @@ export default function RunDetail() {
                     confidence={run.judge.confidence}
                     citedMemo={run.judge.citedMemo}
                     voteSummary={run.judge.voteSummary}
+                    onCitationClick={handleCitationClick}
                   />
 
                   {run.judge.disagreement && (
@@ -370,7 +397,13 @@ export default function RunDetail() {
                             </TableCell>
                             <TableCell>
                               <div className="flex flex-wrap gap-1">
-                                {r.evidence.map((e) => <EvidenceBadge key={e} id={e} />)}
+                                {r.evidence.map((e) => (
+                                  <EvidenceBadge
+                                    key={e}
+                                    id={e}
+                                    onClick={() => handleCitationClick(e)}
+                                  />
+                                ))}
                               </div>
                             </TableCell>
                           </TableRow>
@@ -455,7 +488,13 @@ export default function RunDetail() {
 
                   <CollapsibleSection title="Cited Evidence">
                     <div className="flex flex-wrap gap-1.5">
-                      {run.judge.evidenceIds.map((e) => <EvidenceBadge key={e} id={e} />)}
+                      {run.judge.evidenceIds.map((e) => (
+                        <EvidenceBadge
+                          key={e}
+                          id={e}
+                          onClick={() => handleCitationClick(e)}
+                        />
+                      ))}
                     </div>
                   </CollapsibleSection>
                 </CardContent>
@@ -463,6 +502,15 @@ export default function RunDetail() {
             )}
           </PipelineStep>
       </div>
+      <CitationSourceSheet
+        open={selectedCitationId !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedCitationId(null);
+        }}
+        citationId={selectedCitationId}
+        evidence={selectedEvidence}
+        evidenceBoardHref={`/runs/${run.id}/evidence`}
+      />
     </>
   );
 }

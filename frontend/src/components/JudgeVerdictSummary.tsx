@@ -1,4 +1,5 @@
 import { ConfidenceBar } from "@/components/ConfidenceBar";
+import { EvidenceBadge } from "@/components/EvidenceBadge";
 import { VerdictBadge } from "@/components/VerdictBadge";
 import { formatJudgeMemo } from "@/lib/judgeMemo";
 import { cn } from "@/lib/utils";
@@ -10,21 +11,49 @@ type VoteSummary = {
   CONDITIONAL_BID: number;
 };
 
+type CitationClickHandler = (id: string) => void;
+
+const EVIDENCE_KEY_TOKEN =
+  /^(EVD-\d+|TENDER-[A-Za-z0-9._-]+|COMPANY-[A-Za-z0-9._-]+)$/;
+
+function renderMemoText(text: string, onCitationClick?: CitationClickHandler) {
+  const parts = text.split(
+    /(EVD-\d+|TENDER-[A-Za-z0-9._-]+|COMPANY-[A-Za-z0-9._-]+)/,
+  );
+
+  return parts.map((part, index) => {
+    if (part === "") return null;
+    if (EVIDENCE_KEY_TOKEN.test(part)) {
+      return (
+        <EvidenceBadge
+          key={index}
+          id={part}
+          onClick={onCitationClick ? () => onCitationClick(part) : undefined}
+          className="my-0.5 inline-flex max-w-full align-middle break-all sm:mx-0.5"
+        />
+      );
+    }
+    return <EmphasizedVerdictText key={index} text={part} />;
+  });
+}
+
 export function JudgeMemo({
   memo,
   verdict,
   className,
+  onCitationClick,
 }: {
   memo: string;
   verdict: Verdict;
   className?: string;
+  onCitationClick?: CitationClickHandler;
 }) {
   const { title, blocks } = formatJudgeMemo(memo, verdict);
 
   return (
     <div className={cn("space-y-3", className)}>
       <h3 className="text-base font-semibold leading-snug text-foreground">
-        <EmphasizedVerdictText text={title} />
+        {renderMemoText(title, onCitationClick)}
       </h3>
       {blocks.length > 0 && (
         <div className="space-y-3 text-sm leading-relaxed text-foreground">
@@ -32,15 +61,11 @@ export function JudgeMemo({
             block.type === "list" ? (
               <ol key={index} className="list-decimal space-y-1.5 pl-5">
                 {block.items.map((item, itemIndex) => (
-                  <li key={itemIndex}>
-                    <EmphasizedVerdictText text={item} />
-                  </li>
+                  <li key={itemIndex}>{renderMemoText(item, onCitationClick)}</li>
                 ))}
               </ol>
             ) : (
-              <p key={index}>
-                <EmphasizedVerdictText text={block.text} />
-              </p>
+              <p key={index}>{renderMemoText(block.text, onCitationClick)}</p>
             ),
           )}
         </div>
@@ -55,12 +80,14 @@ export function JudgeVerdictSummary({
   citedMemo,
   voteSummary,
   className,
+  onCitationClick,
 }: {
   verdict: Verdict;
   confidence: number;
   citedMemo: string;
   voteSummary?: VoteSummary;
   className?: string;
+  onCitationClick?: CitationClickHandler;
 }) {
   return (
     <section
@@ -98,6 +125,7 @@ export function JudgeVerdictSummary({
         memo={citedMemo}
         verdict={verdict}
         className="mt-4 border-t border-border pt-4"
+        onCitationClick={onCitationClick}
       />
     </section>
   );
