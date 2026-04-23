@@ -401,6 +401,19 @@ function mockRunDetail(runId: string): RunDetail | null {
   const run = visibleMockRuns().find((row) => row.id === runId);
   if (!run) return null;
   const lifecycle = mockLifecycle(run);
+  const procurement = mockProcurements.find((row) => row.id === run.tenderId);
+  const documents =
+    procurement?.documentRefs?.map((doc) => ({
+      originalFilename: doc.filename,
+      parseStatus: doc.parseStatus,
+      parseNote: null,
+    })) ??
+    procurement?.documents.map((filename) => ({
+      originalFilename: filename,
+      parseStatus: mockParseStatus(procurement),
+      parseNote: null,
+    })) ??
+    [];
 
   return {
     id: run.id,
@@ -417,6 +430,7 @@ function mockRunDetail(runId: string): RunDetail | null {
     durationSec: run.durationSec ?? null,
     decision: run.decision ?? null,
     confidence: run.confidence ?? null,
+    documents,
     evidence: run.evidence,
     round1: run.round1,
     round2: run.round2,
@@ -1692,6 +1706,7 @@ export interface RunDetail {
   durationSec: number | null;
   decision: Verdict | null;
   confidence: number | null; // 0–100
+  documents: ProcurementDocumentRow[];
   evidence: Evidence[];
   round1: AgentMotion[];
   round2: AgentMotion[];
@@ -1739,7 +1754,7 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
       .order("created_at"),
     client
       .from("documents")
-      .select("id")
+      .select("id, original_filename, parse_status, metadata")
       .eq("tender_id", tenderId)
       .eq("tenant_key", "demo"),
   ]);
@@ -1753,6 +1768,17 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
     output_type: string;
     validated_payload: Record<string, unknown>;
   }>;
+
+  const documents = ((docsRes.data ?? []) as Array<{
+    id: string;
+    original_filename: string;
+    parse_status: ProcurementDocumentRow["parseStatus"];
+    metadata: unknown;
+  }>).map((document) => ({
+    originalFilename: document.original_filename,
+    parseStatus: document.parse_status,
+    parseNote: metadataParseNote(document.metadata),
+  }));
 
   const docIds = ((docsRes.data ?? []) as Array<{ id: string }>).map(
     (d) => d.id,
@@ -1862,6 +1888,7 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
             ((bd as Record<string, unknown>).confidence as number) * 100,
           )
         : null,
+    documents,
     evidence,
     round1,
     round2,

@@ -29,6 +29,7 @@ import { CitationSourceSheet } from "@/components/CitationSourceSheet";
 import { AgentMotionCard } from "@/components/AgentMotionCard";
 import { JudgeVerdictSummary } from "@/components/JudgeVerdictSummary";
 import { PipelineStep, type StepState } from "@/components/PipelineStep";
+import { ParseStatusBadge } from "@/components/ParseStatusBadge";
 import { archiveAgentRun, fetchRunDetail } from "@/lib/api";
 import { usePermissions } from "@/lib/auth";
 import { humanizeVerdictText, runDisplayId, type EvidenceCategory } from "@/data/mock";
@@ -266,6 +267,32 @@ export default function RunDetail() {
               </Button>
               <Button variant="outline" size="sm">Request override</Button>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {run.documents.length > 0 && (
+        <Card className="mb-4">
+          <CardContent className="space-y-3 p-4">
+            <div>
+              <p className="text-sm font-medium text-foreground">Submitted files</p>
+              <p className="text-xs text-muted-foreground">
+                The tender documents linked to this run.
+              </p>
+            </div>
+            <ul className="space-y-2">
+              {run.documents.map((document) => (
+                <li
+                  key={document.originalFilename}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2"
+                >
+                  <span className="text-sm text-foreground">
+                    {document.originalFilename}
+                  </span>
+                  <ParseStatusBadge status={document.parseStatus} />
+                </li>
+              ))}
+            </ul>
           </CardContent>
         </Card>
       )}

@@ -33,6 +33,18 @@ const run: RunDetailModel = {
   stage: "Judge",
   decision: "BID",
   confidence: 82,
+  documents: [
+    {
+      originalFilename: "city-crm-main.pdf",
+      parseStatus: "parsed",
+      parseNote: null,
+    },
+    {
+      originalFilename: "city-crm-appendix.pdf",
+      parseStatus: "parsed",
+      parseNote: null,
+    },
+  ],
   evidence: [],
   round1: [],
   round2: [],
@@ -83,6 +95,9 @@ describe("RunDetail", () => {
       "href",
       "/runs/run-123/evidence",
     );
+    expect(screen.getByText("Submitted files")).toBeInTheDocument();
+    expect(screen.getByText("city-crm-main.pdf")).toBeInTheDocument();
+    expect(screen.getByText("city-crm-appendix.pdf")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Re-run/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Export/i })).toBeInTheDocument();
   });
