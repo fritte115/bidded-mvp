@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from dataclasses import replace
-from typing import Any
+from dataclasses import dataclass, replace
+from typing import Any, Literal
 
 from bidded.agents.schemas import AgentRole
 from bidded.llm.anthropic_client import anthropic_complete_json
@@ -27,7 +27,144 @@ from bidded.orchestration.graph import GraphNodeHandlers, default_graph_node_han
 from bidded.orchestration.judge import JudgeDecisionRequest
 from bidded.orchestration.specialist_motions import Round1SpecialistRequest
 from bidded.orchestration.specialist_rebuttals import Round2RebuttalRequest
-from bidded.orchestration.state import EvidenceItemState
+from bidded.orchestration.state import EvidenceItemState, Verdict
+from bidded.requirements import RequirementType
+
+DEFAULT_ANTHROPIC_REASONING_MODEL = "claude-sonnet-4-6"
+DEFAULT_ANTHROPIC_FAST_MODEL = "claude-haiku-4-5"
+AnthropicModelRouting = Literal["mixed", "single"]
+_FORMAL_BLOCKER_REQUIREMENT_TYPES = frozenset(
+    {
+        RequirementType.EXCLUSION_GROUND.value,
+        RequirementType.QUALIFICATION_REQUIREMENT.value,
+    }
+)
+_BID_POSITIVE_VERDICTS = frozenset(
+    {
+        Verdict.BID.value,
+        Verdict.CONDITIONAL_BID.value,
+    }
+)
+
+
+@dataclass(frozen=True)
+class _AnthropicModelRouter:
+    single_model: str
+    fast_model: str
+    reasoning_model: str
+    model_routing: AnthropicModelRouting
+
+    @classmethod
+    def build(
+        cls,
+        *,
+        model: str | None = None,
+        fast_model: str | None = None,
+        reasoning_model: str | None = None,
+        model_routing: str = "mixed",
+    ) -> _AnthropicModelRouter:
+        routing = _normalize_model_routing(model_routing)
+        single_model = _normalize_model_name(
+            model,
+            fallback=DEFAULT_ANTHROPIC_REASONING_MODEL,
+        )
+        if routing == "single":
+            return cls(
+                single_model=single_model,
+                fast_model=single_model,
+                reasoning_model=single_model,
+                model_routing=routing,
+            )
+        return cls(
+            single_model=single_model,
+            fast_model=_normalize_model_name(
+                fast_model,
+                fallback=DEFAULT_ANTHROPIC_FAST_MODEL,
+            ),
+            reasoning_model=_normalize_model_name(
+                reasoning_model,
+                fallback=single_model,
+            ),
+            model_routing=routing,
+        )
+
+    def scout_model(self) -> str:
+        return self.fast_model
+
+    def round_1_model(self, request: Round1SpecialistRequest) -> str:
+        if self.model_routing == "single":
+            return self.single_model
+        if request.agent_role is AgentRole.RED_TEAM:
+            return self.reasoning_model
+        if (
+            request.agent_role is AgentRole.COMPLIANCE_OFFICER
+            and _has_formal_blocker_risk(request.evidence_board)
+        ):
+            return self.reasoning_model
+        return self.fast_model
+
+    def round_2_model(self, request: Round2RebuttalRequest) -> str:
+        if self.model_routing == "single":
+            return self.single_model
+        if request.agent_role is not AgentRole.RED_TEAM:
+            return self.fast_model
+        if (
+            _has_vote_conflict(request)
+            or _has_motion_review_risk(request)
+            or _has_positive_peer_vote(request)
+        ):
+            return self.reasoning_model
+        return self.fast_model
+
+    def judge_model(self) -> str:
+        return self.reasoning_model
+
+
+def _normalize_model_name(value: str | None, *, fallback: str) -> str:
+    stripped = (value or "").strip()
+    return stripped or fallback
+
+
+def _normalize_model_routing(value: str) -> AnthropicModelRouting:
+    normalized = value.strip().lower()
+    if normalized == "mixed":
+        return "mixed"
+    if normalized == "single":
+        return "single"
+    raise ValueError("model_routing must be 'mixed' or 'single'.")
+
+
+def _has_formal_blocker_risk(board: Sequence[EvidenceItemState]) -> bool:
+    for item in board:
+        requirement_type = _enum_value(getattr(item, "requirement_type", None))
+        if requirement_type in _FORMAL_BLOCKER_REQUIREMENT_TYPES:
+            return True
+    return False
+
+
+def _has_vote_conflict(request: Round2RebuttalRequest) -> bool:
+    verdicts = {_enum_value(motion.verdict) for motion in request.motions.values()}
+    return len(verdicts) > 1
+
+
+def _has_motion_review_risk(request: Round2RebuttalRequest) -> bool:
+    return any(
+        bool(motion.blockers) or bool(motion.missing_info)
+        for motion in request.motions.values()
+    )
+
+
+def _has_positive_peer_vote(request: Round2RebuttalRequest) -> bool:
+    return any(
+        role is not AgentRole.RED_TEAM
+        and _enum_value(motion.verdict) in _BID_POSITIVE_VERDICTS
+        for role, motion in request.motions.items()
+    )
+
+
+def _enum_value(value: Any) -> str:
+    raw = value.value if hasattr(value, "value") else value
+    return str(raw)
 
 
 def _catalog(board: Sequence[EvidenceItemState]) -> list[dict[str, Any]]:
@@ -155,9 +292,22 @@ _ROUND1_ROLE_INSTRUCTIONS: dict[AgentRole, str] = {
 
 
 class AnthropicRound1Model:
-    def __init__(self, *, api_key: str, model: str) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        model: str | None = None,
+        fast_model: str | None = None,
+        reasoning_model: str | None = None,
+        model_routing: str = "mixed",
+    ) -> None:
         self._api_key = api_key
-        self._model = model
+        self._router = _AnthropicModelRouter.build(
+            model=model,
+            fast_model=fast_model,
+            reasoning_model=reasoning_model,
+            model_routing=model_routing,
+        )
 
     def draft_motion(self, request: Round1SpecialistRequest) -> dict[str, Any]:
         role = request.agent_role
@@ -224,7 +374,7 @@ class AnthropicRound1Model:
         )
         data = anthropic_complete_json(
             api_key=self._api_key,
-            model=self._model,
+            model=self._router.round_1_model(request),
             system=system,
             user=user,
             max_tokens=8_000,
@@ -234,9 +384,22 @@ class AnthropicRound1Model:
 
 
 class AnthropicRound2Model:
-    def __init__(self, *, api_key: str, model: str) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        model: str | None = None,
+        fast_model: str | None = None,
+        reasoning_model: str | None = None,
+        model_routing: str = "mixed",
+    ) -> None:
         self._api_key = api_key
-        self._model = model
+        self._router = _AnthropicModelRouter.build(
+            model=model,
+            fast_model=fast_model,
+            reasoning_model=reasoning_model,
+            model_routing=model_routing,
+        )
 
     def draft_rebuttal(self, request: Round2RebuttalRequest) -> dict[str, Any]:
         role = request.agent_role
@@ -317,7 +480,7 @@ class AnthropicRound2Model:
         )
         data = anthropic_complete_json(
             api_key=self._api_key,
-            model=self._model,
+            model=self._router.round_2_model(request),
             system=system,
             user=user,
             max_tokens=8_000,
@@ -417,6 +580,9 @@ def anthropic_graph_handlers(
     *,
     api_key: str,
     model: str | None = None,
+    fast_model: str | None = None,
+    reasoning_model: str | None = None,
+    model_routing: str = "mixed",
 ) -> GraphNodeHandlers:
     """Build graph handlers that call Anthropic for each agent node."""
     from bidded.orchestration.evidence_scout import build_evidence_scout_handler
@@ -424,21 +590,38 @@ def anthropic_graph_handlers(
     from bidded.orchestration.specialist_motions import build_round_1_specialist_handler
     from bidded.orchestration.specialist_rebuttals import build_round_2_rebuttal_handler
 
-    resolved_model = (model or "claude-sonnet-4-6").strip()
+    router = _AnthropicModelRouter.build(
+        model=model,
+        fast_model=fast_model,
+        reasoning_model=reasoning_model,
+        model_routing=model_routing,
+    )
     defaults = default_graph_node_handlers()
     return replace(
         defaults,
         evidence_scout=build_evidence_scout_handler(
-            AnthropicEvidenceScoutModel(api_key=api_key, model=resolved_model),
+            AnthropicEvidenceScoutModel(api_key=api_key, model=router.scout_model()),
         ),
         round_1_specialist=build_round_1_specialist_handler(
-            AnthropicRound1Model(api_key=api_key, model=resolved_model),
+            AnthropicRound1Model(
+                api_key=api_key,
+                model=router.single_model,
+                fast_model=router.fast_model,
+                reasoning_model=router.reasoning_model,
+                model_routing=router.model_routing,
+            ),
         ),
         round_2_rebuttal=build_round_2_rebuttal_handler(
-            AnthropicRound2Model(api_key=api_key, model=resolved_model),
+            AnthropicRound2Model(
+                api_key=api_key,
+                model=router.single_model,
+                fast_model=router.fast_model,
+                reasoning_model=router.reasoning_model,
+                model_routing=router.model_routing,
+            ),
         ),
         judge=build_judge_handler(
-            AnthropicJudgeModel(api_key=api_key, model=resolved_model),
+            AnthropicJudgeModel(api_key=api_key, model=router.judge_model()),
         ),
     )
 
