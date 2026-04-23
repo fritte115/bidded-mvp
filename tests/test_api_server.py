@@ -4,13 +4,19 @@ import sys
 from types import SimpleNamespace
 from typing import Any
 
+from fastapi.testclient import TestClient
+
 from bidded import api_server
+from bidded.auth import AuthenticatedUser
 
 RUN_ID = "11111111-1111-4111-8111-111111111111"
 COMPANY_ID = "22222222-2222-4222-8222-222222222222"
 TENDER_ID = "33333333-3333-4333-8333-333333333333"
 DOCUMENT_ID_1 = "44444444-4444-4444-8444-444444444441"
 DOCUMENT_ID_2 = "44444444-4444-4444-8444-444444444442"
+USER_ID = "55555555-5555-4555-8555-555555555555"
+SUPERADMIN_ID = "66666666-6666-4666-8666-666666666666"
+ORG_ID = "00000000-0000-4000-8000-000000000001"
 
 
 class FakeQuery:
@@ -42,7 +48,27 @@ class FakeQuery:
 class FakeSupabaseClient:
     def __init__(self) -> None:
         self.rows: dict[str, list[dict[str, Any]]] = {
-            "companies": [{"id": COMPANY_ID, "tenant_key": "demo"}],
+            "companies": [
+                {"id": COMPANY_ID, "tenant_key": "demo", "organization_id": ORG_ID}
+            ],
+            "tenders": [
+                {"id": TENDER_ID, "tenant_key": "demo", "organization_id": ORG_ID}
+            ],
+            "agent_runs": [
+                {"id": RUN_ID, "tenant_key": "demo", "organization_id": ORG_ID}
+            ],
+            "profiles": [
+                {"user_id": USER_ID, "global_role": None},
+                {"user_id": SUPERADMIN_ID, "global_role": "superadmin"},
+            ],
+            "organization_memberships": [
+                {
+                    "organization_id": ORG_ID,
+                    "user_id": USER_ID,
+                    "role": "user",
+                    "status": "active",
+                }
+            ],
             "documents": [
                 {
                     "id": DOCUMENT_ID_1,
@@ -138,10 +164,18 @@ def test_start_run_parses_pending_documents_and_starts_worker(
         "resolve_graph_handlers",
         lambda _settings: {"graph": "handlers"},
     )
+    monkeypatch.setattr(
+        api_server,
+        "require_tender_member",
+        lambda *_args, **_kwargs: "00000000-0000-4000-8000-000000000001",
+    )
     monkeypatch.setattr(api_server, "create_pending_run_context", record_pending_run)
     monkeypatch.setattr(api_server, "run_worker_once", record_worker)
 
-    result = api_server.start_run(api_server.StartRunRequest(tender_id=TENDER_ID))
+    result = api_server.start_run(
+        api_server.StartRunRequest(tender_id=TENDER_ID),
+        user=AuthenticatedUser(user_id=USER_ID, email="user@example.com"),
+    )
 
     assert result == {"run_id": RUN_ID}
     assert captured["ingested"] == [
@@ -193,10 +227,16 @@ def test_archive_run_endpoint_uses_service_role_archive_control(
         )
 
     monkeypatch.setattr(api_server, "archive_agent_run", record_archive)
+    monkeypatch.setattr(
+        api_server,
+        "require_agent_run_admin",
+        lambda *_args, **_kwargs: "00000000-0000-4000-8000-000000000001",
+    )
 
     result = api_server.archive_run(
         RUN_ID,
         api_server.ArchiveRunRequest(reason="clear stale run"),
+        user=AuthenticatedUser(user_id=USER_ID, email="user@example.com"),
     )
 
     assert result == {
@@ -209,3 +249,50 @@ def test_archive_run_endpoint_uses_service_role_archive_control(
         "run_id": RUN_ID,
         "reason": "clear stale run",
     }
+
+
+def test_start_run_requires_bearer_token() -> None:
+    client = TestClient(api_server.app)
+
+    response = client.post("/api/runs/start", json={"tender_id": TENDER_ID})
+
+    assert response.status_code == 401
+
+
+def test_require_tender_member_allows_active_user_membership() -> None:
+    client = FakeSupabaseClient()
+
+    organization_id = api_server.require_tender_member(
+        client,
+        AuthenticatedUser(user_id=USER_ID, email="user@example.com"),
+        TENDER_ID,
+    )
+
+    assert organization_id == ORG_ID
+
+
+def test_require_company_admin_rejects_regular_user() -> None:
+    client = FakeSupabaseClient()
+
+    try:
+        api_server.require_company_admin(
+            client,
+            AuthenticatedUser(user_id=USER_ID, email="user@example.com"),
+            COMPANY_ID,
+        )
+    except api_server.HTTPException as exc:
+        assert exc.status_code == 403
+    else:  # pragma: no cover - assertion guard
+        raise AssertionError("regular users must not resync company evidence")
+
+
+def test_require_company_admin_allows_superadmin_without_membership() -> None:
+    client = FakeSupabaseClient()
+
+    organization_id = api_server.require_company_admin(
+        client,
+        AuthenticatedUser(user_id=SUPERADMIN_ID, email="ops@bidded.se"),
+        COMPANY_ID,
+    )
+
+    assert organization_id == ORG_ID

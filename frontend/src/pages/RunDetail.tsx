@@ -29,7 +29,8 @@ import { AgentMotionCard } from "@/components/AgentMotionCard";
 import { JudgeVerdictSummary } from "@/components/JudgeVerdictSummary";
 import { PipelineStep, type StepState } from "@/components/PipelineStep";
 import { archiveAgentRun, fetchRunDetail } from "@/lib/api";
-import type { EvidenceCategory } from "@/data/mock";
+import { usePermissions } from "@/lib/auth";
+import { humanizeVerdictText, runDisplayId, type EvidenceCategory } from "@/data/mock";
 import {
   Archive,
   ArrowLeft,
@@ -65,16 +66,11 @@ const severityToneMap = {
   High: "bg-danger/10 text-danger border-danger/30",
 } as const;
 
-function runDisplayId(id: string): string {
-  let sum = 0;
-  for (let i = 0; i < id.length; i++) sum = (sum + id.charCodeAt(i) * (i + 1)) % 9000;
-  return `#${1000 + sum}`;
-}
-
 export default function RunDetail() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const permissions = usePermissions();
   const [isArchiving, setIsArchiving] = useState(false);
 
   const { data: run, isLoading } = useQuery({
@@ -153,6 +149,7 @@ export default function RunDetail() {
   }));
 
   async function handleArchiveRun() {
+    if (!permissions.canDeleteRuns) return;
     setIsArchiving(true);
     try {
       await archiveAgentRun(run.id, "operator archived run from detail view");
@@ -179,7 +176,7 @@ export default function RunDetail() {
   return (
     <>
       <PageHeader
-        title={runDisplayId(run.id)}
+        title={runDisplayId(run)}
         description={run.tenderName}
         actions={
           <>
@@ -220,14 +217,16 @@ export default function RunDetail() {
               </div>
             </div>
             <div className="flex shrink-0 gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleArchiveRun}
-                disabled={isArchiving}
-              >
-                <Archive className="h-3 w-3" /> Archive
-              </Button>
+              {permissions.canDeleteRuns && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleArchiveRun}
+                  disabled={isArchiving}
+                >
+                  <Archive className="h-3 w-3" /> Archive
+                </Button>
+              )}
               <Button variant="outline" size="sm">
                 <RefreshCw className="h-3 w-3" /> Re-run
               </Button>
@@ -344,7 +343,7 @@ export default function RunDetail() {
                       <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-warning">
                         Disagreement
                       </p>
-                      {run.judge.disagreement}
+                      {humanizeVerdictText(run.judge.disagreement)}
                     </div>
                   )}
 
@@ -390,7 +389,7 @@ export default function RunDetail() {
                           className="flex items-start gap-2 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-sm"
                         >
                           <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-danger" />
-                          {b}
+                          {humanizeVerdictText(b)}
                         </li>
                       ))}
                     </ul>
@@ -406,7 +405,7 @@ export default function RunDetail() {
                           className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-sm"
                         >
                           <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-warning" />
-                          {b}
+                          {humanizeVerdictText(b)}
                         </li>
                       ))}
                     </ul>
@@ -444,13 +443,13 @@ export default function RunDetail() {
 
                   <CollapsibleSection title="Missing Information">
                     <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                      {run.judge.missingInfo.map((m, i) => <li key={i}>{m}</li>)}
+                      {run.judge.missingInfo.map((m, i) => <li key={i}>{humanizeVerdictText(m)}</li>)}
                     </ul>
                   </CollapsibleSection>
 
                   <CollapsibleSection title="Recommended Actions" defaultOpen>
                     <ol className="list-decimal space-y-1.5 pl-5 text-sm">
-                      {run.judge.recommendedActions.map((a, i) => <li key={i}>{a}</li>)}
+                      {run.judge.recommendedActions.map((a, i) => <li key={i}>{humanizeVerdictText(a)}</li>)}
                     </ol>
                   </CollapsibleSection>
 

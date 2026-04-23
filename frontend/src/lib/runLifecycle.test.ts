@@ -78,6 +78,7 @@ describe("run archiving", () => {
 
   afterEach(() => {
     vi.resetModules();
+    vi.doUnmock("@/lib/supabase");
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     window.localStorage.clear();
@@ -98,6 +99,17 @@ describe("run archiving", () => {
   it("archives live runs through the agent API instead of deleting Supabase rows", async () => {
     vi.stubEnv("VITE_SUPABASE_URL", "https://example.supabase.co");
     vi.stubEnv("VITE_SUPABASE_ANON_KEY", "test-anon-key");
+    vi.doMock("@/lib/supabase", () => ({
+      isSupabaseConfigured: true,
+      supabase: {
+        auth: {
+          getSession: vi.fn(async () => ({
+            data: { session: { access_token: "test-access-token" } },
+            error: null,
+          })),
+        },
+      },
+    }));
     const fetchMock = vi.fn(async () => {
       return new Response(
         JSON.stringify({
@@ -121,7 +133,10 @@ describe("run archiving", () => {
       "http://localhost:8000/api/runs/11111111-1111-4111-8111-111111111111/archive",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer test-access-token",
+        },
         body: JSON.stringify({ reason: "clear stale run" }),
       },
     );

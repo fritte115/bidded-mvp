@@ -16,7 +16,7 @@ import { VerdictBadge } from "@/components/VerdictBadge";
 import { ConfidenceBar } from "@/components/ConfidenceBar";
 import { EvidenceBadge } from "@/components/EvidenceBadge";
 import { cn } from "@/lib/utils";
-import type { AgentMotion, AgentMotionFinding } from "@/data/mock";
+import { humanizeVerdictText, type AgentMotion, type AgentMotionFinding } from "@/data/mock";
 import { ChevronDown, ShieldCheck, Trophy, Wallet, Flame } from "lucide-react";
 
 const agentMeta: Record<
@@ -38,7 +38,7 @@ const EVIDENCE_KEY_TOKEN =
   /^(EVD-\d+|TENDER-[A-Za-z0-9._-]+|COMPANY-[A-Za-z0-9._-]+)$/;
 
 function highlightEvidence(text: string) {
-  const cleaned = formatMotionLine(text);
+  const cleaned = humanizeVerdictText(formatMotionLine(text));
   const parts = cleaned.split(
     /(EVD-\d+|TENDER-[A-Za-z0-9._-]+|COMPANY-[A-Za-z0-9._-]+)/,
   );
@@ -222,7 +222,7 @@ export function AgentMotionCard({
                 Revised stance rationale
               </p>
               <p className="text-sm leading-relaxed text-foreground">
-                {motion.revisedStanceRationale}
+                {humanizeVerdictText(motion.revisedStanceRationale)}
               </p>
             </section>
           )}

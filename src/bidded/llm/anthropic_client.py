@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from bidded.llm.json_extract import parse_json_object
+
+type AnthropicContentBlock = dict[str, Any]
+type AnthropicMessageContent = str | Sequence[AnthropicContentBlock]
 
 
 def anthropic_complete_json(
     *,
     api_key: str,
     model: str,
-    system: str,
-    user: str,
+    system: AnthropicMessageContent,
+    user: AnthropicMessageContent,
     max_tokens: int = 8_000,
 ) -> dict[str, Any]:
     import anthropic
