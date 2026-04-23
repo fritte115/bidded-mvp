@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
@@ -18,12 +18,31 @@ import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { fetchCompany, updateCompany } from "@/lib/api";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { usePermissions } from "@/lib/auth";
+import {
+  deleteCompanyKbDocument,
+  fetchCompany,
+  fetchCompanyKbDocuments,
+  fetchCompanyKbEvidence,
+  type CompanyKbDocument,
+  type CompanyKbDocumentType,
+  type CompanyKbEvidenceItem,
+  updateCompany,
+  uploadCompanyKbDocuments,
+} from "@/lib/api";
 import type { Company as CompanyType } from "@/data/mock";
 import {
   Pencil, Plus, Trash2, Building2, Globe, Mail, Phone, MapPin, Calendar,
   ShieldCheck, Award, Users, TrendingUp, FileCheck2, Leaf, AlertTriangle,
-  CheckCircle2, Clock, Download, ExternalLink, ChevronRight,
+  CheckCircle2, Clock, Download, ExternalLink, ChevronRight, ChevronDown,
+  FileText, Loader2, UploadCloud,
 } from "lucide-react";
 import {
   Area, AreaChart, CartesianGrid, Line, LineChart, ResponsiveContainer,
@@ -31,6 +50,17 @@ import {
 } from "recharts";
 
 type Company = CompanyType;
+type PendingKbFile = { file: File; kbDocumentType: CompanyKbDocumentType };
+
+const kbDocumentTypes: Array<{ value: CompanyKbDocumentType; label: string }> = [
+  { value: "certification", label: "Certification" },
+  { value: "case_study", label: "Case study" },
+  { value: "cv_profile", label: "CV/profile" },
+  { value: "capability_statement", label: "Capability statement" },
+  { value: "policy_process", label: "Policy/process" },
+  { value: "financial_pricing", label: "Financial/pricing" },
+  { value: "legal_insurance", label: "Legal/insurance" },
+];
 
 const COMPLETENESS_FIELDS: {
   key: string;
@@ -49,14 +79,32 @@ const COMPLETENESS_FIELDS: {
 
 export default function CompanyProfile() {
   const queryClient = useQueryClient();
+  const permissions = usePermissions();
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["company"],
     queryFn: fetchCompany,
+  });
+  const { data: kbData, isLoading: kbLoading } = useQuery({
+    queryKey: ["company-kb-documents"],
+    queryFn: fetchCompanyKbDocuments,
+    enabled: Boolean(data),
+    refetchInterval: (query) =>
+      query.state.data?.documents.some(
+        (doc) => doc.parse_status === "pending" || doc.parse_status === "parsing",
+      )
+        ? 5_000
+        : false,
   });
 
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<Company | null>(null);
+  const [kbFiles, setKbFiles] = useState<PendingKbFile[]>([]);
+  const [kbUploading, setKbUploading] = useState(false);
+  const [kbDeleting, setKbDeleting] = useState<Set<string>>(new Set());
+  const [expandedKb, setExpandedKb] = useState<string | null>(null);
+  const [kbEvidence, setKbEvidence] = useState<Record<string, CompanyKbEvidenceItem[]>>({});
+  const [kbEvidenceLoading, setKbEvidenceLoading] = useState<string | null>(null);
 
   const company = data?.company;
 
@@ -111,10 +159,17 @@ export default function CompanyProfile() {
 
   async function save() {
     if (!draft || !data) return;
+    if (!permissions.canManageCompany) {
+      toast.error("Admin access required", {
+        description: "Only admins can edit the company profile.",
+      });
+      return;
+    }
     setSaving(true);
     try {
       await updateCompany(draft, data.raw);
       await queryClient.invalidateQueries({ queryKey: ["company"] });
+      await queryClient.invalidateQueries({ queryKey: ["company-kb-documents"] });
       setOpen(false);
       toast.success("Profile updated", { description: "Changes saved to database." });
     } catch (err) {
@@ -123,6 +178,98 @@ export default function CompanyProfile() {
       });
     } finally {
       setSaving(false);
+    }
+  }
+
+  function handleKbFiles(incoming: FileList | null) {
+    if (!incoming) return;
+    const allowed = new Set(["pdf", "docx", "pptx", "xlsx", "csv", "txt", "md"]);
+    const next = Array.from(incoming)
+      .filter((file) => allowed.has(file.name.split(".").pop()?.toLowerCase() ?? ""))
+      .map((file) => ({
+        file,
+        kbDocumentType: "certification" as CompanyKbDocumentType,
+      }));
+    setKbFiles((prev) => {
+      const existing = new Set(prev.map((item) => item.file.name));
+      return [...prev, ...next.filter((item) => !existing.has(item.file.name))];
+    });
+  }
+
+  async function uploadKbFiles() {
+    if (kbFiles.length === 0) return;
+    if (!permissions.canManageCompany) {
+      toast.error("Admin access required", {
+        description: "Only admins can upload company knowledge base files.",
+      });
+      return;
+    }
+    setKbUploading(true);
+    try {
+      await uploadCompanyKbDocuments(kbFiles);
+      setKbFiles([]);
+      await queryClient.invalidateQueries({ queryKey: ["company-kb-documents"] });
+      toast.success("Knowledge base upload started", {
+        description: `${kbFiles.length} file${kbFiles.length === 1 ? "" : "s"} queued for extraction.`,
+      });
+    } catch (err) {
+      toast.error("Upload failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setKbUploading(false);
+    }
+  }
+
+  async function toggleKbEvidence(documentId: string) {
+    if (expandedKb === documentId) {
+      setExpandedKb(null);
+      return;
+    }
+    setExpandedKb(documentId);
+    if (kbEvidence[documentId]) return;
+    setKbEvidenceLoading(documentId);
+    try {
+      const response = await fetchCompanyKbEvidence(documentId);
+      setKbEvidence((prev) => ({ ...prev, [documentId]: response.evidence }));
+    } catch (err) {
+      toast.error("Could not load extracted facts", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setKbEvidenceLoading(null);
+    }
+  }
+
+  async function removeKbDocument(document: CompanyKbDocument) {
+    if (!permissions.canManageCompany) {
+      toast.error("Admin access required", {
+        description: "Only admins can delete company knowledge base files.",
+      });
+      return;
+    }
+    setKbDeleting((prev) => new Set(prev).add(document.document_id));
+    try {
+      await deleteCompanyKbDocument(document.document_id);
+      await queryClient.invalidateQueries({ queryKey: ["company-kb-documents"] });
+      setKbEvidence((prev) => {
+        const next = { ...prev };
+        delete next[document.document_id];
+        return next;
+      });
+      toast.success("Knowledge base file deleted", {
+        description: document.original_filename,
+      });
+    } catch (err) {
+      toast.error("Delete failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setKbDeleting((prev) => {
+        const next = new Set(prev);
+        next.delete(document.document_id);
+        return next;
+      });
     }
   }
 
@@ -168,9 +315,11 @@ export default function CompanyProfile() {
             <Button variant="outline" size="sm">
               <Download className="h-4 w-4" /> Export PDF
             </Button>
-            <Button variant="default" size="sm" onClick={openEditor}>
-              <Pencil className="h-4 w-4" /> Edit Profile
-            </Button>
+            {permissions.canManageCompany && (
+              <Button variant="default" size="sm" onClick={openEditor}>
+                <Pencil className="h-4 w-4" /> Edit Profile
+              </Button>
+            )}
           </div>
         }
       />
@@ -323,6 +472,7 @@ export default function CompanyProfile() {
             <TabsTrigger value="references" className="px-4 py-1.5">References</TabsTrigger>
             <TabsTrigger value="financials" className="px-4 py-1.5">Financials</TabsTrigger>
             <TabsTrigger value="security" className="px-4 py-1.5">Security & ESG</TabsTrigger>
+            <TabsTrigger value="knowledge" className="px-4 py-1.5">Knowledge Base</TabsTrigger>
           </TabsList>
 
           {/* OVERVIEW */}
@@ -753,6 +903,32 @@ export default function CompanyProfile() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="knowledge">
+            <KnowledgeBaseTab
+              documents={kbData?.documents ?? []}
+              evidenceByDocument={kbEvidence}
+              expandedDocumentId={expandedKb}
+              files={kbFiles}
+              isDeleting={kbDeleting}
+              isLoading={kbLoading}
+              isUploading={kbUploading}
+              loadingEvidenceId={kbEvidenceLoading}
+              canManage={permissions.canManageCompany}
+              onDelete={removeKbDocument}
+              onFiles={handleKbFiles}
+              onRemoveFile={(index) =>
+                setKbFiles((prev) => prev.filter((_, i) => i !== index))
+              }
+              onToggleEvidence={toggleKbEvidence}
+              onTypeChange={(index, value) => {
+                const next = [...kbFiles];
+                next[index] = { ...next[index], kbDocumentType: value };
+                setKbFiles(next);
+              }}
+              onUpload={uploadKbFiles}
+            />
           </TabsContent>
         </Tabs>
       </div>
@@ -1966,6 +2142,285 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <Label className="text-xs uppercase tracking-wide text-muted-foreground">{label}</Label>
       {children}
     </div>
+  );
+}
+
+function KnowledgeBaseTab({
+  canManage,
+  documents,
+  evidenceByDocument,
+  expandedDocumentId,
+  files,
+  isDeleting,
+  isLoading,
+  isUploading,
+  loadingEvidenceId,
+  onDelete,
+  onFiles,
+  onRemoveFile,
+  onToggleEvidence,
+  onTypeChange,
+  onUpload,
+}: {
+  canManage: boolean;
+  documents: CompanyKbDocument[];
+  evidenceByDocument: Record<string, CompanyKbEvidenceItem[]>;
+  expandedDocumentId: string | null;
+  files: PendingKbFile[];
+  isDeleting: Set<string>;
+  isLoading: boolean;
+  isUploading: boolean;
+  loadingEvidenceId: string | null;
+  onDelete: (document: CompanyKbDocument) => void;
+  onFiles: (files: FileList | null) => void;
+  onRemoveFile: (index: number) => void;
+  onToggleEvidence: (documentId: string) => void;
+  onTypeChange: (index: number, value: CompanyKbDocumentType) => void;
+  onUpload: () => void;
+}) {
+  return (
+    <Card>
+      <CardHeader className="flex-row items-center justify-between pb-3">
+        <CardTitle className="text-sm">Company Knowledge Base</CardTitle>
+        <Badge variant="outline" className="font-normal">
+          {documents.reduce((sum, doc) => sum + doc.evidence_count, 0)} facts
+        </Badge>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {canManage ? (
+          <label
+            className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-muted/30 px-6 py-8 text-center hover:border-primary/40"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              onFiles(e.dataTransfer.files);
+            }}
+          >
+            <UploadCloud className="mb-2 h-7 w-7 text-muted-foreground" />
+            <p className="text-sm font-medium">Drop company documents or click to upload</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              PDF, DOCX, PPTX, XLSX, CSV, TXT, MD
+            </p>
+            <input
+              type="file"
+              multiple
+              accept=".pdf,.docx,.pptx,.xlsx,.csv,.txt,.md"
+              className="sr-only"
+              onChange={(e) => onFiles(e.target.files)}
+            />
+          </label>
+        ) : (
+          <div className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+            Knowledge base files are managed by company admins.
+          </div>
+        )}
+
+        {files.length > 0 && (
+          <div className="space-y-2">
+            {files.map((item, index) => (
+              <div
+                key={`${item.file.name}-${index}`}
+                className="grid gap-2 rounded-md border border-border bg-card p-2 sm:grid-cols-[1fr_220px_auto]"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="truncate text-sm">{item.file.name}</span>
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                    {(item.file.size / 1024 / 1024).toFixed(1)} MB
+                  </span>
+                </div>
+                <Select
+                  value={item.kbDocumentType}
+                  onValueChange={(value) =>
+                    onTypeChange(index, value as CompanyKbDocumentType)
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {kbDocumentTypes.map((type) => (
+                      <SelectItem key={type.value} value={type.value}>
+                        {type.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Remove ${item.file.name}`}
+                  onClick={() => onRemoveFile(index)}
+                >
+                  <Trash2 className="h-4 w-4 text-muted-foreground" />
+                </Button>
+              </div>
+            ))}
+            <Button onClick={onUpload} disabled={isUploading}>
+              {isUploading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Uploading
+                </>
+              ) : (
+                <>
+                  <UploadCloud className="h-4 w-4" /> Upload to KB
+                </>
+              )}
+            </Button>
+          </div>
+        )}
+
+        <div className="overflow-hidden rounded-md border border-border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>File</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Facts</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-sm text-muted-foreground">
+                    Loading knowledge base…
+                  </TableCell>
+                </TableRow>
+              ) : documents.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-sm text-muted-foreground">
+                    No company knowledge base files yet.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                documents.map((document) => {
+                  const evidence = evidenceByDocument[document.document_id] ?? [];
+                  const isExpanded = expandedDocumentId === document.document_id;
+                  const deleting = isDeleting.has(document.document_id);
+                  return (
+                    <Fragment key={document.document_id}>
+                      <TableRow>
+                        <TableCell className="font-medium">
+                          {document.original_filename}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {kbTypeLabel(document.kb_document_type)}
+                        </TableCell>
+                        <TableCell>
+                          <KbStatus document={document} />
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">
+                          {document.evidence_count}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              aria-expanded={isExpanded}
+                              onClick={() => onToggleEvidence(document.document_id)}
+                            >
+                              {loadingEvidenceId === document.document_id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <ChevronDown className="h-3.5 w-3.5" />
+                              )}
+                              Facts
+                            </Button>
+                            {canManage && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`Delete ${document.original_filename}`}
+                                disabled={deleting}
+                                onClick={() => onDelete(document)}
+                              >
+                                {deleting ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-4 w-4 text-muted-foreground" />
+                                )}
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                      {isExpanded && (
+                        <TableRow>
+                          <TableCell colSpan={5} className="bg-muted/30">
+                            {document.warnings.length > 0 && (
+                              <div className="mb-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
+                                {document.warnings.join(" · ")}
+                              </div>
+                            )}
+                            {evidence.length === 0 ? (
+                              <p className="text-sm text-muted-foreground">
+                                No extracted facts loaded.
+                              </p>
+                            ) : (
+                              <ul className="space-y-2">
+                                {evidence.map((item) => (
+                                  <li
+                                    key={item.evidence_key}
+                                    className="rounded-md border border-border bg-card px-3 py-2"
+                                  >
+                                    <div className="mb-1 flex items-center justify-between gap-2">
+                                      <span className="font-mono text-[11px] text-muted-foreground">
+                                        {item.evidence_key}
+                                      </span>
+                                      <span className="rounded-sm bg-secondary px-1.5 py-0.5 text-[10px] font-medium uppercase text-secondary-foreground">
+                                        {item.category}
+                                      </span>
+                                    </div>
+                                    <p className="text-sm">{item.excerpt}</p>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </Fragment>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function kbTypeLabel(value: CompanyKbDocumentType): string {
+  return kbDocumentTypes.find((type) => type.value === value)?.label ?? value;
+}
+
+function KbStatus({ document }: { document: CompanyKbDocument }) {
+  const activeStatus =
+    document.extraction_status === "fallback"
+      ? "fallback"
+      : document.extraction_status === "failed"
+        ? "failed"
+        : document.parse_status;
+  const label =
+    activeStatus === "parsed" && document.extraction_status === "extracted"
+      ? "active"
+      : activeStatus.replace("_", " ");
+  const tone =
+    activeStatus === "parser_failed" || activeStatus === "failed"
+      ? "border-danger/30 bg-danger/10 text-danger"
+      : activeStatus === "fallback"
+        ? "border-warning/30 bg-warning/10 text-warning"
+        : activeStatus === "pending" || activeStatus === "parsing"
+          ? "border-info/30 bg-info/10 text-info"
+          : "border-success/30 bg-success/10 text-success";
+  return (
+    <span className={`inline-flex items-center rounded-sm border px-2 py-0.5 text-xs font-medium ${tone}`}>
+      {label}
+    </span>
   );
 }
 

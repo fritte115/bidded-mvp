@@ -774,12 +774,16 @@ export function findRun(id: string) {
   return runs.find((r) => r.id === id);
 }
 
-/** Friendly run label, e.g. "Run #1042". Stable for a given run id. */
-export function runDisplayId(run: Pick<Run, "id">) {
-  // Sum char codes → 4-digit number in [1000, 9999]
+/** Friendly run label, e.g. "Run 1". Stable for a given run id. */
+export function runDisplayId(run: Pick<Run, "id"> | string) {
+  const id = typeof run === "string" ? run : run.id;
+  const knownIndex = runs.findIndex((r) => r.id === id);
+  if (knownIndex >= 0) return `Run ${knownIndex + 1}`;
+
+  // Fall back to a small stable number for live ids that are not in mock data.
   let sum = 0;
-  for (let i = 0; i < run.id.length; i++) sum = (sum + run.id.charCodeAt(i) * (i + 1)) % 9000;
-  return `#${1000 + sum}`;
+  for (let i = 0; i < id.length; i++) sum = (sum + id.charCodeAt(i) * (i + 1)) % 99;
+  return `Run ${sum + 1}`;
 }
 
 /** Latest run for a procurement, by startedAt (desc). */
@@ -812,16 +816,28 @@ export function findProcurement(id: string) {
 export const findTender = findProcurement;
 
 export const verdictLabel: Record<Verdict, string> = {
-  BID: "BID",
-  NO_BID: "NO BID",
-  CONDITIONAL_BID: "CONDITIONAL BID",
+  BID: "Bid",
+  NO_BID: "No bid",
+  CONDITIONAL_BID: "Conditional bid",
 };
 
 export const verdictLabelShort: Record<Verdict, string> = {
-  BID: "BID",
-  NO_BID: "NO BID",
-  CONDITIONAL_BID: "COND.",
+  BID: "Bid",
+  NO_BID: "No bid",
+  CONDITIONAL_BID: "Cond.",
 };
+
+export function humanizeVerdictText(text: string) {
+  const normalized = text
+    .replace(/\bNOT\s+BID\b/gi, "not bid")
+    .replace(/\bCONDITIONAL[_\s-]+BID\b/gi, "conditional bid")
+    .replace(/\bNO[_\s-]+BID\b/gi, "no bid")
+    .replace(/\bBID\b/g, "bid");
+
+  return normalized.replace(/^(bid|no bid|conditional bid)\b/, (match) =>
+    match.charAt(0).toUpperCase() + match.slice(1),
+  );
+}
 
 export function formatDate(iso: string) {
   return new Date(iso).toLocaleString("sv-SE", {
@@ -884,6 +900,97 @@ export interface Bid {
   /** Optional decision/run that seeded this bid. */
   runId?: string;
 }
+
+export type BidDraftAnswerStatus = "drafted" | "needs_input" | "blocked" | "not_applicable";
+export type BidDraftAttachmentStatus = "attached" | "suggested" | "missing" | "needs_review";
+
+export interface BidDraftPricing {
+  source: "bid_row" | "estimator";
+  rateSEK: number;
+  marginPct: number;
+  hoursEstimated: number;
+  totalValueSEK: number;
+  bidId?: string;
+}
+
+export interface BidDraftAnswer {
+  questionId: string;
+  prompt: string;
+  answer: string;
+  status: BidDraftAnswerStatus;
+  evidenceKeys: string[];
+  requiredAttachmentTypes: string[];
+}
+
+export interface BidDraftAttachment {
+  filename: string;
+  storagePath?: string;
+  checksumSha256?: string;
+  attachmentType: string;
+  requiredByEvidenceKey: string;
+  status: BidDraftAttachmentStatus;
+  sourceEvidenceKeys: string[];
+  packetPath?: string;
+  publicUrl?: string;
+}
+
+export interface BidResponseDraft {
+  schemaVersion: string;
+  runId: string;
+  tenderId: string;
+  bidId?: string;
+  language: string;
+  status: "draft" | "needs_review" | "blocked";
+  verdict: Verdict;
+  confidence: number | null;
+  pricing: BidDraftPricing;
+  answers: BidDraftAnswer[];
+  attachments: BidDraftAttachment[];
+  missingInfo: string[];
+  sourceEvidenceKeys: string[];
+}
+
+export const bidDrafts: BidResponseDraft[] = [
+  {
+    schemaVersion: "2026-04-23.bid_response_draft.v1",
+    runId: "run_8f42b1c3",
+    tenderId: "tender-001",
+    language: "sv",
+    status: "needs_review",
+    verdict: "CONDITIONAL_BID",
+    confidence: 76,
+    pricing: {
+      source: "bid_row",
+      rateSEK: 1330,
+      marginPct: 14,
+      hoursEstimated: 800,
+      totalValueSEK: 1_064_000,
+    },
+    answers: [
+      {
+        questionId: "TENDER-ISO-CERT",
+        prompt: "The tender requires an ISO 27001 certificate.",
+        answer: "Bifoga ISO 27001-certifikat. Kravet adresseras med bifogad evidens.",
+        status: "drafted",
+        evidenceKeys: ["TENDER-ISO-CERT", "COMPANY-KB-ISO-27001"],
+        requiredAttachmentTypes: ["certificate"],
+      },
+    ],
+    attachments: [
+      {
+        filename: "iso-27001.pdf",
+        storagePath: "demo/company-kb/iso-27001.pdf",
+        checksumSha256: "demo-checksum",
+        attachmentType: "certificate",
+        requiredByEvidenceKey: "TENDER-ISO-CERT",
+        status: "attached",
+        sourceEvidenceKeys: ["TENDER-ISO-CERT", "COMPANY-KB-ISO-27001"],
+      },
+    ],
+    missingInfo: ["Confirm named project manager."],
+    sourceEvidenceKeys: ["TENDER-ISO-CERT", "COMPANY-KB-ISO-27001"],
+  },
+];
 
 export const bidStatusOrder: BidStatus[] = ["draft", "review", "submitted", "won", "lost"];
 

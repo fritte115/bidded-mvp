@@ -142,6 +142,117 @@ ensure_env_file() {
 }
 
 
+frontend_env_has_live_supabase() {
+  local env_path="$1"
+
+  [ -f "${env_path}" ] || return 1
+
+  awk -F= '
+    /^[[:space:]]*(#|$)/ { next }
+    $1 == "VITE_SUPABASE_URL" {
+      url=$2
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", url)
+    }
+    $1 == "VITE_SUPABASE_ANON_KEY" {
+      anon=$2
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", anon)
+    }
+    END {
+      if (url != "" && anon != "" && url !~ /your-project-ref/ && anon !~ /replace-with-your-supabase-anon-key/) {
+        exit 0
+      }
+      exit 1
+    }
+  ' "${env_path}"
+}
+
+
+copy_frontend_env_if_valid() {
+  local source_path="$1"
+
+  if [ "${source_path}" = "${FRONTEND_DIR}/.env" ]; then
+    return 1
+  fi
+
+  if frontend_env_has_live_supabase "${source_path}"; then
+    write_frontend_env_from_source "${source_path}"
+    echo "Created frontend/.env from Vite credentials in ${source_path}"
+    return 0
+  fi
+
+  return 1
+}
+
+
+extract_env_value() {
+  local env_path="$1"
+  local key="$2"
+
+  awk -v key="${key}" '
+    BEGIN { prefix = key "=" }
+    index($0, prefix) == 1 {
+      value = substr($0, length(prefix) + 1)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      print value
+      exit
+    }
+  ' "${env_path}"
+}
+
+
+write_frontend_env_from_source() {
+  local source_path="$1"
+  local vite_supabase_url
+  local vite_supabase_anon_key
+  local vite_agent_api_url
+
+  vite_supabase_url="$(extract_env_value "${source_path}" "VITE_SUPABASE_URL")"
+  vite_supabase_anon_key="$(extract_env_value "${source_path}" "VITE_SUPABASE_ANON_KEY")"
+  vite_agent_api_url="$(extract_env_value "${source_path}" "VITE_AGENT_API_URL")"
+  vite_agent_api_url="${vite_agent_api_url:-http://localhost:8000}"
+
+  cat > "${FRONTEND_DIR}/.env" <<EOF
+# Supabase project credentials (anon/public key only - never the service role key)
+VITE_SUPABASE_URL=${vite_supabase_url}
+VITE_SUPABASE_ANON_KEY=${vite_supabase_anon_key}
+VITE_AGENT_API_URL=${vite_agent_api_url}
+EOF
+}
+
+
+copy_frontend_env_from_worktrees() {
+  local worktree_path
+  local source_path
+
+  if ! command -v git >/dev/null 2>&1; then
+    return 1
+  fi
+
+  while IFS= read -r worktree_path; do
+    source_path="${worktree_path}/frontend/.env"
+    copy_frontend_env_if_valid "${source_path}" && return 0
+  done < <(git -C "${WORKTREE_ROOT}" worktree list --porcelain 2>/dev/null | awk '/^worktree / { sub(/^worktree /, ""); print }')
+
+  return 1
+}
+
+
+ensure_frontend_env_file() {
+  if [ -f "${FRONTEND_DIR}/.env" ] || [ ! -f "${FRONTEND_DIR}/.env.example" ]; then
+    return 0
+  fi
+
+  if [ -n "${FRONTEND_ENV_SOURCE:-}" ]; then
+    copy_frontend_env_if_valid "${FRONTEND_ENV_SOURCE}" && return 0
+    echo "Warning: FRONTEND_ENV_SOURCE did not contain live Supabase Vite credentials: ${FRONTEND_ENV_SOURCE}" >&2
+  fi
+
+  copy_frontend_env_from_worktrees && return 0
+
+  cp "${FRONTEND_DIR}/.env.example" "${FRONTEND_DIR}/.env"
+}
+
+
 ensure_worktree_dirs() {
   mkdir -p \
     "${WORKTREE_ROOT}/data/demo/incoming" \
@@ -179,8 +290,8 @@ print_optional_tool_notes() {
     echo "Note: cargo is missing; brain-in-the-fish tests will be unavailable."
   fi
 
-  if [ ! -f "${FRONTEND_DIR}/.env" ]; then
-    echo "Note: frontend/.env is absent; the UI will use mock data until live Supabase anon credentials are provided."
+  if ! frontend_env_has_live_supabase "${FRONTEND_DIR}/.env"; then
+    echo "Note: frontend/.env is missing live Supabase Vite credentials; login will not work until VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set."
   fi
 }
 
@@ -193,6 +304,7 @@ main() {
   ensure_venv "${python_bin}"
   ensure_editable_install
   ensure_env_file
+  ensure_frontend_env_file
   ensure_worktree_dirs
   ensure_frontend_deps
   print_optional_tool_notes

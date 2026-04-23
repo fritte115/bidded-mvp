@@ -11,9 +11,7 @@ from bidded.agents.schemas import (
     EvidenceReference,
     Round2Rebuttal,
 )
-from bidded.orchestration.evidence_refs import (
-    coerce_evidence_refs,
-)
+from bidded.orchestration.evidence_refs import coerce_evidence_refs
 from bidded.orchestration.graph import (
     GraphRouteNode,
     InvalidGraphOutput,

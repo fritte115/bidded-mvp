@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { VerdictBadge } from "@/components/VerdictBadge";
 import { ConfidenceBar } from "@/components/ConfidenceBar";
 import { fetchDecisions } from "@/lib/api";
-import { formatDate } from "@/data/mock";
+import { formatDate, humanizeVerdictText, verdictLabel } from "@/data/mock";
 import { ArrowRight } from "lucide-react";
 
 export default function Decisions() {
@@ -48,9 +48,9 @@ export default function Decisions() {
           <SelectTrigger className="w-full sm:w-56"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All verdicts</SelectItem>
-            <SelectItem value="BID">BID</SelectItem>
-            <SelectItem value="NO_BID">NO BID</SelectItem>
-            <SelectItem value="CONDITIONAL_BID">CONDITIONAL BID</SelectItem>
+            <SelectItem value="BID">{verdictLabel.BID}</SelectItem>
+            <SelectItem value="NO_BID">{verdictLabel.NO_BID}</SelectItem>
+            <SelectItem value="CONDITIONAL_BID">{verdictLabel.CONDITIONAL_BID}</SelectItem>
           </SelectContent>
         </Select>
         <Input
@@ -78,7 +78,9 @@ export default function Decisions() {
                   <VerdictBadge verdict={r.verdict} size="md" />
                 </div>
                 <ConfidenceBar value={r.confidence} />
-                <p className="line-clamp-2 text-sm text-muted-foreground">{r.citedMemo}</p>
+                <p className="line-clamp-2 text-sm text-muted-foreground">
+                  {humanizeVerdictText(r.citedMemo)}
+                </p>
                 <div className="flex items-center justify-between border-t border-border pt-3">
                   <span className="text-xs text-muted-foreground">
                     {formatDate(r.completedAt ?? r.startedAt)}

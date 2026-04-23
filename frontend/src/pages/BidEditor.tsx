@@ -25,14 +25,22 @@ import {
   updateBid,
   fetchCompany,
 } from "@/lib/api";
+import { usePermissions } from "@/lib/auth";
 import { decisionToEstimateInput } from "@/lib/bidIntegrationMapping";
-import { bidStatusLabel, bidStatusOrder, type BidStatus, type DecisionSummary } from "@/data/mock";
+import {
+  bidStatusLabel,
+  bidStatusOrder,
+  verdictLabel,
+  type BidStatus,
+  type DecisionSummary,
+} from "@/data/mock";
 import { estimateBid, formatSEK, type BidEstimate } from "@/lib/bidEstimator";
 import {
   ArrowLeft,
   BookOpen,
   Calendar,
   FileQuestion,
+  LockKeyhole,
   Sparkles,
   Target,
   TrendingUp,
@@ -111,6 +119,7 @@ export default function BidEditor() {
   const { bidId } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const permissions = usePermissions();
   const isEditMode = Boolean(bidId);
   const requestedRunId = params.get("run");
 
@@ -276,6 +285,28 @@ export default function BidEditor() {
     ? Math.round((deadline.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
     : null;
 
+  if (!permissions.canManageBids) {
+    return (
+      <>
+        <PageHeader
+          title={isEditMode ? "Edit Bid" : "New Bid"}
+          actions={
+            <Button asChild variant="outline">
+              <Link to="/bids">
+                <ArrowLeft className="h-4 w-4" /> Back to Bids
+              </Link>
+            </Button>
+          }
+        />
+        <EmptyState
+          icon={LockKeyhole}
+          title="Admin access required"
+          description="Bid pricing, margins, and pipeline changes are limited to admins."
+        />
+      </>
+    );
+  }
+
   return (
     <>
       <PageHeader
@@ -351,7 +382,7 @@ export default function BidEditor() {
                       Agent decision
                     </p>
                     <p className="text-sm font-medium">
-                      {selectedDecision?.verdict.replace(/_/g, " ") ?? "—"}
+                      {selectedDecision ? verdictLabel[selectedDecision.verdict] : "—"}
                     </p>
                   </div>
                   <div>
@@ -368,7 +399,7 @@ export default function BidEditor() {
 
               {selectedDecision && !selectedDecision.isDraftable && (
                 <div className="rounded-md border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
-                  This decision is NO BID, so this draft will be saved without an agent-run link.
+                  This decision is No bid, so this draft will be saved without a decision link.
                 </div>
               )}
 
