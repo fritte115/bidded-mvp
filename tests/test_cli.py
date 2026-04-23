@@ -133,6 +133,7 @@ def test_cli_register_demo_tender_help_prints_demo_pdf_hint_without_services() -
 
     assert result.returncode == 0, result.stderr
     assert "register-demo-tender" in result.stdout
+    assert "PDF or DOCX" in result.stdout
     assert "data/demo/incoming/Bilaga Skakrav.pdf" in result.stdout
 
 
@@ -511,7 +512,7 @@ def test_cli_register_demo_tender_accepts_metadata(
             storage_path="demo/tenders/skakrav/tender.pdf",
         )
 
-    monkeypatch.setattr(cli, "register_demo_tender_pdf", record_registration)
+    monkeypatch.setattr(cli, "register_demo_tender_document", record_registration)
 
     result = cli.main(
         [
@@ -535,7 +536,7 @@ def test_cli_register_demo_tender_accepts_metadata(
     assert "Registered demo tender Skakrav" in captured.out
     assert captured_registration == {
         "client": client,
-        "pdf_path": pdf_path,
+        "document_path": pdf_path,
         "bucket_name": "procurement-fixtures",
         "tender_title": "Skakrav",
         "issuing_authority": "Example Municipality",

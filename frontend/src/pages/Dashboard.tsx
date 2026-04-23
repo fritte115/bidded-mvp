@@ -97,7 +97,7 @@ export default function Dashboard() {
           icon={FileText}
         />
         <StatCard
-          label="Registered PDFs"
+          label="Registered documents"
           value={stats?.totalPdfDocuments ?? "—"}
           hint="Stored tender documents"
           icon={Files}

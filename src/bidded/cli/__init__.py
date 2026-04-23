@@ -17,7 +17,10 @@ from bidded.demo_smoke import (
     run_demo_smoke,
 )
 from bidded.doctor import run_demo_environment_doctor
-from bidded.documents import TenderPdfRegistrationError, register_demo_tender_pdf
+from bidded.documents import (
+    TenderDocumentRegistrationError,
+    register_demo_tender_document,
+)
 from bidded.evals.decision_diff import (
     DecisionDiffError,
     diff_decision_payloads,
@@ -65,6 +68,7 @@ from bidded.orchestration.run_controls import (
 )
 
 DEMO_TENDER_PDF_HINT = "data/demo/incoming/Bilaga Skakrav.pdf"
+DEMO_TENDER_DOCUMENT_HINT = DEMO_TENDER_PDF_HINT
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -97,18 +101,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     register_parser = subparsers.add_parser(
         "register-demo-tender",
-        help="Register a local text-PDF as the demo tender.",
+        help="Register a local PDF or DOCX as the demo tender.",
         description=(
-            "Register a local text-PDF as the demo tender in Supabase. "
-            f"Preferred local demo input when present: {DEMO_TENDER_PDF_HINT}."
+            "Register a local text-PDF or DOCX as the demo tender in Supabase. "
+            f"Preferred local demo input when present: {DEMO_TENDER_DOCUMENT_HINT}."
         ),
     )
     register_parser.add_argument(
-        "pdf_path",
+        "document_path",
         type=Path,
         help=(
-            "Local text-PDF path. Preferred gitignored demo input: "
-            f"{DEMO_TENDER_PDF_HINT}."
+            "Local text-PDF or DOCX path. Preferred gitignored demo input: "
+            f"{DEMO_TENDER_DOCUMENT_HINT}."
         ),
     )
     register_parser.add_argument("--title", required=True, help="Tender title.")
@@ -542,16 +546,16 @@ def _run_register_demo_tender_command(args: argparse.Namespace) -> int:
     settings = load_settings()
     try:
         client = _create_supabase_client(settings)
-        result = register_demo_tender_pdf(
+        result = register_demo_tender_document(
             client,
-            pdf_path=args.pdf_path,
+            document_path=args.document_path,
             bucket_name=settings.supabase_storage_bucket,
             tender_title=args.title,
             issuing_authority=args.issuing_authority,
             procurement_reference=args.procurement_reference,
             procurement_metadata=dict(args.metadata),
         )
-    except (RuntimeError, TenderPdfRegistrationError) as exc:
+    except (RuntimeError, TenderDocumentRegistrationError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
 
@@ -617,7 +621,7 @@ def _run_prepare_manifest_run_command(args: argparse.Namespace) -> int:
         )
     except (
         RuntimeError,
-        TenderPdfRegistrationError,
+        TenderDocumentRegistrationError,
         ProcurementManifestError,
         PrepareRunError,
     ) as exc:

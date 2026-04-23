@@ -23,15 +23,15 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Graph routing shell | `src/bidded/orchestration/graph.py` bygger en fast LangGraph-shell med preflight, Evidence Scout-validering, mocked agent handlers, explicit edge table, bounded retry/stop-policy, failed, needs_human_review och END. |
 | Agent tool policies | Immutable policy contracts finns under `src/bidded/agents/tool_policy.py` för LLM-agenternas läs/skrivgränser och orchestratorns side effects. |
 | Agent output schemas | Strict Pydantic schemas finns under `src/bidded/agents/schemas.py` för Evidence Scout, Round 1 motions, Round 2 rebuttals, Judge decisions, evidence-claim validation, nullable `RequirementType` och kravtypade Judge-detaljer för blockers, risker, missing info och actions. |
-| Seedat demo-bolag och demo-tender | `bidded seed-demo-company` upsertar en större syntetisk IT-konsultprofil, `bidded seed-demo-states` skapar replaybara fixture-runs för `pending`, `succeeded`, `failed` och `needs_human_review`, `bidded register-demo-tender` registrerar en lokal text-PDF, och `bidded.evidence` kan konvertera profilfakta till idempotenta `company_profile` evidence rows. |
-| PDF-ingestion | `bidded.documents` kan ladda ned registrerade tender-PDF:er från Storage, extrahera text med PyMuPDF, ersätta deterministiska sidrefererade `document_chunks`, optionalt generera och lagra chunk embeddings i Python, och uppdatera `documents.parse_status`. |
+| Seedat demo-bolag och demo-tender | `bidded seed-demo-company` upsertar en större syntetisk IT-konsultprofil, `bidded seed-demo-states` skapar replaybara fixture-runs för `pending`, `succeeded`, `failed` och `needs_human_review`, `bidded register-demo-tender` registrerar en lokal text-PDF eller DOCX, och `bidded.evidence` kan konvertera profilfakta till idempotenta `company_profile` evidence rows. |
+| Dokument-ingestion | `bidded.documents` kan ladda ned registrerade tender-PDF:er och DOCX-filer från Storage, extrahera text med PyMuPDF, konvertera DOCX via LibreOffice för sidreferenser, ersätta deterministiska sidrefererade `document_chunks`, optionalt generera och lagra chunk embeddings i Python, och uppdatera `documents.parse_status`. |
 | Retrieval | `bidded.retrieval` kan hämta top-K `document_chunks` med hybrid keyword-, regulatory glossary- och embedding/pgvector-ranking, deduplicerade chunk-resultat och deterministisk fallback utan live embeddings. |
 | Tender evidence board | `bidded.evidence` kan segmentera tenderchunks i klausuler, föreslå, klassificera, validera, deduplicera, upserta och slå upp `tender_document` evidence rows från retrieved chunks med stabila citation keys, deterministisk nullable `requirement_type`, regulatory-glossary metadata, clause-section metadata, contract-clause tag metadata och extraherade kontraktstermer. |
 | Evidence Scout node | `bidded.orchestration.evidence_scout` skapar sex kategoribundna retrieval-frågor, validerar mockade Claude-output mot resolved evidence IDs och låter graphen append:a `evidence_scout`/`evidence` agent_outputs endast för giltiga scoutfakta. |
 | Specialist motion node | `bidded.orchestration.specialist_motions` bygger evidence-locked Round 1 requests utan peer motions eller privat context, skickar kravtypad glossary-context, validerar strict `Round1Motion` output och tillåter formella Compliance-blockers bara för exclusion/qualification-evidens. |
 | Focused rebuttal node | `bidded.orchestration.specialist_rebuttals` bygger Round 2 requests med shared evidence board, alla validerade Round 1-motions, fokuspunkter för oenighet/blockers/missing info och append:ar fyra `round_2_rebuttal` agent_outputs först efter validering. |
 | Judge decision node | `bidded.orchestration.judge` bygger evidence-locked Judge requests med kravtypad glossary-context, validerar strict `JudgeDecision` output, gate:ar endast typade formella compliance blockers till `no_bid`, append:ar `final_decision` agent_output och skriver Supabase-kompatibla `bid_decisions` payloads med kravtyper i relevanta detaljer. |
-| Prepare and pending agent runs | `bidded prepare-run` validerar en uppladdad uppsättning tenderdokument, kör eller återanvänder PDF-ingestion, bygger tender- och bolagsevidens, skriver en läsbar preparation audit till run-metadata och skapar en `pending` run; `bidded prepare-manifest-run` registrerar och förbereder ett lokalt gitignored sju-PDF-fixture från manifest; `bidded create-pending-run` finns kvar som enklare run-context-kommando. |
+| Prepare and pending agent runs | `bidded prepare-run` validerar en uppladdad uppsättning tenderdokument, kör eller återanvänder dokument-ingestion, bygger tender- och bolagsevidens, skriver en läsbar preparation audit till run-metadata och skapar en `pending` run; `bidded prepare-manifest-run` registrerar och förbereder ett lokalt gitignored sju-dokuments-fixture från manifest; `bidded create-pending-run` finns kvar som enklare run-context-kommando. |
 | Worker lifecycle CLI | `bidded worker` kör en specificerad pending run eller äldsta pending demo-run, uppdaterar `agent_runs`, kör graphen och persisterar normaliserade `agent_outputs` och `bid_decisions`. |
 | Operator run controls | `bidded run-status`, `bidded retry-run`, `bidded reset-stale-runs` och `bidded export-decision` visar auditstatus, demo trace, skapar lineage-kopplade retries, failar stale `running` runs och exporterar beslut med evidens. |
 | Demo doctor | `bidded doctor` kontrollerar demo-miljövariabler, Supabase-tabeller, Storage-bucket och optional Anthropic-connectivity utan att skriva ut secrets. |
@@ -47,8 +47,8 @@ README:n beskriver därför både nuläget och den stack som PRD:n definierar at
 
 Bidded ska stödja ett konkret demo-flöde:
 
-1. En operator registrerar en lokal, textbaserad PDF för en svensk offentlig upphandling.
-2. PDF:en laddas upp till Supabase Storage och registreras som ett dokument.
+1. En operator registrerar en lokal, textbaserad PDF eller DOCX för en svensk offentlig upphandling.
+2. Filen laddas upp till Supabase Storage och registreras som ett dokument.
 3. Dokumentet parsas till sidrefererade chunks.
 4. En seedad demo-profil för ett större IT-konsultbolag läggs in i databasen.
 5. Tenderchunks och bolagsfakta omvandlas till excerpt-nivå evidence items.
@@ -72,10 +72,10 @@ Agentartefakter och UI-output ska vara engelska enligt PRD:n, men beslutskontext
 | Agent-orchestration | LangGraph | Kör preflight, Evidence Scout, specialistmotions, rebuttals, Judge, persist decision och END i ett kontrollerat flöde. |
 | LLM | Claude via Anthropic API | Producerar strukturerade agentoutputs. Miljövariabeln är `ANTHROPIC_API_KEY`. |
 | Databas | Supabase Postgres | Source of truth för bolag, upphandlingar, dokument, chunks, evidens, agentkörningar och beslut. |
-| Filstorage | Supabase Storage | Lagrar upphandlings-PDF:er och kopplar dem till dokumentrader. |
+| Filstorage | Supabase Storage | Lagrar upphandlingsdokument och kopplar dem till dokumentrader. |
 | Datamodell | SQL migrations + JSONB | Normaliserade tabeller där relationer är stabila, JSONB där agent- och domändata är mer flexibel. |
 | Validering | Pydantic | Strikta schemas för graph state, agentroller, verdicts, evidence refs, blockerare, rebuttals och Judge-beslut. |
-| PDF-processing | Text-PDF extraction | Endast textbaserade PDF:er är i scope. OCR och DOCX är uttryckligen non-goals för PRD:n. |
+| Dokument-processing | Text-PDF extraction + DOCX-to-PDF conversion | Textbaserade PDF:er och DOCX är i scope. DOCX kräver LibreOffice/`soffice` på worker PATH för sidrefererad konvertering. OCR, legacy DOC och RTF är non-goals. |
 | Retrieval | Hybrid keyword/glossary/pgvector retrieval + fallback | Demo ska fungera utan live embeddings men kombinera exakta fraser, regulatory glossary-signaler och embeddings när de finns. |
 | Test | pytest | Deterministiska tester med mockad Claude, mockade embeddings och mockad Supabase där det behövs. |
 | Lint | Ruff | Kvalitetsgrind för Python-koden. |
@@ -244,8 +244,8 @@ Detta är kärndifferentiatorn: systemet ska kunna visa varför ett beslut togs.
 PRD:n beskriver en lokal CLI/worker. Den kan nu:
 
 - seeda demo-bolaget idempotent
-- registrera en lokal text-PDF som tenderdokument
-- ladda upp PDF:en till Supabase Storage och spara dokumentrad med checksumma
+- registrera en lokal text-PDF eller DOCX som tenderdokument
+- ladda upp dokumentet till Supabase Storage och spara dokumentrad med checksumma
 - förbereda ett redan uppladdat procurement document set med ingestion, evidence och en `pending` run utan agentexekvering
 - skapa en `pending` agent run utan att köra LLM eller dokumentprocessing
 - köra en specificerad `agent_run` via ID eller plocka äldsta pending run för demo-bolaget
@@ -270,8 +270,9 @@ Seed-kommandot kräver `SUPABASE_URL` och `SUPABASE_SERVICE_ROLE_KEY`:
 ```
 
 Tenderregistrering kräver `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` och
-`SUPABASE_STORAGE_BUCKET`. Den föredragna lokala demo-filen, när den finns, är
-gitignored: `data/demo/incoming/Bilaga Skakrav.pdf`.
+`SUPABASE_STORAGE_BUCKET`. PDF fungerar utan extra systempaket. DOCX-ingestion
+kräver LibreOffice/`soffice` på worker PATH. Den föredragna lokala demo-filen,
+när den finns, är gitignored: `data/demo/incoming/Bilaga Skakrav.pdf`.
 
 ```bash
 .venv/bin/bidded register-demo-tender \
@@ -317,14 +318,14 @@ Pending run och worker-körning:
   --document-id "$ATTACHMENT_DOCUMENT_ID"
 ```
 
-For a real multi-PDF procurement package, keep the files in a local
+For a real multi-document procurement package, keep the files in a local
 gitignored directory such as `data/demo/incoming/<procurement-name>/` and add a
-JSON manifest beside the PDFs:
+JSON manifest beside the PDF/DOCX documents:
 
 ```json
 {
   "manifest_version": 1,
-  "tender_title": "Example seven-PDF procurement",
+  "tender_title": "Example seven-document procurement",
   "issuing_authority": "Example Municipality",
   "procurement_reference": "REF-2026-007",
   "procurement_metadata": { "procedure": "open" },
@@ -375,10 +376,10 @@ Run the replayable local workflow from that manifest:
   data/demo/incoming/<procurement-name>/procurement-manifest.json
 ```
 
-The command uploads/registers the seven local PDFs, stores each `source_label`
+The command uploads/registers the seven local documents, stores each `source_label`
 and optional procurement role in document metadata, then calls the same
-preparation path as `prepare-run`. Do not add the PDFs or customer manifest to
-git; automated tests use synthetic PDFs and mocked rows instead.
+preparation path as `prepare-run`. Do not add the documents or customer manifest
+to git; automated tests use synthetic PDFs/DOCX metadata and mocked rows instead.
 
 Worker/API runtime uses the Anthropic-backed swarm automatically when
 `ANTHROPIC_API_KEY` is present and no explicit `BIDDED_SWARM_BACKEND` override is
@@ -582,7 +583,7 @@ Följande är uttryckligen inte del av den här PRD:n:
 - full Next.js/React-frontend
 - Supabase Auth och RLS
 - OCR
-- DOCX-parsing
+- legacy DOC och RTF parsing
 - automatisk tender search/import
 - krav på live embedding-provider
 - Lovable som agentruntime
