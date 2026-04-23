@@ -3,7 +3,7 @@
 This document is the contract between the **Lovable demo UI** (this repo) and the
 **Python LangGraph worker + Supabase backend** described in `ralph/prd.json`.
 
-The UI is intentionally thin: it **creates `pending` runs**, **uploads PDFs**, and
+The UI is intentionally thin: it **creates `pending` runs**, **uploads PDF/DOCX documents**, and
 **reads results**. It never owns agent logic, side effects, or evidence
 validation — those are the worker's responsibility.
 
@@ -30,7 +30,7 @@ validation — those are the worker's responsibility.
       │  read lovable_* views                │                           │
       └──────────────────────────────────────┘                           │
                                                                          │
-                                          tender PDFs (Storage)──────────┘
+                                          tender documents (Storage)─────┘
 ```
 
 UI never writes directly to `agent_runs`, `agent_outputs`, `evidence_items`, or
@@ -453,7 +453,7 @@ All five are now rendered by `StatusBadge` and propagated through:
    `rpc('create_pending_run', { p_tender_id, p_company_id })`. The UI never
    inserts into `agent_runs` directly. The worker polls/listens for `pending`.
 
-2. **PDF upload flow** — Lovable owns it (already wired in
+2. **Document upload flow** — Lovable owns it (already wired in
    `RegisterProcurement.tsx`). Steps: (a) `supabase.storage.from('tender_documents').upload(...)`,
    (b) `rpc('register_tender_document', { p_tender_id, p_storage_path, p_filename })`.
    Parsing is async on the worker.
@@ -521,7 +521,7 @@ All five are now rendered by `StatusBadge` and propagated through:
 These are **explicitly not** required by the current UI:
 
 - Supabase Auth / per-user RLS
-- OCR / DOCX parsing
+- OCR, legacy DOC, and RTF parsing
 - Tender search/import from external sources
 - Live embeddings (UI works with chunk count only)
 - Storing full raw LLM prompts as the default audit artifact

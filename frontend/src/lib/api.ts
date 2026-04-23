@@ -988,7 +988,7 @@ export async function resyncCompanyEvidence(): Promise<{
 
 export interface DashboardStats {
   totalProcurements: number;
-  /** Tender PDF rows in `documents` (tender_document role) */
+  /** Tender document rows in `documents` (tender_document role) */
   totalPdfDocuments: number;
   activeRuns: number;
 }
@@ -1326,13 +1326,37 @@ function slugify(value: string): string {
   return slug || "tender";
 }
 
-function safePdfFilename(filename: string): string {
-  const stem = filename.replace(/\.pdf$/i, "");
-  return `${slugify(stem) || "document"}.pdf`;
+export const PDF_CONTENT_TYPE = "application/pdf";
+export const DOCX_CONTENT_TYPE =
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+export function isSupportedProcurementDocument(file: File): boolean {
+  const loweredName = file.name.toLowerCase();
+  return (
+    file.type === PDF_CONTENT_TYPE ||
+    file.type === DOCX_CONTENT_TYPE ||
+    loweredName.endsWith(".pdf") ||
+    loweredName.endsWith(".docx")
+  );
+}
+
+export function contentTypeForProcurementDocument(file: File): string {
+  const loweredName = file.name.toLowerCase();
+  if (file.type === DOCX_CONTENT_TYPE || loweredName.endsWith(".docx")) {
+    return DOCX_CONTENT_TYPE;
+  }
+  return PDF_CONTENT_TYPE;
+}
+
+export function safeDocumentFilename(filename: string): string {
+  const loweredName = filename.toLowerCase();
+  const suffix = loweredName.endsWith(".docx") ? ".docx" : ".pdf";
+  const stem = filename.replace(/\.(pdf|docx)$/i, "");
+  return `${slugify(stem) || "document"}${suffix}`;
 }
 
 function buildStoragePath(title: string, checksumHex: string, originalFilename: string): string {
-  return `demo/procurements/${slugify(title)}/${checksumHex.slice(0, 12)}-${safePdfFilename(originalFilename)}`;
+  return `demo/procurements/${slugify(title)}/${checksumHex.slice(0, 12)}-${safeDocumentFilename(originalFilename)}`;
 }
 
 export interface RegisterProcurementInput {
@@ -1342,7 +1366,7 @@ export interface RegisterProcurementInput {
 }
 
 /**
- * Upload PDFs to Supabase Storage and register them as a new tender.
+ * Upload PDFs/DOCX files to Supabase Storage and register them as a new tender.
  * Mirrors tender_registration.py — same storage paths, same upsert keys.
  * Returns the tender UUID.
  */
@@ -1415,8 +1439,9 @@ export async function registerProcurement(input: RegisterProcurementInput): Prom
   if (tenderErr) throw new Error(`registerProcurement (tender upsert): ${tenderErr.message}`);
   const tenderId = (tenderRows as Array<{ id: string }>)[0].id;
 
-  // 3. For each PDF: compute SHA-256 → build path → upload → upsert document row
+  // 3. For each document: compute SHA-256 -> upload -> upsert document row
   for (const file of input.files) {
+    const contentType = contentTypeForProcurementDocument(file);
     const buffer = await file.arrayBuffer();
     const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
     const checksum = Array.from(new Uint8Array(hashBuffer))
@@ -1426,8 +1451,8 @@ export async function registerProcurement(input: RegisterProcurementInput): Prom
 
     const { error: uploadErr } = await client.storage
       .from(BUCKET_NAME)
-      .upload(storagePath, new Blob([buffer], { type: "application/pdf" }), {
-        contentType: "application/pdf",
+      .upload(storagePath, new Blob([buffer], { type: contentType }), {
+        contentType,
         upsert: true,
       });
     if (uploadErr)
@@ -1442,7 +1467,7 @@ export async function registerProcurement(input: RegisterProcurementInput): Prom
         company_id: null,
         storage_path: storagePath,
         checksum_sha256: checksum,
-        content_type: "application/pdf",
+        content_type: contentType,
         document_role: "tender_document",
         parse_status: "pending",
         original_filename: file.name,
