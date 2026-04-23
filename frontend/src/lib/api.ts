@@ -10,7 +10,30 @@
  *  - Map DB columns → mock.ts field names where components still share those types.
  */
 
-import { supabase } from "@/lib/supabase";
+import {
+  company as mockCompany,
+  bids as mockBids,
+  findRun as findMockRun,
+  latestRunForProcurement,
+  procurements as mockProcurements,
+  runs as mockRuns,
+  type AgentMotion,
+  type AgentName,
+  type Bid,
+  type BidStatus,
+  type Company,
+  type ComplianceMatrixRow,
+  type DecisionSummary,
+  type Evidence,
+  type EvidenceCategory,
+  type JudgeOutput,
+  type Procurement,
+  type RiskRow,
+  type Run,
+  type RunStatus,
+  type Verdict,
+} from "@/data/mock";
+import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import {
   AGENT_ROLE_LABELS,
   mapRound1Output,
@@ -22,15 +45,13 @@ import {
   mapCompareRows,
   mapDecisionRow,
 } from "@/lib/bidIntegrationMapping";
-import type {
-  Company, RunStatus, Verdict,
-  Evidence, AgentMotion, JudgeOutput, ComplianceMatrixRow, RiskRow,
-  EvidenceCategory, AgentName, Bid, BidStatus, DecisionSummary,
-} from "@/data/mock";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+const MOCK_MODE_WRITE_MESSAGE =
+  "Frontend is running in mock mode because the public Supabase env vars are missing. Copy frontend/.env.example to frontend/.env to enable live writes.";
 
 /** "SE" → "Sweden", fallback to the raw value */
 const COUNTRY_NAMES: Record<string, string> = {
@@ -53,6 +74,209 @@ function parseStartYear(deliveryYears: string): number {
 /** 2_650_000_000 → "2,650 MSEK" */
 function formatMSEK(sek: number): string {
   return `${(sek / 1_000_000).toLocaleString("sv-SE")} MSEK`;
+}
+
+function isMockMode(): boolean {
+  return !isSupabaseConfigured || supabase === null;
+}
+
+function requireSupabase() {
+  if (!supabase) {
+    throw new Error(MOCK_MODE_WRITE_MESSAGE);
+  }
+  return supabase;
+}
+
+function mockParseStatus(procurement: Procurement): ProcurementDocumentRow["parseStatus"] {
+  if (procurement.status === "done") return "parsed";
+  if (procurement.status === "processing") return "parsing";
+  return "pending";
+}
+
+function mockDashboardStats(): DashboardStats {
+  return {
+    totalProcurements: mockProcurements.length,
+    totalPdfDocuments: mockProcurements.reduce(
+      (sum, procurement) => sum + procurement.documents.length,
+      0,
+    ),
+    activeRuns: mockRuns.filter(
+      (run) => run.status === "running" || run.status === "pending",
+    ).length,
+  };
+}
+
+function mockActiveRuns(): ActiveRun[] {
+  return mockRuns
+    .filter((run) => run.status === "running" || run.status === "pending")
+    .map((run) => ({
+      id: run.id,
+      tenderName: run.tenderName,
+      status: run.status,
+      stage: run.stage,
+      startedAt: run.startedAt,
+      completedAt: run.completedAt ?? null,
+      durationSec: run.durationSec ?? null,
+    }))
+    .sort(
+      (left, right) =>
+        new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime(),
+    );
+}
+
+function mockProcurementLatestRun(
+  procurementId: string,
+): ProcurementLatestRun | null {
+  const latestRun = latestRunForProcurement(procurementId);
+  if (!latestRun) return null;
+
+  return {
+    id: latestRun.id,
+    status: latestRun.status,
+    startedAt: latestRun.startedAt,
+    stage: latestRun.stage,
+    decision:
+      latestRun.status === "needs_human_review"
+        ? null
+        : (latestRun.decision ?? null),
+    needsJudgeReview: latestRun.status === "needs_human_review",
+  };
+}
+
+function mockProcurementRows(): ProcurementRow[] {
+  return mockProcurements.map((procurement) => ({
+    id: procurement.id,
+    name: procurement.name,
+    uploadedAt: procurement.uploadedAt,
+    documentFilenames: procurement.documents,
+    documents:
+      procurement.documentRefs?.map((doc) => ({
+        originalFilename: doc.filename,
+        parseStatus: doc.parseStatus,
+        parseNote: null,
+      })) ??
+      procurement.documents.map((filename) => ({
+        originalFilename: filename,
+        parseStatus: mockParseStatus(procurement),
+        parseNote: null,
+      })),
+    documentCount: procurement.documents.length,
+    latestRun: mockProcurementLatestRun(procurement.id),
+  }));
+}
+
+function riskScoreFromJudge(
+  judge: JudgeOutput | null | undefined,
+  fallback: Procurement["riskScore"],
+): DecisionSummary["riskScore"] {
+  if (!judge) return fallback;
+  if (judge.riskRegister.some((risk) => risk.severity === "High")) return "High";
+  if (judge.riskRegister.some((risk) => risk.severity === "Medium")) return "Medium";
+  return fallback;
+}
+
+function mockDecisionSummary(run: Run): DecisionSummary | null {
+  if (!run.decision) return null;
+  const procurement = mockProcurements.find((row) => row.id === run.tenderId);
+  if (!procurement) return null;
+
+  const existingBid = mockBids.find(
+    (bid) => bid.runId === run.id || bid.procurementId === run.tenderId,
+  );
+  const judge = run.judge ?? null;
+
+  return {
+    runId: run.id,
+    tenderId: procurement.id,
+    tenderName: procurement.name,
+    uploadedAt: procurement.uploadedAt,
+    documentCount: procurement.documents.length,
+    verdict: run.decision,
+    confidence: run.confidence ?? 0,
+    citedMemo: judge?.citedMemo ?? procurement.topReason,
+    topReason:
+      procurement.topReason ||
+      judge?.recommendedActions[0] ||
+      judge?.citedMemo ||
+      "Mock decision summary",
+    startedAt: run.startedAt,
+    completedAt: run.completedAt ?? null,
+    riskScore: riskScoreFromJudge(judge, procurement.riskScore),
+    riskCount: judge?.riskRegister.length ?? 0,
+    complianceBlockerCount: judge?.complianceBlockers.length ?? 0,
+    potentialBlockerCount: judge?.potentialBlockers.length ?? 0,
+    recommendedActions: judge?.recommendedActions ?? [],
+    missingInfo: judge?.missingInfo ?? [],
+    isDraftable: run.decision !== "NO_BID",
+    existingBidId: existingBid?.id,
+    existingBidStatus: existingBid?.status,
+    decisionCreatedAt: run.completedAt ?? run.startedAt,
+  };
+}
+
+function mockDecisionRows(): DecisionRow[] {
+  return mockRuns
+    .map((run) => {
+      const summary = mockDecisionSummary(run);
+      if (!summary) return null;
+      return {
+        ...summary,
+        id: run.id,
+        status: run.status,
+      };
+    })
+    .filter((row): row is DecisionRow => row !== null)
+    .sort((left, right) => {
+      const leftTime = new Date(left.completedAt ?? left.startedAt).getTime();
+      const rightTime = new Date(right.completedAt ?? right.startedAt).getTime();
+      return rightTime - leftTime;
+    });
+}
+
+function mockRunDetail(runId: string): RunDetail | null {
+  const run = findMockRun(runId);
+  if (!run) return null;
+
+  return {
+    id: run.id,
+    tenderName: run.tenderName,
+    tenderId: run.tenderId,
+    company: run.company,
+    status: run.status,
+    stage: run.stage,
+    startedAt: run.startedAt,
+    completedAt: run.completedAt ?? null,
+    durationSec: run.durationSec ?? null,
+    decision: run.decision ?? null,
+    confidence: run.confidence ?? null,
+    evidence: run.evidence,
+    round1: run.round1,
+    round2: run.round2,
+    judge: run.judge ?? null,
+  };
+}
+
+function mockBidRows(): Bid[] {
+  return mockBids
+    .map((bid) => {
+      const procurement = mockProcurements.find(
+        (row) => row.id === bid.procurementId,
+      );
+      const run = bid.runId
+        ? findMockRun(bid.runId)
+        : mockRuns.find((candidate) => candidate.tenderId === bid.procurementId);
+      const decision = run ? mockDecisionSummary(run) : null;
+
+      return {
+        ...bid,
+        decision: decision ?? undefined,
+        tenderUploadedAt: procurement?.uploadedAt,
+      };
+    })
+    .sort(
+      (left, right) =>
+        new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -207,7 +431,12 @@ function mapCompanyToDbUpdate(c: Company): Record<string, unknown> {
  * Falls back gracefully — callers should handle null (use mock data as fallback).
  */
 export async function fetchCompany(): Promise<Company> {
-  const { data, error } = await supabase
+  if (isMockMode()) {
+    return mockCompany;
+  }
+
+  const client = requireSupabase();
+  const { data, error } = await client
     .from("companies")
     .select("*")
     .eq("tenant_key", "demo")
@@ -223,7 +452,12 @@ export async function fetchCompany(): Promise<Company> {
  * Requires the "demo update" RLS policy to be enabled on the companies table.
  */
 export async function updateCompany(c: Company): Promise<void> {
-  const { error } = await supabase
+  if (isMockMode()) {
+    throw new Error(MOCK_MODE_WRITE_MESSAGE);
+  }
+
+  const client = requireSupabase();
+  const { error } = await client
     .from("companies")
     .update(mapCompanyToDbUpdate(c))
     .eq("tenant_key", "demo");
@@ -243,17 +477,22 @@ export interface DashboardStats {
 }
 
 export async function fetchDashboardStats(): Promise<DashboardStats> {
+  if (isMockMode()) {
+    return mockDashboardStats();
+  }
+
+  const client = requireSupabase();
   const [tendersRes, docsRes, activeRunsRes] = await Promise.all([
-    supabase
+    client
       .from("tenders")
       .select("id", { count: "exact", head: true })
       .eq("tenant_key", "demo"),
-    supabase
+    client
       .from("documents")
       .select("id", { count: "exact", head: true })
       .eq("tenant_key", "demo")
       .eq("document_role", "tender_document"),
-    supabase
+    client
       .from("agent_runs")
       .select("id", { count: "exact", head: true })
       .eq("tenant_key", "demo")
@@ -328,9 +567,14 @@ export function dashboardStageLabel(status: RunStatus, metadata: unknown): strin
 }
 
 export async function fetchActiveRuns(): Promise<ActiveRun[]> {
+  if (isMockMode()) {
+    return mockActiveRuns();
+  }
+
+  const client = requireSupabase();
   const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from("agent_runs")
     .select("id, status, started_at, completed_at, metadata, tenders(title)")
     .eq("tenant_key", "demo")
@@ -417,7 +661,12 @@ function verdictFromBidDecisionRow(
 }
 
 export async function fetchProcurements(): Promise<ProcurementRow[]> {
-  const { data, error } = await supabase
+  if (isMockMode()) {
+    return mockProcurementRows();
+  }
+
+  const client = requireSupabase();
+  const { data, error } = await client
     .from("tenders")
     .select(`
       id,
@@ -540,7 +789,12 @@ export interface RegisterProcurementInput {
  * Requires delete RLS on tenders, documents, and storage.objects for these paths.
  */
 export async function deleteProcurement(tenderId: string): Promise<void> {
-  const { data: docRows, error: docListErr } = await supabase
+  if (isMockMode()) {
+    throw new Error(MOCK_MODE_WRITE_MESSAGE);
+  }
+
+  const client = requireSupabase();
+  const { data: docRows, error: docListErr } = await client
     .from("documents")
     .select("storage_path")
     .eq("tender_id", tenderId)
@@ -552,12 +806,12 @@ export async function deleteProcurement(tenderId: string): Promise<void> {
     .filter((p): p is string => typeof p === "string" && p.length > 0);
 
   if (paths.length > 0) {
-    const { error: storageErr } = await supabase.storage.from(BUCKET_NAME).remove(paths);
+    const { error: storageErr } = await client.storage.from(BUCKET_NAME).remove(paths);
     if (storageErr)
       throw new Error(`deleteProcurement (storage remove): ${storageErr.message}`);
   }
 
-  const { error } = await supabase
+  const { error } = await client
     .from("tenders")
     .delete()
     .eq("id", tenderId)
@@ -566,8 +820,13 @@ export async function deleteProcurement(tenderId: string): Promise<void> {
 }
 
 export async function registerProcurement(input: RegisterProcurementInput): Promise<string> {
+  if (isMockMode()) {
+    throw new Error(MOCK_MODE_WRITE_MESSAGE);
+  }
+
+  const client = requireSupabase();
   // 1. Fetch demo company ID
-  const { data: companyRow, error: companyErr } = await supabase
+  const { data: companyRow, error: companyErr } = await client
     .from("companies")
     .select("id")
     .eq("tenant_key", "demo")
@@ -577,7 +836,7 @@ export async function registerProcurement(input: RegisterProcurementInput): Prom
   const companyId = (companyRow as { id: string }).id;
 
   // 2. Upsert tender row
-  const { data: tenderRows, error: tenderErr } = await supabase
+  const { data: tenderRows, error: tenderErr } = await client
     .from("tenders")
     .upsert(
       {
@@ -602,7 +861,7 @@ export async function registerProcurement(input: RegisterProcurementInput): Prom
       .join("");
     const storagePath = buildStoragePath(input.title, checksum, file.name);
 
-    const { error: uploadErr } = await supabase.storage
+    const { error: uploadErr } = await client.storage
       .from(BUCKET_NAME)
       .upload(storagePath, new Blob([buffer], { type: "application/pdf" }), {
         contentType: "application/pdf",
@@ -613,7 +872,7 @@ export async function registerProcurement(input: RegisterProcurementInput): Prom
         `registerProcurement (storage upload ${file.name}): ${uploadErr.message} [status: ${(uploadErr as { statusCode?: string }).statusCode ?? "?"}]`,
       );
 
-    const { error: docErr } = await supabase.from("documents").upsert(
+    const { error: docErr } = await client.from("documents").upsert(
       {
         tenant_key: "demo",
         tender_id: tenderId,
@@ -780,7 +1039,12 @@ const DECISION_SUMMARY_SELECT = `
 `;
 
 export async function fetchDecisions(): Promise<DecisionRow[]> {
-  const { data, error } = await supabase
+  if (isMockMode()) {
+    return mockDecisionRows();
+  }
+
+  const client = requireSupabase();
+  const { data, error } = await client
     .from("bid_decisions")
     .select(DECISION_SUMMARY_SELECT)
     .eq("tenant_key", "demo")
@@ -827,7 +1091,12 @@ export interface RunDetail {
 }
 
 export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
-  const { data: runRow, error: runErr } = await supabase
+  if (isMockMode()) {
+    return mockRunDetail(runId);
+  }
+
+  const client = requireSupabase();
+  const { data: runRow, error: runErr } = await client
     .from("agent_runs")
     .select(
       `id, status, started_at, completed_at, metadata, tender_id, company_id,
@@ -853,12 +1122,12 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
   const completedAt = run.completed_at as string | null;
 
   const [outputsRes, docsRes] = await Promise.all([
-    supabase
+    client
       .from("agent_outputs")
       .select("agent_role, round_name, output_type, validated_payload")
       .eq("agent_run_id", runId)
       .order("created_at"),
-    supabase
+    client
       .from("documents")
       .select("id")
       .eq("tender_id", tenderId)
@@ -881,7 +1150,7 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
 
   let evidenceRows: Record<string, unknown>[] = [];
   if (docIds.length > 0 || companyId) {
-    const evQuery = supabase
+    const evQuery = client
       .from("evidence_items")
       .select("*")
       .eq("tenant_key", "demo");
@@ -981,7 +1250,12 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
 // ---------------------------------------------------------------------------
 
 export async function fetchEvidenceBoard(runId: string): Promise<Evidence[]> {
-  const { data: runRow, error: runErr } = await supabase
+  if (isMockMode()) {
+    return mockRunDetail(runId)?.evidence ?? [];
+  }
+
+  const client = requireSupabase();
+  const { data: runRow, error: runErr } = await client
     .from("agent_runs")
     .select("tender_id, company_id")
     .eq("id", runId)
@@ -994,11 +1268,11 @@ export async function fetchEvidenceBoard(runId: string): Promise<Evidence[]> {
   const companyId = run.company_id as string;
 
   const [outputsRes, docsRes] = await Promise.all([
-    supabase
+    client
       .from("agent_outputs")
       .select("agent_role, validated_payload")
       .eq("agent_run_id", runId),
-    supabase
+    client
       .from("documents")
       .select("id")
       .eq("tender_id", tenderId)
@@ -1015,7 +1289,7 @@ export async function fetchEvidenceBoard(runId: string): Promise<Evidence[]> {
 
   let evidenceRows: Record<string, unknown>[] = [];
   if (docIds.length > 0 || companyId) {
-    const evQuery = supabase
+    const evQuery = client
       .from("evidence_items")
       .select("*")
       .eq("tenant_key", "demo");
@@ -1041,13 +1315,18 @@ export async function fetchEvidenceBoard(runId: string): Promise<Evidence[]> {
 export type TenderDecisionRow = DecisionSummary;
 
 export async function fetchCompareRows(): Promise<DecisionSummary[]> {
+  if (isMockMode()) {
+    return mockDecisionRows();
+  }
+
+  const client = requireSupabase();
   const [decisionsRes, bidsRes] = await Promise.all([
-    supabase
+    client
       .from("bid_decisions")
       .select(DECISION_SUMMARY_SELECT)
       .eq("tenant_key", "demo")
       .order("created_at", { ascending: false }),
-    supabase
+    client
       .from("bids")
       .select("id, agent_run_id, status, updated_at")
       .eq("tenant_key", "demo")
@@ -1096,7 +1375,12 @@ const BID_SELECT = `
 // ---------------------------------------------------------------------------
 
 export async function fetchBids(): Promise<Bid[]> {
-  const { data, error } = await supabase
+  if (isMockMode()) {
+    return mockBidRows();
+  }
+
+  const client = requireSupabase();
+  const { data, error } = await client
     .from("bids")
     .select(BID_SELECT)
     .eq("tenant_key", "demo")
@@ -1107,7 +1391,12 @@ export async function fetchBids(): Promise<Bid[]> {
 }
 
 export async function fetchBid(id: string): Promise<Bid | null> {
-  const { data, error } = await supabase
+  if (isMockMode()) {
+    return mockBidRows().find((bid) => bid.id === id) ?? null;
+  }
+
+  const client = requireSupabase();
+  const { data, error } = await client
     .from("bids")
     .select(BID_SELECT)
     .eq("id", id)
@@ -1134,7 +1423,12 @@ export interface CreateBidInput {
 }
 
 export async function createBid(input: CreateBidInput): Promise<string> {
-  const { data, error } = await supabase
+  if (isMockMode()) {
+    throw new Error(MOCK_MODE_WRITE_MESSAGE);
+  }
+
+  const client = requireSupabase();
+  const { data, error } = await client
     .from("bids")
     .insert({
       tenant_key: "demo",
@@ -1161,7 +1455,12 @@ export async function updateBid(
   id: string,
   input: CreateBidInput,
 ): Promise<void> {
-  const { error } = await supabase
+  if (isMockMode()) {
+    throw new Error(MOCK_MODE_WRITE_MESSAGE);
+  }
+
+  const client = requireSupabase();
+  const { error } = await client
     .from("bids")
     .update({
       tender_id: input.tenderId,
@@ -1186,7 +1485,12 @@ export async function updateBidStatus(
   id: string,
   status: BidStatus,
 ): Promise<void> {
-  const { error } = await supabase
+  if (isMockMode()) {
+    throw new Error(MOCK_MODE_WRITE_MESSAGE);
+  }
+
+  const client = requireSupabase();
+  const { error } = await client
     .from("bids")
     .update({ status, updated_at: new Date().toISOString() })
     .eq("id", id)
@@ -1196,7 +1500,12 @@ export async function updateBidStatus(
 }
 
 export async function deleteBid(id: string): Promise<void> {
-  const { error } = await supabase
+  if (isMockMode()) {
+    throw new Error(MOCK_MODE_WRITE_MESSAGE);
+  }
+
+  const client = requireSupabase();
+  const { error } = await client
     .from("bids")
     .delete()
     .eq("id", id)
@@ -1213,7 +1522,12 @@ const AGENT_API_URL =
   (import.meta.env.VITE_AGENT_API_URL as string | undefined) ?? "http://localhost:8000";
 
 export async function deleteAgentRun(runId: string): Promise<void> {
-  const { error } = await supabase
+  if (isMockMode()) {
+    throw new Error(MOCK_MODE_WRITE_MESSAGE);
+  }
+
+  const client = requireSupabase();
+  const { error } = await client
     .from("agent_runs")
     .delete()
     .eq("id", runId)
@@ -1222,6 +1536,10 @@ export async function deleteAgentRun(runId: string): Promise<void> {
 }
 
 export async function startAgentRun(tenderId: string): Promise<string> {
+  if (isMockMode()) {
+    throw new Error(MOCK_MODE_WRITE_MESSAGE);
+  }
+
   const res = await fetch(`${AGENT_API_URL}/api/runs/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
