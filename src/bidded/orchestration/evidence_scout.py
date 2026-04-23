@@ -21,9 +21,7 @@ from bidded.orchestration.evidence_recall import (
 )
 from bidded.orchestration.evidence_refs import (
     coerce_evidence_refs,
-    resolve_evidence_ref_dict_against_board,
 )
-from bidded.requirements import RequirementType
 from bidded.orchestration.graph import GraphRouteNode, InvalidGraphOutput, ScoutHandler
 from bidded.orchestration.state import (
     BidRunState,
@@ -34,6 +32,7 @@ from bidded.orchestration.state import (
     ScoutFindingState,
     ScoutOutputState,
 )
+from bidded.requirements import RequirementType
 from bidded.retrieval import RetrievedDocumentChunk, rank_document_chunk_rows
 
 SIX_PACK_SCOUT_CATEGORIES: tuple[str, ...] = tuple(
@@ -432,7 +431,9 @@ def _drop_unresolvable_refs(
             # missing_info; if not, Round 1 specialists will still have the
             # full evidence_board to reason from.
             continue
-        kept_findings.append(finding.model_copy(update={"evidence_refs": resolved_refs}))
+        kept_findings.append(
+            finding.model_copy(update={"evidence_refs": resolved_refs})
+        )
 
     if len(kept_findings) == len(output.findings) and all(
         len(a.evidence_refs) == len(b.evidence_refs)

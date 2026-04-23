@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { fetchBids, updateBidStatus, fetchProcurements } from "@/lib/api";
+import { usePermissions } from "@/lib/auth";
 import { summarizeBidPipeline } from "@/lib/bidIntegrationMapping";
 import {
   bidStatusLabel,
@@ -49,6 +50,7 @@ const statusDot: Record<BidStatus, string> = {
 export default function Bids() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const permissions = usePermissions();
 
   const [filter, setFilter] = useState<string>("all");
   const [query, setQuery] = useState<string>("");
@@ -110,6 +112,12 @@ export default function Bids() {
   };
 
   const handleMove = async (id: string, status: BidStatus) => {
+    if (!permissions.canManageBids) {
+      toast.error("Admin access required", {
+        description: "Only admins can change bid status.",
+      });
+      return;
+    }
     try {
       await updateBidStatus(id, status);
       queryClient.invalidateQueries({ queryKey: ["bids"] });
@@ -120,6 +128,7 @@ export default function Bids() {
   };
 
   const handleEdit = (id: string) => {
+    if (!permissions.canManageBids) return;
     navigate(`/bids/${id}/edit`);
   };
 
@@ -128,12 +137,14 @@ export default function Bids() {
       <PageHeader
         title="Bids"
         actions={
-          <Button asChild>
-            <Link to="/bids/new">
-              <Plus className="h-4 w-4" />
-              New Bid
-            </Link>
-          </Button>
+          permissions.canManageBids ? (
+            <Button asChild>
+              <Link to="/bids/new">
+                <Plus className="h-4 w-4" />
+                New Bid
+              </Link>
+            </Button>
+          ) : undefined
         }
       />
 
@@ -196,11 +207,13 @@ export default function Bids() {
             title="No bids match"
             description="Try clearing the search or filter, or start a new bid."
             action={
-              <Button asChild>
-                <Link to="/bids/new">
-                  <Plus className="h-4 w-4" /> New Bid
-                </Link>
-              </Button>
+              permissions.canManageBids ? (
+                <Button asChild>
+                  <Link to="/bids/new">
+                    <Plus className="h-4 w-4" /> New Bid
+                  </Link>
+                </Button>
+              ) : undefined
             }
           />
         </div>
@@ -239,7 +252,13 @@ export default function Bids() {
                   ) : (
                     <>
                       {visibleItems.map((b) => (
-                        <BidCard key={b.id} bid={b} onMove={handleMove} onEdit={handleEdit} />
+                        <BidCard
+                          key={b.id}
+                          bid={b}
+                          canManage={permissions.canManageBids}
+                          onMove={handleMove}
+                          onEdit={handleEdit}
+                        />
                       ))}
                       {items.length > COLLAPSED_LIMIT && (
                         <Button

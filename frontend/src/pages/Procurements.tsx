@@ -25,6 +25,7 @@ import {
 import { StatusBadge } from "@/components/StatusBadge";
 import { VerdictBadge } from "@/components/VerdictBadge";
 import { formatRelativeTime, runDisplayId } from "@/data/mock";
+import { usePermissions } from "@/lib/auth";
 import { fetchProcurements, deleteProcurement, startAgentRun } from "@/lib/api";
 import { ParseStatusBadge } from "@/components/ParseStatusBadge";
 import {
@@ -62,6 +63,7 @@ type RunFilter = "all" | "not_run" | "running" | "done";
 export default function Procurements() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const permissions = usePermissions();
   const [q, setQ] = useState("");
   const [runFilter, setRunFilter] = useState<RunFilter>("all");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -126,6 +128,12 @@ export default function Procurements() {
 
   const startRuns = async (ids: string[], label: "start" | "rerun" = "start") => {
     if (ids.length === 0) return;
+    if (!permissions.canStartRuns) {
+      toast.error("Access required", {
+        description: "You do not have permission to start agent runs.",
+      });
+      return;
+    }
     const verb = label === "rerun" ? "Re-run" : "Run";
     const results = await Promise.allSettled(ids.map((id) => startAgentRun(id)));
     const succeeded = results.filter((r) => r.status === "fulfilled").length;
@@ -181,18 +189,20 @@ export default function Procurements() {
                 Compare ({selectedCount})
               </Button>
             )}
-            {neverRunIds.length > 0 && (
+            {permissions.canStartRuns && neverRunIds.length > 0 && (
               <Button variant="outline" onClick={() => startRuns(neverRunIds)}>
                 <Zap className="h-4 w-4" />
                 Run all not-yet-run ({neverRunIds.length})
               </Button>
             )}
-            <Button asChild>
-              <Link to="/procurements/new">
-                <Plus className="h-4 w-4" />
-                Register Procurement
-              </Link>
-            </Button>
+            {permissions.canRegisterProcurements && (
+              <Button asChild>
+                <Link to="/procurements/new">
+                  <Plus className="h-4 w-4" />
+                  Register Procurement
+                </Link>
+              </Button>
+            )}
           </>
         }
       />
@@ -244,9 +254,13 @@ export default function Procurements() {
               title="No procurements match"
               description="Try a different search or filter, or register a new procurement."
               action={
-                <Button asChild>
-                  <Link to="/procurements/new"><Plus className="h-4 w-4" /> Register Procurement</Link>
-                </Button>
+                permissions.canRegisterProcurements ? (
+                  <Button asChild>
+                    <Link to="/procurements/new">
+                      <Plus className="h-4 w-4" /> Register Procurement
+                    </Link>
+                  </Button>
+                ) : undefined
               }
             />
           ) : (
@@ -366,7 +380,7 @@ export default function Procurements() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
-                            {!run && (
+                            {permissions.canStartRuns && !run && (
                               <Button
                                 size="sm"
                                 className="h-8"
@@ -389,14 +403,16 @@ export default function Procurements() {
                             )}
                             {isFinishedRun && run && (
                               <>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8"
-                                  onClick={() => startRuns([t.id], "rerun")}
-                                >
-                                  <RefreshCw className="h-3 w-3" /> Re-run
-                                </Button>
+                                {permissions.canStartRuns && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8"
+                                    onClick={() => startRuns([t.id], "rerun")}
+                                  >
+                                    <RefreshCw className="h-3 w-3" /> Re-run
+                                  </Button>
+                                )}
                                 <Button asChild variant="ghost" size="sm" className="h-8">
                                   <Link to={`/runs/${run.id}`}>
                                     <Eye className="h-3 w-3" /> View
@@ -404,19 +420,21 @@ export default function Procurements() {
                                 </Button>
                               </>
                             )}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 text-muted-foreground hover:text-destructive"
-                              disabled={deletingId === t.id}
-                              onClick={() => setPendingDelete({ id: t.id, name: t.name })}
-                            >
-                              {deletingId === t.id ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : (
-                                <Trash2 className="h-3 w-3" />
-                              )}
-                            </Button>
+                            {permissions.canDeleteProcurements && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 text-muted-foreground hover:text-destructive"
+                                disabled={deletingId === t.id}
+                                onClick={() => setPendingDelete({ id: t.id, name: t.name })}
+                              >
+                                {deletingId === t.id ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-3 w-3" />
+                                )}
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>

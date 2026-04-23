@@ -63,6 +63,17 @@ def _pgvector_search_sql() -> str:
     return migration_files[0].read_text()
 
 
+def _auth_rbac_sql() -> str:
+    migration_files = sorted(
+        (PROJECT_ROOT / "supabase" / "migrations").glob("*_add_auth_rbac.sql")
+    )
+
+    assert [path.name for path in migration_files] == [
+        "20260423120000_add_auth_rbac.sql"
+    ]
+    return migration_files[0].read_text()
+
+
 def _table_body(sql: str, table_name: str) -> str:
     match = re.search(
         rf"create table if not exists public\.{table_name}\s*\((?P<body>.*?)\);",
@@ -442,3 +453,91 @@ def test_pgvector_search_migration_adds_index_and_rpc_contract() -> None:
     ) in sql
     assert "dc.embedding <=> query_embedding" in sql
     assert "least(greatest(match_count, 1), 50)" in sql
+
+
+def test_auth_rbac_migration_adds_membership_model_and_helpers() -> None:
+    sql = re.sub(r"\s+", " ", _auth_rbac_sql().lower())
+
+    for required_fragment in [
+        "create table if not exists public.organizations",
+        "create table if not exists public.profiles",
+        "references auth.users(id) on delete cascade",
+        "create table if not exists public.organization_memberships",
+        (
+            "constraint organization_memberships_role_check "
+            "check (role in ('admin', 'user'))"
+        ),
+        (
+            "constraint organization_memberships_status_check "
+            "check (status in ('active', 'invited', 'disabled'))"
+        ),
+        "create or replace function public.is_superadmin()",
+        "create or replace function public.has_org_role(",
+        "create or replace function public.is_org_member(",
+        "create or replace function public.has_any_org_membership()",
+        "create or replace function public.has_any_org_role(",
+        "create or replace function public.shares_organization_with(",
+    ]:
+        assert required_fragment in sql
+
+
+def test_auth_rbac_migration_backfills_organization_id() -> None:
+    sql = re.sub(r"\s+", " ", _auth_rbac_sql().lower())
+
+    for required_fragment in [
+        "alter table if exists public.%i add column if not exists organization_id uuid",
+        "alter table if exists public.%i alter column organization_id set not null",
+        "create index if not exists %i on public.%i (organization_id)",
+    ]:
+        assert required_fragment in sql
+
+    for table_name in [
+        "companies",
+        "tenders",
+        "documents",
+        "document_chunks",
+        "evidence_items",
+        "agent_runs",
+        "agent_outputs",
+        "bid_decisions",
+        "bids",
+    ]:
+        assert f"'{table_name}'" in sql
+
+
+def test_auth_rbac_migration_replaces_anon_policies_with_role_policies() -> None:
+    sql = re.sub(r"\s+", " ", _auth_rbac_sql().lower())
+
+    for old_policy in [
+        '"anon can read demo companies"',
+        '"anon can update demo companies"',
+        '"anon can insert demo bids"',
+        '"anon can update demo bids"',
+        '"anon can delete demo bids"',
+        '"anon can delete demo agent runs"',
+        '"anon can delete demo agent outputs"',
+    ]:
+        assert f"drop policy if exists {old_policy}" in sql
+
+    assert "update storage.buckets set public = false" in sql
+
+    for required_fragment in [
+        "alter table public.companies enable row level security",
+        "create policy \"members can read companies\"",
+        "create policy \"admins can update companies\"",
+        "create policy \"members can read tenders\"",
+        "create policy \"members can create tenders\"",
+        "create policy \"admins can delete tenders\"",
+        "create policy \"members can read documents\"",
+        "create policy \"members can create documents\"",
+        "create policy \"admins can delete documents\"",
+        "create policy \"members can read agent runs\"",
+        "create policy \"admins can delete agent runs\"",
+        "create policy \"members can read evidence items\"",
+        "create policy \"members can read bid decisions\"",
+        "create policy \"admins can manage bids\"",
+        "to authenticated",
+    ]:
+        assert required_fragment in sql
+
+    assert "to anon" not in sql
