@@ -22,7 +22,7 @@ import {
   CreditCard,
   Shield,
 } from "lucide-react";
-import biddedLogo from "@/assets/bidded-logo.png";
+import biddedMark from "@/assets/bidded-mark.png";
 import { usePermissions } from "@/lib/auth";
 
 type Member = {
@@ -95,7 +95,15 @@ export default function Settings() {
       {/* Workspace header */}
       <Card className="mb-4 overflow-hidden">
         <div className="flex flex-col gap-4 bg-gradient-to-b from-secondary/40 to-transparent px-6 py-6 sm:flex-row sm:items-center sm:gap-6 sm:px-8">
-          <img src={biddedLogo} alt="Bidded" className="h-16 w-auto sm:h-20" />
+          <div className="flex items-center justify-center gap-3 sm:justify-start">
+            <img
+              src={biddedMark}
+              alt=""
+              aria-hidden="true"
+              className="h-14 w-14 shrink-0 object-contain sm:h-16 sm:w-16"
+            />
+            <span className="text-3xl font-semibold text-foreground">Bidded</span>
+          </div>
           <div className="flex-1 text-center sm:text-left">
             <p className="text-xs uppercase tracking-wider text-muted-foreground">Workspace</p>
             <p className="text-base font-semibold">Bidded · Demo Tenant</p>

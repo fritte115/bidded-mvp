@@ -2,7 +2,7 @@ import { FormEvent, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { Loader2, LockKeyhole } from "lucide-react";
 
-import biddedLogo from "@/assets/bidded-logo.png";
+import biddedMark from "@/assets/bidded-mark.png";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -45,7 +45,15 @@ export default function Login() {
     <main className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
       <Card className="w-full max-w-sm border-border/70 shadow-sm">
         <CardHeader className="space-y-4">
-          <img src={biddedLogo} alt="Bidded" className="h-12 w-auto" />
+          <div className="flex items-center gap-2">
+            <img
+              src={biddedMark}
+              alt=""
+              aria-hidden="true"
+              className="h-9 w-9 shrink-0 object-contain"
+            />
+            <span className="text-2xl font-semibold text-foreground">Bidded</span>
+          </div>
           <div>
             <CardTitle className="flex items-center gap-2 text-xl">
               <LockKeyhole className="h-5 w-5 text-primary" />
