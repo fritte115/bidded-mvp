@@ -20,6 +20,7 @@ vi.mock("@/lib/auth", () => ({
 
 const run: RunDetailModel = {
   id: "run-123",
+  runNumber: 2,
   tenderId: "tender-123",
   tenderName: "City CRM Procurement",
   company: "Acme IT Consulting AB",
@@ -33,6 +34,20 @@ const run: RunDetailModel = {
   stage: "Judge",
   decision: "BID",
   confidence: 82,
+  documents: [
+    {
+      originalFilename: "city-crm-main.pdf",
+      parseStatus: "parsed",
+      parseNote: null,
+      publicUrl: "https://example.supabase.co/storage/v1/object/public/public-procurements/city-crm-main.pdf",
+    },
+    {
+      originalFilename: "city-crm-appendix.pdf",
+      parseStatus: "parsed",
+      parseNote: null,
+      publicUrl: "https://example.supabase.co/storage/v1/object/public/public-procurements/city-crm-appendix.pdf",
+    },
+  ],
   evidence: [],
   round1: [],
   round2: [],
@@ -83,6 +98,24 @@ describe("RunDetail", () => {
       "href",
       "/runs/run-123/evidence",
     );
+    expect(screen.getByText("Submitted files")).toBeInTheDocument();
+    expect(
+      screen.queryByText("The tender documents linked to this run."),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open city-crm-main.pdf" })).toHaveAttribute(
+      "href",
+      "https://example.supabase.co/storage/v1/object/public/public-procurements/city-crm-main.pdf",
+    );
+    expect(screen.getByRole("link", { name: "Download city-crm-main.pdf" })).toHaveAttribute(
+      "href",
+      "https://example.supabase.co/storage/v1/object/public/public-procurements/city-crm-main.pdf",
+    );
+    expect(screen.getByRole("link", { name: "Open city-crm-appendix.pdf" })).toHaveAttribute(
+      "href",
+      "https://example.supabase.co/storage/v1/object/public/public-procurements/city-crm-appendix.pdf",
+    );
+    expect(screen.getAllByLabelText("Parsed")).toHaveLength(2);
+    expect(screen.queryByText("Parsed")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Re-run/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Export/i })).toBeInTheDocument();
   });
@@ -162,5 +195,30 @@ describe("RunDetail", () => {
       within(sidebar).getByText("Source not found in this run's evidence board."),
     ).toBeInTheDocument();
     expect(within(sidebar).getByText("EVD-404")).toBeInTheDocument();
+  });
+
+  it("hides judge disagreement when it repeats the verdict memo", async () => {
+    vi.mocked(fetchRunDetail).mockResolvedValue({
+      ...run,
+      judge: {
+        verdict: "CONDITIONAL_BID",
+        confidence: 82,
+        voteSummary: { BID: 1, NO_BID: 0, CONDITIONAL_BID: 3 },
+        disagreement: "All four agents unanimously recommend CONDITIONAL_BID.",
+        citedMemo: "All four agents unanimously recommend conditional bid.",
+        complianceMatrix: [],
+        complianceBlockers: [],
+        potentialBlockers: [],
+        riskRegister: [],
+        missingInfo: [],
+        recommendedActions: [],
+        evidenceIds: [],
+      },
+    });
+
+    renderRunDetail();
+
+    expect(await screen.findByText("Final verdict")).toBeInTheDocument();
+    expect(screen.queryByText("Disagreement")).not.toBeInTheDocument();
   });
 });

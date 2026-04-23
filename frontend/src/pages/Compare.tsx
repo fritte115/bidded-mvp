@@ -23,7 +23,8 @@ import { EmptyState } from "@/components/EmptyState";
 import { BidRecommendation } from "@/components/BidRecommendation";
 import { fetchCompareRows } from "@/lib/api";
 import { buildBidDraftPath } from "@/lib/bidIntegrationMapping";
-import { humanizeVerdictText, verdictLabel, type Verdict } from "@/data/mock";
+import { renderFormattedText } from "@/lib/richText";
+import { verdictLabel, type Verdict } from "@/data/mock";
 import {
   ArrowRight,
   BookOpen,
@@ -37,12 +38,6 @@ import {
   Star,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-const riskTone: Record<"Low" | "Medium" | "High", { dot: string; text: string; bg: string }> = {
-  Low: { dot: "bg-success", text: "text-success", bg: "bg-success/10" },
-  Medium: { dot: "bg-warning", text: "text-warning", bg: "bg-warning/10" },
-  High: { dot: "bg-danger", text: "text-danger", bg: "bg-danger/10" },
-};
 
 const verdictIcon: Record<Verdict, typeof Check> = {
   BID: Check,
@@ -79,15 +74,6 @@ const compactVerdictClass: Record<Verdict, string> = {
   NO_BID: "border-danger/30 bg-danger/10 text-danger",
   CONDITIONAL_BID: "border-warning/30 bg-warning/10 text-warning",
 };
-
-function TonePill({ label, tone }: { label: string; tone: { dot: string; text: string; bg: string } }) {
-  return (
-    <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium", tone.bg, tone.text)}>
-      <span className={cn("h-1.5 w-1.5 rounded-full", tone.dot)} />
-      {label}
-    </span>
-  );
-}
 
 export default function Compare() {
   const [params, setParams] = useSearchParams();
@@ -261,12 +247,11 @@ export default function Compare() {
                 <Table className="w-full table-fixed">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[28%] text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Procurement</TableHead>
+                      <TableHead className="w-[31%] text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Procurement</TableHead>
                       <TableHead className="w-[9%] text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Verdict</TableHead>
                       <TableHead className="w-[12%] text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Confidence</TableHead>
-                      <TableHead className="w-[7%] text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Docs</TableHead>
-                      <TableHead className="w-[9%] text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Risk</TableHead>
-                      <TableHead className="w-[35%] text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Top reason</TableHead>
+                      <TableHead className="w-[8%] text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Docs</TableHead>
+                      <TableHead className="w-[40%] text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Top reason</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -342,14 +327,11 @@ export default function Compare() {
                               <span className="font-medium">{p.documentCount}</span>
                             </div>
                           </TableCell>
-                          <TableCell className="align-top">
-                            <TonePill label={p.riskScore} tone={riskTone[p.riskScore]} />
-                          </TableCell>
                           <TableCell className="max-w-xs align-top">
                             <div className="flex gap-2">
                               <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                               <p className="line-clamp-3 text-sm leading-relaxed text-foreground">
-                                {humanizeVerdictText(p.topReason)}
+                                {renderFormattedText(p.topReason)}
                               </p>
                             </div>
                           </TableCell>

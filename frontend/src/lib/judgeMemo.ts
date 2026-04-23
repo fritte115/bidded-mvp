@@ -24,6 +24,20 @@ export function formatJudgeMemo(
   };
 }
 
+export function isDuplicateJudgeDisagreement(
+  disagreement: string,
+  memo: string,
+): boolean {
+  const normalizedDisagreement = normalizeComparableText(disagreement);
+  const normalizedMemo = normalizeComparableText(memo);
+
+  return (
+    normalizedDisagreement.length > 0 &&
+    normalizedMemo.length > 0 &&
+    normalizedDisagreement === normalizedMemo
+  );
+}
+
 function blocksFromSentence(sentence: string): MemoBlock[] {
   const list = numberedListFromSentence(sentence);
   if (!list) return [{ type: "paragraph", text: sentence }];
@@ -64,6 +78,14 @@ function splitSentences(text: string): string[] {
       ?.map(cleanSentence)
       .filter(Boolean) ?? []
   );
+}
+
+function normalizeComparableText(text: string): string {
+  return humanizeVerdictText(text)
+    .replace(/\s+/g, " ")
+    .replace(/[.!?]+$/g, "")
+    .trim()
+    .toLowerCase();
 }
 
 function cleanSentence(text: string): string {

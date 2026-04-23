@@ -1,7 +1,9 @@
+import { Fragment } from "react";
 import { ConfidenceBar } from "@/components/ConfidenceBar";
 import { EvidenceBadge } from "@/components/EvidenceBadge";
 import { VerdictBadge } from "@/components/VerdictBadge";
 import { formatJudgeMemo } from "@/lib/judgeMemo";
+import { renderFormattedText } from "@/lib/richText";
 import { cn } from "@/lib/utils";
 import { verdictLabel, type Verdict } from "@/data/mock";
 
@@ -33,7 +35,7 @@ function renderMemoText(text: string, onCitationClick?: CitationClickHandler) {
         />
       );
     }
-    return <EmphasizedVerdictText key={index} text={part} />;
+    return <Fragment key={index}>{renderFormattedText(part)}</Fragment>;
   });
 }
 
@@ -171,17 +173,5 @@ function VoteChip({
       <span className="font-mono tabular-nums">{count}</span>
       <span>{label}</span>
     </div>
-  );
-}
-
-function EmphasizedVerdictText({ text }: { text: string }) {
-  return text.split(/(\bnot bid\b)/i).map((part, index) =>
-    part.toLowerCase() === "not bid" ? (
-      <em key={index} className="font-medium">
-        {part.toLowerCase()}
-      </em>
-    ) : (
-      <span key={index}>{part}</span>
-    ),
   );
 }

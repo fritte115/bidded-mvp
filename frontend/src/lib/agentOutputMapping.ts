@@ -14,7 +14,7 @@ export function normalizeMotionText(text: string): string {
 export const AGENT_ROLE_LABELS: Record<string, AgentName> = {
   compliance_officer: "Compliance Officer",
   win_strategist: "Win Strategist",
-  delivery_cfo: "Delivery/CFO",
+  delivery_cfo: "Delivery CFO",
   red_team: "Red Team",
 };
 

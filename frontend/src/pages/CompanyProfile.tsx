@@ -37,6 +37,7 @@ import {
   updateCompany,
   uploadCompanyKbDocuments,
 } from "@/lib/api";
+import { renderFormattedText } from "@/lib/richText";
 import type { Company as CompanyType } from "@/data/mock";
 import {
   Pencil, Plus, Trash2, Building2, Globe, Mail, Phone, MapPin, Calendar,
@@ -822,7 +823,7 @@ export default function CompanyProfile() {
                 <Row label="Target margin" value={company.financialAssumptions.targetMargin} />
                 <Row label="Max contract size" value={company.financialAssumptions.maxContractSize} />
                 <p className="rounded-md bg-muted/40 p-2.5 text-xs text-muted-foreground">
-                  These assumptions feed Delivery/CFO agent reasoning when scoring tenders.
+                  {renderFormattedText("These assumptions feed Delivery CFO agent reasoning when scoring tenders.")}
                 </p>
               </CardContent>
             </Card>

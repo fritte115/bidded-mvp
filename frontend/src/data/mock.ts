@@ -19,7 +19,7 @@ export type EvidenceCategory =
   | "Contract Risks"
   | "Required Submission Documents";
 
-export type AgentName = "Compliance Officer" | "Win Strategist" | "Delivery/CFO" | "Red Team";
+export type AgentName = "Compliance Officer" | "Win Strategist" | "Delivery CFO" | "Red Team";
 
 export interface Evidence {
   id: string; // EVD-012
@@ -105,6 +105,7 @@ export type Tender = Procurement;
 export interface Run {
   id: string;
   tenderId: string;
+  runNumber?: number | null;
   tenderName: string;
   company: string;
   startedAt: string;
@@ -360,7 +361,7 @@ const evidence: Evidence[] = [
       "Personal som arbetar i uppdraget ska kunna säkerhetsprövas enligt säkerhetsskyddslagen (2018:585), placering i säkerhetsklass 2.",
     source: "polismyndigheten-it-modernisation-2026.pdf",
     page: 12,
-    referencedBy: ["Compliance Officer", "Delivery/CFO", "Red Team"],
+    referencedBy: ["Compliance Officer", "Delivery CFO", "Red Team"],
   },
   {
     id: "EVD-005",
@@ -369,7 +370,7 @@ const evidence: Evidence[] = [
     excerpt: "Anbudsgivaren ska ha en årsomsättning om minst 80 MSEK under vart och ett av de senaste två räkenskapsåren.",
     source: "polismyndigheten-it-modernisation-2026.pdf",
     page: 14,
-    referencedBy: ["Delivery/CFO"],
+    referencedBy: ["Delivery CFO"],
   },
   {
     id: "EVD-006",
@@ -379,7 +380,7 @@ const evidence: Evidence[] = [
       "Minst tre (3) referensuppdrag av motsvarande omfattning hos statlig myndighet under de senaste fem åren ska redovisas.",
     source: "polismyndigheten-it-modernisation-2026.pdf",
     page: 15,
-    referencedBy: ["Win Strategist", "Delivery/CFO"],
+    referencedBy: ["Win Strategist", "Delivery CFO"],
   },
   {
     id: "EVD-007",
@@ -398,7 +399,7 @@ const evidence: Evidence[] = [
     excerpt: "Takpris för ramavtalet är 1500 SEK/timme exkl. moms för seniora konsulter.",
     source: "polismyndigheten-it-modernisation-2026.pdf",
     page: 23,
-    referencedBy: ["Delivery/CFO", "Red Team"],
+    referencedBy: ["Delivery CFO", "Red Team"],
   },
   {
     id: "EVD-009",
@@ -408,7 +409,7 @@ const evidence: Evidence[] = [
       "Leverantörens skadeståndsansvar är begränsat till 200% av årligt avropsvärde. Vid säkerhetsincident gäller obegränsat ansvar.",
     source: "polismyndigheten-it-modernisation-2026.pdf",
     page: 31,
-    referencedBy: ["Delivery/CFO", "Red Team"],
+    referencedBy: ["Delivery CFO", "Red Team"],
   },
   {
     id: "EVD-010",
@@ -417,7 +418,7 @@ const evidence: Evidence[] = [
     excerpt: "Vite om 0,5% av månadsersättning per påbörjad förseningsdag, högst 15% av kontraktsvärdet.",
     source: "polismyndigheten-it-modernisation-2026.pdf",
     page: 32,
-    referencedBy: ["Delivery/CFO"],
+    referencedBy: ["Delivery CFO"],
   },
   {
     id: "EVD-011",
@@ -436,7 +437,7 @@ const evidence: Evidence[] = [
     excerpt: "All dokumentation och leverans ska ske på svenska. Kommunikation med beställaren sker på svenska.",
     source: "polismyndigheten-it-modernisation-2026.pdf",
     page: 13,
-    referencedBy: ["Win Strategist", "Delivery/CFO"],
+    referencedBy: ["Win Strategist", "Delivery CFO"],
   },
   // ---- Company profile evidence (seeded from Acme IT Consulting AB) ----
   {
@@ -457,7 +458,7 @@ const evidence: Evidence[] = [
     excerpt: "Försäkringskassan — Secure file exchange platform, 18 MSEK, 2024.",
     source: "Acme IT Consulting AB · company profile",
     page: 0,
-    referencedBy: ["Win Strategist", "Delivery/CFO"],
+    referencedBy: ["Win Strategist", "Delivery CFO"],
     kind: "company_profile",
     companyFieldPath: "references[2]",
   },
@@ -468,7 +469,7 @@ const evidence: Evidence[] = [
     excerpt: "Annual revenue range 120–150 MSEK; clears the 80 MSEK threshold.",
     source: "Acme IT Consulting AB · company profile",
     page: 0,
-    referencedBy: ["Delivery/CFO"],
+    referencedBy: ["Delivery CFO"],
     kind: "company_profile",
     companyFieldPath: "financialAssumptions.revenueRange",
   },
@@ -498,7 +499,7 @@ const round1: AgentMotion[] = [
     ],
   },
   {
-    agent: "Delivery/CFO",
+    agent: "Delivery CFO",
     verdict: "CONDITIONAL_BID",
     confidence: 64,
     findings: [
@@ -550,7 +551,7 @@ const round2: AgentMotion[] = [
     ],
   },
   {
-    agent: "Delivery/CFO",
+    agent: "Delivery CFO",
     verdict: "CONDITIONAL_BID",
     confidence: 68,
     findings: [
@@ -774,16 +775,67 @@ export function findRun(id: string) {
   return runs.find((r) => r.id === id);
 }
 
-/** Friendly run label, e.g. "Run 1". Stable for a given run id. */
-export function runDisplayId(run: Pick<Run, "id"> | string) {
-  const id = typeof run === "string" ? run : run.id;
-  const knownIndex = runs.findIndex((r) => r.id === id);
-  if (knownIndex >= 0) return `Run ${knownIndex + 1}`;
+export interface RunSequenceRow {
+  id: string;
+  tenderId: string;
+  startedAt?: string | null;
+  createdAt?: string | null;
+}
 
-  // Fall back to a small stable number for live ids that are not in mock data.
-  let sum = 0;
-  for (let i = 0; i < id.length; i++) sum = (sum + id.charCodeAt(i) * (i + 1)) % 99;
-  return `Run ${sum + 1}`;
+type RunLabelTarget = {
+  id: string;
+  runNumber?: number | null;
+};
+
+function runSequenceTimeMs(run: RunSequenceRow) {
+  const value = run.startedAt ?? run.createdAt ?? null;
+  if (!value) return 0;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+export function buildRunNumberMap(runsToNumber: RunSequenceRow[]) {
+  const grouped = new Map<string, RunSequenceRow[]>();
+  for (const run of runsToNumber) {
+    const bucket = grouped.get(run.tenderId) ?? [];
+    bucket.push(run);
+    grouped.set(run.tenderId, bucket);
+  }
+
+  const runNumbers = new Map<string, number>();
+  for (const group of grouped.values()) {
+    group
+      .slice()
+      .sort((left, right) => {
+        const timeDiff = runSequenceTimeMs(left) - runSequenceTimeMs(right);
+        if (timeDiff !== 0) return timeDiff;
+        return left.id.localeCompare(right.id);
+      })
+      .forEach((run, index) => {
+        runNumbers.set(run.id, index + 1);
+      });
+  }
+
+  return runNumbers;
+}
+
+/** Friendly run label, e.g. "Run 1". Uses a real per-procurement run order when known. */
+export function runDisplayId(run: RunLabelTarget | string) {
+  if (typeof run !== "string" && typeof run.runNumber === "number" && run.runNumber > 0) {
+    return `Run ${run.runNumber}`;
+  }
+
+  const id = typeof run === "string" ? run : run.id;
+  const mockRunNumber = buildRunNumberMap(
+    runs.map((mockRun) => ({
+      id: mockRun.id,
+      tenderId: mockRun.tenderId,
+      startedAt: mockRun.startedAt,
+      createdAt: mockRun.startedAt,
+    })),
+  ).get(id);
+
+  return typeof mockRunNumber === "number" ? `Run ${mockRunNumber}` : "Run";
 }
 
 /** Latest run for a procurement, by startedAt (desc). */
@@ -832,6 +884,10 @@ export function humanizeVerdictText(text: string) {
     .replace(/\bNOT\s+BID\b/gi, "not bid")
     .replace(/\bCONDITIONAL[_\s-]+BID\b/gi, "conditional bid")
     .replace(/\bNO[_\s-]+BID\b/gi, "no bid")
+    .replace(/\bCOMPLIANCE[_\s-]+OFFICER\b/gi, "Compliance Officer")
+    .replace(/\bWIN[_\s-]+STRATEGIST\b/gi, "Win Strategist")
+    .replace(/\bDELIVERY(?:[_/\s-]+)CFO\b/gi, "Delivery CFO")
+    .replace(/\bRED[_\s-]+TEAM\b/gi, "Red Team")
     .replace(/\bBID\b/g, "bid");
 
   return normalized.replace(/^(bid|no bid|conditional bid)\b/, (match) =>
