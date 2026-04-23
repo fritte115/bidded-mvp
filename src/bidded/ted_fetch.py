@@ -400,7 +400,7 @@ def map_notice_to_explore_shape(notice: dict[str, Any]) -> dict[str, Any]:
     deadline_raw = notice.get("deadline")
     deadline = _parse_ted_date(_first_str(deadline_raw)) or ""
 
-    source_url = f"https://ted.europa.eu/en/notice/{pub_number}" if pub_number else ""
+    source_url = f"https://ted.europa.eu/en/notice/{pub_number}/html" if pub_number else ""
 
     # Submission language (valid TED v3 field)
     lang_raw = notice.get("submission-language")
