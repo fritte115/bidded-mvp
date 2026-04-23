@@ -8,12 +8,29 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ArrowLeft, UploadCloud, FileText, X, Loader2 } from "lucide-react";
 import {
   isSupportedProcurementDocument,
   registerProcurement,
 } from "@/lib/api";
 import { normalizeDocumentUploads } from "@/lib/documentUploads";
+import {
+  inferProcurementDocumentRole,
+  PROCUREMENT_DOCUMENT_ROLE_OPTIONS,
+  type ProcurementDocumentRole,
+} from "@/lib/procurementDocumentRoles";
+
+type PendingProcurementFile = {
+  file: File;
+  procurementDocumentRole: ProcurementDocumentRole | null;
+};
 
 export default function RegisterProcurement() {
   const navigate = useNavigate();
@@ -22,7 +39,7 @@ export default function RegisterProcurement() {
   const [title, setTitle] = useState("");
   const [issuingAuthority, setIssuingAuthority] = useState("");
   const [description, setDescription] = useState("");
-  const [files, setFiles] = useState<File[]>([]);
+  const [files, setFiles] = useState<PendingProcurementFile[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   async function handleFiles(incoming: FileList | null) {
@@ -39,8 +56,17 @@ export default function RegisterProcurement() {
     ];
 
     setFiles((prev) => {
-      const existingNames = new Set(prev.map((f) => f.name));
-      return [...prev, ...next.filter((f) => !existingNames.has(f.name))];
+      const existingNames = new Set(prev.map((item) => item.file.name));
+      const nextFiles = next.filter((file) => !existingNames.has(file.name));
+      return [
+        ...prev,
+        ...nextFiles.map((file, index) => ({
+          file,
+          procurementDocumentRole: inferProcurementDocumentRole(file.name, {
+            isFirstDocument: prev.length === 0 && index === 0,
+          }),
+        })),
+      ];
     });
 
     if (zippedPdfFiles.rejected.length > 0) {
@@ -60,11 +86,23 @@ export default function RegisterProcurement() {
     setFiles((prev) => prev.filter((_, idx) => idx !== i));
   }
 
+  function updateFileRole(index: number, procurementDocumentRole: ProcurementDocumentRole) {
+    setFiles((prev) =>
+      prev.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, procurementDocumentRole } : item,
+      ),
+    );
+  }
+
   async function handleSubmit() {
     if (!title.trim() || files.length === 0) return;
     setSubmitting(true);
     try {
-      await registerProcurement({ title: title.trim(), issuingAuthority: issuingAuthority.trim(), files });
+      await registerProcurement({
+        title: title.trim(),
+        issuingAuthority: issuingAuthority.trim(),
+        documents: files,
+      });
       await queryClient.invalidateQueries({ queryKey: ["procurements"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
       toast.success("Procurement registered", {
@@ -80,7 +118,11 @@ export default function RegisterProcurement() {
     }
   }
 
-  const canSubmit = title.trim().length > 0 && files.length > 0 && !submitting;
+  const canSubmit =
+    title.trim().length > 0 &&
+    files.length > 0 &&
+    files.every((item) => item.procurementDocumentRole !== null) &&
+    !submitting;
 
   return (
     <>
@@ -163,18 +205,35 @@ export default function RegisterProcurement() {
             {files.length > 0 && (
               <>
                 <ul className="mt-3 space-y-1.5">
-                  {files.map((f, i) => (
+                  {files.map((item, i) => (
                     <li
-                      key={f.name}
-                      className="flex items-center justify-between rounded-md border border-border bg-card px-3 py-2"
+                      key={item.file.name}
+                      className="grid gap-2 rounded-md border border-border bg-card px-3 py-2 sm:grid-cols-[1fr_220px_auto]"
                     >
                       <div className="flex min-w-0 items-center gap-2">
                         <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        <span className="truncate text-sm text-foreground">{f.name}</span>
+                        <span className="truncate text-sm text-foreground">{item.file.name}</span>
                         <span className="shrink-0 text-xs text-muted-foreground">
-                          {(f.size / 1024 / 1024).toFixed(1)} MB
+                          {(item.file.size / 1024 / 1024).toFixed(1)} MB
                         </span>
                       </div>
+                      <Select
+                        value={item.procurementDocumentRole ?? undefined}
+                        onValueChange={(value) =>
+                          updateFileRole(i, value as ProcurementDocumentRole)
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Choose document role" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PROCUREMENT_DOCUMENT_ROLE_OPTIONS.map((role) => (
+                            <SelectItem key={role.value} value={role.value}>
+                              {role.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -188,7 +247,7 @@ export default function RegisterProcurement() {
                   ))}
                 </ul>
                 <p className="text-xs text-muted-foreground">
-                  {files.length} {files.length === 1 ? "file" : "files"} attached · ZIP entries are stored as individual PDFs, while direct DOCX files keep their DOCX format for ingestion.
+                  {files.length} {files.length === 1 ? "file" : "files"} attached · assign a role for each file so pricing, contract, DPA, and requirements attachments are analysed separately.
                 </p>
               </>
             )}
@@ -205,7 +264,7 @@ export default function RegisterProcurement() {
               )}
             </Button>
             <p className="mt-2 text-xs text-muted-foreground">
-              Documents are uploaded and registered with parse status &quot;pending&quot; until the ingestion pipeline runs.
+              Documents are uploaded with parse status &quot;pending&quot;. Procurement roles are stored with each file and follow the evidence pipeline.
             </p>
           </div>
         </CardContent>

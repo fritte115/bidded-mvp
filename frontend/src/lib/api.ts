@@ -48,6 +48,7 @@ import {
   mapDecisionRow,
 } from "@/lib/bidIntegrationMapping";
 import { mapBidDraftPayload, type RawBidResponseDraft } from "@/lib/bidDraftMapping";
+import type { ProcurementDocumentRole } from "@/lib/procurementDocumentRoles";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1569,10 +1570,16 @@ export function safeDocumentFilename(filename: string): string {
 function buildStoragePath(title: string, checksumHex: string, originalFilename: string): string {
   return `demo/procurements/${slugify(title)}/${checksumHex.slice(0, 12)}-${safeDocumentFilename(originalFilename)}`;
 }
+
+export interface RegisterProcurementDocumentInput {
+  file: File;
+  procurementDocumentRole: ProcurementDocumentRole | null;
+}
+
 export interface RegisterProcurementInput {
   title: string;
   issuingAuthority: string;
-  files: File[];
+  documents: RegisterProcurementDocumentInput[];
 }
 
 /**
@@ -1664,7 +1671,8 @@ export async function registerProcurement(input: RegisterProcurementInput): Prom
   const tenderId = (tenderRows as Array<{ id: string }>)[0].id;
 
   // 3. For each document: compute SHA-256 -> upload -> upsert document row
-  for (const file of input.files) {
+  for (const document of input.documents) {
+    const file = document.file;
     const contentType = contentTypeForProcurementDocument(file);
     const buffer = await file.arrayBuffer();
     const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
@@ -1684,6 +1692,13 @@ export async function registerProcurement(input: RegisterProcurementInput): Prom
         `registerProcurement (storage upload ${file.name}): ${uploadErr.message} [status: ${(uploadErr as { statusCode?: string }).statusCode ?? "?"}]`,
       );
 
+    const metadata: Record<string, string> = {
+      registered_via: "frontend_ui",
+      demo_company_id: companyId,
+    };
+    if (document.procurementDocumentRole) {
+      metadata.procurement_document_role = document.procurementDocumentRole;
+    }
     const { error: docErr } = await client.from("documents").upsert(
       {
         tenant_key: "demo",
@@ -1695,7 +1710,7 @@ export async function registerProcurement(input: RegisterProcurementInput): Prom
         document_role: "tender_document",
         parse_status: "pending",
         original_filename: file.name,
-        metadata: { registered_via: "frontend_ui", demo_company_id: companyId },
+        metadata,
       },
       { onConflict: "storage_path" },
     );

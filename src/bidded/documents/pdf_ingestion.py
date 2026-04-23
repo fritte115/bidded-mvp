@@ -447,6 +447,9 @@ def build_document_chunks(
                         "source_original_filename": source_metadata.get(
                             "original_filename"
                         ),
+                        "procurement_document_role": source_metadata.get(
+                            "procurement_document_role"
+                        ),
                         "parser": "pymupdf",
                         "source_format": source_metadata.get("source_format"),
                         "source_content_type": source_metadata.get(

@@ -25,11 +25,15 @@ def _retrieved_chunk(
     text: str,
     *,
     source_label: str = "Tender.pdf",
+    procurement_document_role: str | None = None,
     chunk_id: UUID = CHUNK_ID,
     page_start: int = 3,
     page_end: int | None = None,
     chunk_index: int = 0,
 ) -> RetrievedDocumentChunk:
+    metadata: dict[str, str] = {"source_label": source_label}
+    if procurement_document_role is not None:
+        metadata["procurement_document_role"] = procurement_document_role
     return RetrievedDocumentChunk(
         chunk_id=str(chunk_id),
         document_id=DOCUMENT_ID,
@@ -37,7 +41,7 @@ def _retrieved_chunk(
         page_end=page_end if page_end is not None else page_start,
         chunk_index=chunk_index,
         text=text,
-        metadata={"source_label": source_label},
+        metadata=metadata,
     )
 
 
@@ -291,6 +295,29 @@ def test_ambiguous_tender_evidence_keeps_category_without_requirement_type() -> 
     assert candidates[0].requirement_type is None
     assert item["category"] == "award_criterion"
     assert item["requirement_type"] is None
+
+
+def test_pricing_appendix_evidence_keeps_role_and_avoids_generic_shall_requirement(
+) -> None:
+    chunks = [
+        _retrieved_chunk(
+            "Pris per månad ska anges i SEK exklusive moms.",
+            source_label="Prisbilaga.pdf",
+            procurement_document_role="pricing_appendix",
+        )
+    ]
+
+    candidates = build_tender_evidence_candidates(chunks)
+    items = build_tender_evidence_items(candidates)
+
+    assert len(candidates) == 1
+    assert candidates[0].procurement_document_role == "pricing_appendix"
+    assert candidates[0].category == "award_criterion"
+    assert candidates[0].requirement_type is None
+    assert items[0]["source_metadata"] == {
+        "source_label": "Prisbilaga.pdf",
+        "procurement_document_role": "pricing_appendix",
+    }
 
 
 def test_tender_evidence_candidate_validation_requires_tender_provenance() -> None:
