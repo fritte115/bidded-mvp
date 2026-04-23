@@ -772,7 +772,7 @@ export default function Procurements() {
                               />
                               <div className="flex flex-col leading-tight">
                                 <span className="font-medium tabular-nums text-foreground group-hover:text-primary group-hover:underline">
-                                  {runDisplayId(run.id)}
+                                  {runDisplayId(run)}
                                 </span>
                                 <span className="text-xs text-muted-foreground">
                                   {formatRelativeTime(run.startedAt)}
