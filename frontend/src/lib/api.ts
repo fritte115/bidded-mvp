@@ -22,6 +22,7 @@ import {
   type Bid,
   type BidStatus,
   type Company,
+  type CompanyWebsiteImportRecord,
   type ComplianceMatrixRow,
   type DecisionSummary,
   type Evidence,
@@ -413,6 +414,7 @@ export interface DbCompany {
       win_rate_pct: number;
       avg_contract_msek: number;
     };
+    website_imports?: CompanyWebsiteImportRecord[];
     [key: string]: unknown;
   };
   [key: string]: unknown;
@@ -543,7 +545,102 @@ function mapDbCompany(row: DbCompany): Company {
       securityPosture.length > 0 ? securityPosture : undefined,
     sustainability,
     bidStats,
+    websiteImports: pd.website_imports,
   };
+}
+
+export type CompanyWebsiteProfilePatch = Partial<
+  Pick<
+    Company,
+    | "website"
+    | "email"
+    | "phone"
+    | "description"
+    | "offices"
+    | "industries"
+    | "capabilities"
+    | "certifications"
+    | "references"
+    | "securityPosture"
+    | "sustainability"
+  >
+>;
+
+export interface CompanyWebsiteImportPreview {
+  source_url: string;
+  pages: Array<{ url: string; title?: string | null; text_excerpt?: string }>;
+  profile_patch: CompanyWebsiteProfilePatch;
+  field_sources: Record<
+    string,
+    { page_url: string; excerpt: string; source_label: string }
+  >;
+  warnings: string[];
+}
+
+export function applyCompanyWebsiteImportPreview(
+  company: Company,
+  preview: CompanyWebsiteImportPreview,
+  importedAt = new Date().toISOString(),
+): Company {
+  const patch = preview.profile_patch;
+  const next: Company = {
+    ...company,
+    website: patch.website ?? company.website,
+    email: patch.email ?? company.email,
+    phone: patch.phone ?? company.phone,
+    description: patch.description ?? company.description,
+    offices: patch.offices ?? company.offices,
+    industries: patch.industries ?? company.industries,
+    sustainability: patch.sustainability ?? company.sustainability,
+    websiteImports: [
+      { ...preview, imported_at: importedAt },
+      ...(company.websiteImports ?? []),
+    ].slice(0, 5),
+  };
+
+  if (patch.capabilities) {
+    next.capabilities = mergeUnique(company.capabilities, patch.capabilities);
+  }
+  if (patch.certifications) {
+    next.certifications = mergeByKey(
+      company.certifications,
+      patch.certifications,
+      (cert) => cert.name,
+    );
+  }
+  if (patch.references) {
+    next.references = mergeByKey(
+      company.references,
+      patch.references,
+      (reference) => `${reference.client}-${reference.year}`,
+    );
+  }
+  if (patch.securityPosture) {
+    next.securityPosture = mergeByKey(
+      company.securityPosture ?? [],
+      patch.securityPosture,
+      (item) => item.item,
+    );
+  }
+
+  return next;
+}
+
+function mergeUnique(existing: string[], imported: string[]): string[] {
+  return Array.from(new Set([...existing, ...imported].filter(Boolean)));
+}
+
+function mergeByKey<T>(
+  existing: T[],
+  imported: T[],
+  keyFn: (item: T) => string,
+): T[] {
+  const byKey = new Map(existing.map((item) => [keyFn(item), item]));
+  for (const item of imported) {
+    const key = keyFn(item);
+    if (!byKey.has(key)) byKey.set(key, item);
+  }
+  return Array.from(byKey.values());
 }
 
 /**
@@ -729,6 +826,9 @@ export function mergeCompanyIntoDb(
       avg_contract_msek: c.bidStats.avgContractMSEK,
     };
   }
+  if (c.websiteImports !== undefined) {
+    pd.website_imports = c.websiteImports;
+  }
 
   return {
     name: c.name,
@@ -806,6 +906,25 @@ export async function resyncCompanyEvidence(): Promise<{
   });
   if (!res.ok) {
     throw new Error(`resyncCompanyEvidence: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function importCompanyWebsite(
+  url: string,
+  maxPages = 5,
+): Promise<CompanyWebsiteImportPreview> {
+  const res = await fetch(`${AGENT_API_URL}/api/company/import-website`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url, max_pages: maxPages }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { detail?: string }).detail ??
+        `importCompanyWebsite: ${res.status} ${res.statusText}`,
+    );
   }
   return res.json();
 }

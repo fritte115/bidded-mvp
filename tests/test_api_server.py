@@ -158,3 +158,54 @@ def test_start_run_parses_pending_documents_and_starts_worker(
         "document_ids": [DOCUMENT_ID_1, DOCUMENT_ID_2],
     }
     assert captured["workers"] == [(client, RUN_ID, print, {"graph": "handlers"})]
+
+
+def test_import_company_website_returns_preview_without_supabase_write(
+    monkeypatch: Any,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def record_import(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {
+            "source_url": "https://example.com/",
+            "pages": [{"url": "https://example.com/", "title": "Example"}],
+            "profile_patch": {"website": "https://example.com/"},
+            "field_sources": {},
+            "warnings": [],
+        }
+
+    monkeypatch.setattr(api_server, "import_company_website", record_import)
+
+    result = api_server.import_company_website_route(
+        api_server.CompanyWebsiteImportRequest(url="https://example.com")
+    )
+
+    assert result == {
+        "source_url": "https://example.com/",
+        "pages": [{"url": "https://example.com/", "title": "Example"}],
+        "profile_patch": {"website": "https://example.com/"},
+        "field_sources": {},
+        "warnings": [],
+    }
+    assert captured["url"] == "https://example.com"
+    assert captured["max_pages"] == 5
+
+
+def test_import_company_website_maps_import_errors_to_http_422(
+    monkeypatch: Any,
+) -> None:
+    def fail_import(**_kwargs: Any) -> dict[str, Any]:
+        raise api_server.WebsiteImportError("URL host is private.")
+
+    monkeypatch.setattr(api_server, "import_company_website", fail_import)
+
+    try:
+        api_server.import_company_website_route(
+            api_server.CompanyWebsiteImportRequest(url="http://127.0.0.1")
+        )
+    except api_server.HTTPException as exc:
+        assert exc.status_code == 422
+        assert exc.detail == "URL host is private."
+    else:
+        raise AssertionError("Expected HTTPException")

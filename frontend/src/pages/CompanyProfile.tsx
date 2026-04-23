@@ -18,12 +18,19 @@ import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { fetchCompany, updateCompany } from "@/lib/api";
+import {
+  applyCompanyWebsiteImportPreview,
+  fetchCompany,
+  importCompanyWebsite,
+  updateCompany,
+  type CompanyWebsiteImportPreview,
+} from "@/lib/api";
 import type { Company as CompanyType } from "@/data/mock";
 import {
   Pencil, Plus, Trash2, Building2, Globe, Mail, Phone, MapPin, Calendar,
   ShieldCheck, Award, Users, TrendingUp, FileCheck2, Leaf, AlertTriangle,
-  CheckCircle2, Clock, Download, ExternalLink, ChevronRight,
+  CheckCircle2, Clock, Download, ExternalLink, ChevronRight, Loader2,
+  Sparkles,
 } from "lucide-react";
 import {
   Area, AreaChart, CartesianGrid, Line, LineChart, ResponsiveContainer,
@@ -57,6 +64,10 @@ export default function CompanyProfile() {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<Company | null>(null);
+  const [websiteImportUrl, setWebsiteImportUrl] = useState("");
+  const [websiteImporting, setWebsiteImporting] = useState(false);
+  const [websiteImportPreview, setWebsiteImportPreview] =
+    useState<CompanyWebsiteImportPreview | null>(null);
 
   const company = data?.company;
 
@@ -105,8 +116,46 @@ export default function CompanyProfile() {
             winRatePct: 0,
             avgContractMSEK: 0,
           },
+      websiteImports: company.websiteImports ? [...company.websiteImports] : [],
     });
+    setWebsiteImportUrl(company.website ?? "");
+    setWebsiteImportPreview(null);
     setOpen(true);
+  }
+
+  async function importWebsiteIntoDraft() {
+    if (!draft) return;
+    const url = websiteImportUrl.trim() || draft.website?.trim();
+    if (!url) {
+      toast.error("Website URL required");
+      return;
+    }
+    setWebsiteImporting(true);
+    try {
+      const preview = await importCompanyWebsite(url);
+      setWebsiteImportPreview(preview);
+      setWebsiteImportUrl(preview.profile_patch.website ?? preview.source_url);
+      toast.success("Website parsed", {
+        description: `${preview.pages.length} page${preview.pages.length === 1 ? "" : "s"} ready for review.`,
+      });
+    } catch (err) {
+      toast.error("Website import failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setWebsiteImporting(false);
+    }
+  }
+
+  function applyWebsiteImportPreview() {
+    if (!draft || !websiteImportPreview) return;
+    const next = applyCompanyWebsiteImportPreview(draft, websiteImportPreview);
+    setDraft(next);
+    setWebsiteImportUrl(next.website ?? websiteImportPreview.source_url);
+    setWebsiteImportPreview(null);
+    toast.success("Import applied to draft", {
+      description: "Review the fields, then save changes.",
+    });
   }
 
   async function save() {
@@ -785,6 +834,44 @@ export default function CompanyProfile() {
               <div className="flex-1 overflow-y-auto px-6 py-5">
                 {/* IDENTITY */}
                 <TabsContent value="identity" className="mt-0 space-y-6">
+                  <Section title="Website import">
+                    <div className="space-y-3 rounded-md border border-border bg-muted/10 p-3">
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <div className="relative flex-1">
+                          <Globe className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                          <Input
+                            className="pl-9"
+                            value={websiteImportUrl}
+                            placeholder="https://company.com"
+                            onChange={(e) => setWebsiteImportUrl(e.target.value)}
+                          />
+                        </div>
+                        <Button
+                          variant="outline"
+                          onClick={importWebsiteIntoDraft}
+                          disabled={websiteImporting}
+                        >
+                          {websiteImporting ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Sparkles className="h-4 w-4" />
+                          )}
+                          Import
+                        </Button>
+                      </div>
+
+                      {websiteImportPreview ? (
+                        <WebsiteImportPreviewPanel
+                          preview={websiteImportPreview}
+                          onApply={applyWebsiteImportPreview}
+                          onDiscard={() => setWebsiteImportPreview(null)}
+                        />
+                      ) : null}
+                    </div>
+                  </Section>
+
+                  <Separator />
+
                   <Section title="General info">
                     <div className="grid gap-3 sm:grid-cols-2">
                       <Field label="Display name">
@@ -1857,6 +1944,93 @@ export default function CompanyProfile() {
         </Sheet>
       ) : null}
     </>
+  );
+}
+
+function WebsiteImportPreviewPanel({
+  preview,
+  onApply,
+  onDiscard,
+}: {
+  preview: CompanyWebsiteImportPreview;
+  onApply: () => void;
+  onDiscard: () => void;
+}) {
+  const patch = preview.profile_patch;
+  const summary = [
+    patch.description ? "Description" : null,
+    patch.email ? "Email" : null,
+    patch.phone ? "Phone" : null,
+    patch.offices?.length ? `${patch.offices.length} offices` : null,
+    patch.industries?.length ? `${patch.industries.length} industries` : null,
+    patch.capabilities?.length ? `${patch.capabilities.length} capabilities` : null,
+    patch.certifications?.length
+      ? `${patch.certifications.length} certifications`
+      : null,
+    patch.references?.length ? `${patch.references.length} references` : null,
+    patch.securityPosture?.length
+      ? `${patch.securityPosture.length} security items`
+      : null,
+  ].filter((item): item is string => item !== null);
+
+  return (
+    <div className="rounded-md border border-primary/20 bg-background p-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-2">
+          <div className="flex flex-wrap gap-1.5">
+            {summary.length > 0 ? (
+              summary.map((item) => (
+                <Badge key={item} variant="secondary" className="font-normal">
+                  {item}
+                </Badge>
+              ))
+            ) : (
+              <Badge variant="outline" className="font-normal">
+                Website only
+              </Badge>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {preview.pages.map((page) => (
+              <a
+                key={page.url}
+                href={page.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex max-w-full items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:text-primary"
+              >
+                <ExternalLink className="h-3 w-3 shrink-0" />
+                <span className="truncate">
+                  {page.title || page.url.replace(/^https?:\/\//, "")}
+                </span>
+              </a>
+            ))}
+          </div>
+          {preview.warnings.length > 0 ? (
+            <div className="space-y-1">
+              {preview.warnings.map((warning) => (
+                <div
+                  key={warning}
+                  className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-300"
+                >
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>{warning}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <Button variant="ghost" size="sm" onClick={onDiscard}>
+            Discard
+          </Button>
+          <Button size="sm" onClick={onApply}>
+            <CheckCircle2 className="h-4 w-4" />
+            Apply
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

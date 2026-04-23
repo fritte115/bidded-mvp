@@ -7,8 +7,13 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from bidded.company.website_import import (
+    WebsiteImportError,
+    import_company_website,
+    resolve_website_profile_extractor,
+)
 from bidded.config import load_settings
 from bidded.documents import (
     PdfIngestionError,
@@ -38,9 +43,27 @@ class StartRunRequest(BaseModel):
     tender_id: str
 
 
+class CompanyWebsiteImportRequest(BaseModel):
+    url: str
+    max_pages: int = Field(default=5, ge=1, le=5)
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/api/company/import-website")
+def import_company_website_route(req: CompanyWebsiteImportRequest) -> dict[str, Any]:
+    settings = load_settings()
+    try:
+        return import_company_website(
+            url=req.url,
+            max_pages=req.max_pages,
+            extractor=resolve_website_profile_extractor(settings),
+        )
+    except WebsiteImportError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/api/company/resync-evidence")
@@ -53,8 +76,9 @@ def resync_company_evidence() -> dict[str, Any]:
     upsert can bypass RLS on `evidence_items`.
     """
     settings = load_settings()
-    from supabase import create_client  # noqa: PLC0415
     from uuid import UUID  # noqa: PLC0415
+
+    from supabase import create_client  # noqa: PLC0415
 
     client = create_client(settings.supabase_url, settings.supabase_service_role_key)
 

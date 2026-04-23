@@ -64,6 +64,21 @@ export interface RiskRow {
   mitigation: string;
 }
 
+export interface CompanyWebsiteFieldSource {
+  page_url: string;
+  excerpt: string;
+  source_label: string;
+}
+
+export interface CompanyWebsiteImportRecord {
+  source_url: string;
+  imported_at: string;
+  pages: Array<{ url: string; title?: string | null; text_excerpt?: string }>;
+  profile_patch: Record<string, unknown>;
+  field_sources: Record<string, CompanyWebsiteFieldSource>;
+  warnings: string[];
+}
+
 export interface JudgeOutput {
   verdict: Verdict;
   confidence: number;
@@ -185,6 +200,7 @@ export interface Company {
     winRatePct: number;
     avgContractMSEK: number;
   };
+  websiteImports?: CompanyWebsiteImportRecord[];
 }
 
 export const company: Company = {

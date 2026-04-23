@@ -123,6 +123,14 @@ def build_company_profile_evidence_items(
             company_profile=company_profile,
         )
     )
+    evidence_items.extend(
+        _build_website_import_evidence(
+            tenant_key=tenant_key,
+            company_id=company_id,
+            profile_label=profile_label,
+            company_profile=company_profile,
+        )
+    )
 
     return evidence_items
 
@@ -602,6 +610,240 @@ def _build_economics_evidence(
         )
 
     return evidence_items
+
+
+def _build_website_import_evidence(
+    *,
+    tenant_key: str,
+    company_id: UUID,
+    profile_label: str,
+    company_profile: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    imports = _mapping_sequence(
+        _nested_mapping(company_profile, "profile_details").get("website_imports", [])
+    )
+    evidence_items: list[dict[str, Any]] = []
+
+    for index, website_import in enumerate(imports):
+        source_url = str(website_import.get("source_url", "")).strip()
+        if not source_url:
+            continue
+        source_label = f"website:{source_url}"
+        imported_at = str(website_import.get("imported_at", "")).strip()
+        profile_patch = _nested_mapping(website_import, "profile_patch")
+
+        description = str(profile_patch.get("description", "")).strip()
+        if description:
+            evidence_items.append(
+                _website_import_payload(
+                    tenant_key=tenant_key,
+                    company_id=company_id,
+                    profile_label=profile_label,
+                    import_index=index,
+                    source_url=source_url,
+                    imported_at=imported_at,
+                    field_name="description",
+                    category="profile_summary",
+                    field_path=(
+                        f"profile_details.website_imports[{index}]."
+                        "profile_patch.description"
+                    ),
+                    excerpt=description,
+                    normalized_meaning=(
+                        "The imported website profile describes the company as: "
+                        f"{description}"
+                    ),
+                    source_label=source_label,
+                    website_import=website_import,
+                    confidence=0.78,
+                )
+            )
+
+        capabilities = _string_sequence(profile_patch.get("capabilities", []))
+        if capabilities:
+            values_text = ", ".join(capabilities)
+            evidence_items.append(
+                _website_import_payload(
+                    tenant_key=tenant_key,
+                    company_id=company_id,
+                    profile_label=profile_label,
+                    import_index=index,
+                    source_url=source_url,
+                    imported_at=imported_at,
+                    field_name="capabilities",
+                    category="capability",
+                    field_path=(
+                        f"profile_details.website_imports[{index}]."
+                        "profile_patch.capabilities"
+                    ),
+                    excerpt=f"Website-imported capabilities: {values_text}.",
+                    normalized_meaning=(
+                        "The imported website profile lists company capabilities: "
+                        f"{values_text}."
+                    ),
+                    source_label=source_label,
+                    website_import=website_import,
+                    confidence=0.78,
+                    metadata={"values": capabilities},
+                )
+            )
+
+        for cert_index, certification in enumerate(
+            _mapping_sequence(profile_patch.get("certifications", []))
+        ):
+            name = str(certification.get("name", "")).strip()
+            if not name:
+                continue
+            issuer = str(certification.get("issuer", "")).strip()
+            status = str(certification.get("validUntil", "")).strip()
+            evidence_items.append(
+                _website_import_payload(
+                    tenant_key=tenant_key,
+                    company_id=company_id,
+                    profile_label=profile_label,
+                    import_index=index,
+                    source_url=source_url,
+                    imported_at=imported_at,
+                    field_name="certifications",
+                    category="certification",
+                    field_path=(
+                        f"profile_details.website_imports[{index}]."
+                        f"profile_patch.certifications[{cert_index}]"
+                    ),
+                    excerpt=(
+                        f"Website-imported certification: {name}; "
+                        f"issuer {issuer}; status {status}."
+                    ),
+                    normalized_meaning=(
+                        f"The imported website profile lists {name} certification."
+                    ),
+                    source_label=source_label,
+                    website_import=website_import,
+                    confidence=0.76,
+                    metadata={
+                        "certification_name": name,
+                        "issuer": issuer,
+                        "status": status,
+                    },
+                )
+            )
+
+        for reference_index, reference in enumerate(
+            _mapping_sequence(profile_patch.get("references", []))
+        ):
+            client = str(reference.get("client", "")).strip()
+            scope = str(reference.get("scope", "")).strip()
+            if not client and not scope:
+                continue
+            evidence_items.append(
+                _website_import_payload(
+                    tenant_key=tenant_key,
+                    company_id=company_id,
+                    profile_label=profile_label,
+                    import_index=index,
+                    source_url=source_url,
+                    imported_at=imported_at,
+                    field_name="references",
+                    category="reference",
+                    field_path=(
+                        f"profile_details.website_imports[{index}]."
+                        f"profile_patch.references[{reference_index}]"
+                    ),
+                    excerpt=f"Website-imported reference: {client}: {scope}.",
+                    normalized_meaning=(
+                        f"The imported website profile lists {client} as a reference."
+                    ),
+                    source_label=source_label,
+                    website_import=website_import,
+                    confidence=0.74,
+                    metadata={"client": client, "scope": scope},
+                )
+            )
+
+        for security_index, security_item in enumerate(
+            _mapping_sequence(profile_patch.get("securityPosture", []))
+        ):
+            item = str(security_item.get("item", "")).strip()
+            status = str(security_item.get("status", "")).strip()
+            note = str(security_item.get("note", "")).strip()
+            if not item:
+                continue
+            evidence_items.append(
+                _website_import_payload(
+                    tenant_key=tenant_key,
+                    company_id=company_id,
+                    profile_label=profile_label,
+                    import_index=index,
+                    source_url=source_url,
+                    imported_at=imported_at,
+                    field_name="securityPosture",
+                    category="security",
+                    field_path=(
+                        f"profile_details.website_imports[{index}]."
+                        f"profile_patch.securityPosture[{security_index}]"
+                    ),
+                    excerpt=(
+                        f"Website-imported security posture: {item}; "
+                        f"{status}; {note}."
+                    ),
+                    normalized_meaning=(
+                        f"The imported website profile lists {item} as {status}."
+                    ),
+                    source_label=source_label,
+                    website_import=website_import,
+                    confidence=0.74,
+                    metadata={"item": item, "status": status, "note": note},
+                )
+            )
+
+    return evidence_items
+
+
+def _website_import_payload(
+    *,
+    tenant_key: str,
+    company_id: UUID,
+    profile_label: str,
+    import_index: int,
+    source_url: str,
+    imported_at: str,
+    field_name: str,
+    category: str,
+    field_path: str,
+    excerpt: str,
+    normalized_meaning: str,
+    source_label: str,
+    website_import: Mapping[str, Any],
+    confidence: float,
+    metadata: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    field_source = _nested_mapping(website_import, "field_sources", field_name)
+    source_excerpt = str(field_source.get("excerpt", "")).strip()
+    page_url = str(field_source.get("page_url", "")).strip()
+    item_source_label = str(field_source.get("source_label") or source_label)
+    payload = _company_evidence_payload(
+        tenant_key=tenant_key,
+        company_id=company_id,
+        profile_label=profile_label,
+        fact_key=f"website-import-{import_index}-{field_name}-{source_url}",
+        field_path=field_path,
+        category=category,
+        excerpt=(
+            f"{excerpt} Source excerpt: {source_excerpt}"
+            if source_excerpt
+            else excerpt
+        ),
+        normalized_meaning=normalized_meaning,
+        source_label=item_source_label,
+        confidence=confidence,
+        metadata={
+            "source_url": source_url,
+            "page_url": page_url,
+            "imported_at": imported_at,
+            **dict(metadata or {}),
+        },
+    )
+    return payload
 
 
 def _company_evidence_payload(
