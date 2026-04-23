@@ -23,7 +23,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { BidRecommendation } from "@/components/BidRecommendation";
 import { fetchCompareRows } from "@/lib/api";
 import { buildBidDraftPath } from "@/lib/bidIntegrationMapping";
-import { verdictLabel, type Verdict } from "@/data/mock";
+import { humanizeVerdictText, verdictLabel, type Verdict } from "@/data/mock";
 import {
   ArrowRight,
   BookOpen,
@@ -200,7 +200,7 @@ export default function Compare() {
                         <div className={cn("flex h-8 w-8 items-center justify-center rounded-md bg-card", verdictTone[v])}>
                           <Icon className="h-4 w-4" />
                         </div>
-                        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        <span className="text-xs font-semibold text-muted-foreground">
                           {verdictLabel[v]}
                         </span>
                       </div>
@@ -322,7 +322,7 @@ export default function Compare() {
                           </TableCell>
                           <TableCell className="align-top">
                             <span className={cn(
-                              "inline-flex max-w-full items-center rounded-sm border px-1.5 py-1 text-[10px] font-semibold uppercase leading-none tracking-wide whitespace-nowrap",
+                              "inline-flex max-w-full items-center rounded-sm border px-1.5 py-1 text-[10px] font-semibold leading-none whitespace-nowrap",
                               compactVerdictClass[p.verdict],
                             )}>
                               {compactVerdictLabel[p.verdict]}
@@ -349,7 +349,7 @@ export default function Compare() {
                             <div className="flex gap-2">
                               <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                               <p className="line-clamp-3 text-sm leading-relaxed text-foreground">
-                                {p.topReason}
+                                {humanizeVerdictText(p.topReason)}
                               </p>
                             </div>
                           </TableCell>

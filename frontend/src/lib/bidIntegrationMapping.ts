@@ -20,6 +20,8 @@ export interface RawAgentRun {
   status?: string;
   started_at?: string | null;
   completed_at?: string | null;
+  archived_at?: string | null;
+  archived_reason?: string | null;
   tenders?: RawTender | RawTender[] | null;
   bid_decisions?: RawDecisionRow[] | RawDecisionRow | null;
 }
@@ -107,6 +109,7 @@ export function mapDecisionRow(
 ): DecisionSummary | null {
   const run = firstObject(row.agent_runs);
   if (!run) return null;
+  if (run.archived_at) return null;
   const tender = firstObject(run.tenders);
   const verdict = normalizeVerdict(row.verdict);
   if (!verdict) return null;
@@ -191,6 +194,7 @@ function mapLinkedDecision(
   tender: RawTender | null,
 ): DecisionSummary | undefined {
   if (!run) return undefined;
+  if (run.archived_at) return undefined;
   const rawDecision = firstObject(run.bid_decisions);
   if (!rawDecision) return undefined;
   return mapDecisionRow({

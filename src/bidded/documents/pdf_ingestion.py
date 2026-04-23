@@ -14,6 +14,7 @@ from bidded.documents.chunk_embeddings import (
     DocumentChunkEmbeddingResult,
     populate_document_chunk_embeddings,
 )
+from bidded.evidence.company_kb import ensure_company_kb_evidence_items_for_document
 from bidded.evidence.tender_document import (
     TenderEvidenceUpsertResult,
     build_tender_evidence_candidates,
@@ -207,6 +208,112 @@ def ingest_tender_pdf_document(
         raise
 
 
+def ingest_company_kb_pdf_document(
+    client: SupabasePdfIngestionClient,
+    *,
+    document_id: UUID | str,
+    bucket_name: str,
+    max_chunk_chars: int = DEFAULT_MAX_CHUNK_CHARS,
+    embedding_adapter: ChunkEmbeddingAdapter | None = None,
+    require_embeddings: bool = False,
+) -> PdfIngestionResult:
+    """Parse a registered company KB text-PDF and persist company evidence."""
+
+    normalized_document_id = _normalize_uuid(document_id, "document_id")
+    if max_chunk_chars <= 0:
+        raise PdfIngestionError("max_chunk_chars must be greater than zero.")
+
+    document_row = _fetch_company_kb_document(client, normalized_document_id)
+    source_metadata = _source_metadata(document_row, normalized_document_id)
+
+    try:
+        _ensure_text_pdf_document(document_row)
+        _update_document_parse_status(
+            client,
+            document_id=normalized_document_id,
+            parse_status="parsing",
+            metadata={
+                **source_metadata,
+                "parser": {
+                    "status": "parsing",
+                    "parser": "pymupdf",
+                    "non_goals": ["ocr", "docx"],
+                },
+            },
+        )
+        pdf_bytes = _download_document_bytes(
+            client,
+            bucket_name=bucket_name,
+            storage_path=str(document_row["storage_path"]),
+        )
+        pages = _extract_pdf_pages(pdf_bytes)
+        chunks = build_document_chunks(
+            document_id=normalized_document_id,
+            pages=pages,
+            source_metadata=source_metadata,
+            max_chunk_chars=max_chunk_chars,
+        )
+        if not chunks:
+            raise PdfIngestionError(
+                "No extractable text found in PDF. Text-based PDFs are required; "
+                "OCR is a non-goal for Bidded v1."
+            )
+
+        _replace_document_chunks(client, normalized_document_id, chunks)
+        embedding_result = _populate_chunk_embeddings(
+            client,
+            document_id=normalized_document_id,
+            embedding_adapter=embedding_adapter,
+            require_embeddings=require_embeddings,
+        )
+        ensure_company_kb_evidence_items_for_document(
+            client,
+            document_id=normalized_document_id,
+        )
+        parsed_metadata: dict[str, Any] = {
+            **source_metadata,
+            "parser": {
+                "status": "parsed",
+                "parser": "pymupdf",
+                "page_count": len(pages),
+                "chunk_count": len(chunks),
+                "chunking_strategy": CHUNKING_STRATEGY,
+                "non_goals": ["ocr", "docx"],
+            },
+        }
+        if embedding_result is not None:
+            parsed_metadata["embedding"] = embedding_result.parser_metadata()
+        _update_document_parse_status(
+            client,
+            document_id=normalized_document_id,
+            parse_status="parsed",
+            metadata=parsed_metadata,
+        )
+        return PdfIngestionResult(
+            document_id=normalized_document_id,
+            page_count=len(pages),
+            chunk_count=len(chunks),
+            chunks=chunks,
+            embedding_result=embedding_result,
+        )
+    except PdfIngestionError as exc:
+        _update_document_parse_status(
+            client,
+            document_id=normalized_document_id,
+            parse_status="parser_failed",
+            metadata={
+                **source_metadata,
+                "parser": {
+                    "status": "parser_failed",
+                    "parser": "pymupdf",
+                    "error_message": str(exc),
+                    "non_goals": ["ocr", "docx"],
+                },
+            },
+        )
+        raise
+
+
 def _populate_chunk_embeddings(
     client: SupabasePdfIngestionClient,
     *,
@@ -298,11 +405,33 @@ def _fetch_tender_document(
     client: SupabasePdfIngestionClient,
     document_id: UUID,
 ) -> dict[str, Any]:
+    row = _fetch_registered_pdf_document(client, document_id)
+    if row.get("document_role") != "tender_document":
+        raise PdfIngestionError(f"Document is not a tender_document: {document_id}")
+    return row
+
+
+def _fetch_company_kb_document(
+    client: SupabasePdfIngestionClient,
+    document_id: UUID,
+) -> dict[str, Any]:
+    row = _fetch_registered_pdf_document(client, document_id)
+    if row.get("document_role") != "company_profile":
+        raise PdfIngestionError(
+            f"Document is not a company_profile document: {document_id}"
+        )
+    return row
+
+
+def _fetch_registered_pdf_document(
+    client: SupabasePdfIngestionClient,
+    document_id: UUID,
+) -> dict[str, Any]:
     response = (
         client.table("documents")
         .select(
-            "id,tenant_key,storage_path,content_type,document_role,"
-            "parse_status,original_filename,metadata"
+            "id,tenant_key,tender_id,company_id,storage_path,content_type,"
+            "document_role,parse_status,original_filename,metadata,checksum_sha256"
         )
         .eq("id", str(document_id))
         .eq("tenant_key", DEMO_TENANT_KEY)
@@ -310,12 +439,9 @@ def _fetch_tender_document(
     )
     data = getattr(response, "data", None)
     if isinstance(data, list) and data and isinstance(data[0], Mapping):
-        row = dict(data[0])
-        if row.get("document_role") != "tender_document":
-            raise PdfIngestionError(f"Document is not a tender_document: {document_id}")
-        return row
+        return dict(data[0])
 
-    raise PdfIngestionError(f"Tender document does not exist: {document_id}")
+    raise PdfIngestionError(f"PDF document does not exist: {document_id}")
 
 
 def _ensure_text_pdf_document(document_row: Mapping[str, Any]) -> None:
