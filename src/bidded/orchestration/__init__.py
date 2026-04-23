@@ -14,6 +14,15 @@ from bidded.orchestration.contract_clause_audit import (
     ContractClauseCoverageWarning,
     audit_contract_clause_coverage,
 )
+from bidded.orchestration.decision_evidence_audit import (
+    DecisionAuditClaim,
+    DecisionAuditEdge,
+    DecisionAuditEvidence,
+    DecisionAuditFinding,
+    DecisionEvidenceAudit,
+    DecisionEvidenceGraph,
+    audit_decision_evidence,
+)
 from bidded.orchestration.decision_export import (
     DecisionExportError,
     DecisionExportResult,
@@ -146,6 +155,12 @@ __all__ = [
     "BidResponseDraftError",
     "DecisionExportError",
     "DecisionExportResult",
+    "DecisionAuditClaim",
+    "DecisionAuditEdge",
+    "DecisionAuditEvidence",
+    "DecisionAuditFinding",
+    "DecisionEvidenceAudit",
+    "DecisionEvidenceGraph",
     "DocumentChunkState",
     "ContractClauseCoverageWarning",
     "EvidenceRecallWarning",
@@ -212,6 +227,7 @@ __all__ = [
     "build_bidded_graph_shell",
     "build_bid_run_state_from_supabase",
     "build_decision_persistence_handler",
+    "audit_decision_evidence",
     "audit_evidence_recall",
     "audit_contract_clause_coverage",
     "build_judge_decision_request",
