@@ -1,5 +1,7 @@
-import { Link, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,9 +28,11 @@ import { EvidenceBadge } from "@/components/EvidenceBadge";
 import { AgentMotionCard } from "@/components/AgentMotionCard";
 import { JudgeVerdictSummary } from "@/components/JudgeVerdictSummary";
 import { PipelineStep, type StepState } from "@/components/PipelineStep";
-import { fetchRunDetail } from "@/lib/api";
+import { archiveAgentRun, fetchRunDetail } from "@/lib/api";
+import { usePermissions } from "@/lib/auth";
 import { humanizeVerdictText, runDisplayId, type EvidenceCategory } from "@/data/mock";
 import {
+  Archive,
   ArrowLeft,
   Download,
   RefreshCw,
@@ -64,14 +68,23 @@ const severityToneMap = {
 
 export default function RunDetail() {
   const { id = "" } = useParams();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const permissions = usePermissions();
+  const [isArchiving, setIsArchiving] = useState(false);
 
   const { data: run, isLoading } = useQuery({
     queryKey: ["run-detail", id],
     queryFn: () => fetchRunDetail(id),
     enabled: !!id,
     refetchInterval: (query) => {
-      const status = query.state.data?.status;
-      return status === "running" || status === "pending" ? 5_000 : false;
+      const run = query.state.data;
+      const status = run?.status;
+      const shouldRefetch =
+        !run?.isArchived &&
+        !run?.isStale &&
+        (status === "running" || status === "pending");
+      return shouldRefetch ? 5_000 : false;
     },
   });
 
@@ -100,10 +113,13 @@ export default function RunDetail() {
   const currentStep = stageRank[run.stage] ?? 1;
 
   const stepStates = (function (): Record<1 | 2 | 3 | 4, StepState> {
+    if (run.isArchived) {
+      return { 1: "pending", 2: "pending", 3: "pending", 4: "pending" };
+    }
     if (run.status === "succeeded") {
       return { 1: "completed", 2: "completed", 3: "completed", 4: "completed" };
     }
-    if (run.status === "running") {
+    if (run.status === "running" && !run.isStale) {
       const s: Record<1 | 2 | 3 | 4, StepState> = {
         1: "pending", 2: "pending", 3: "pending", 4: "pending",
       };
@@ -112,7 +128,7 @@ export default function RunDetail() {
       s[currentStep] = "running";
       return s;
     }
-    if (run.status === "failed") {
+    if (run.status === "failed" || run.isStale) {
       const s: Record<1 | 2 | 3 | 4, StepState> = {
         1: "pending", 2: "pending", 3: "pending", 4: "pending",
       };
@@ -131,6 +147,31 @@ export default function RunDetail() {
     cat,
     items: run.evidence.filter((e) => e.category === cat),
   }));
+
+  async function handleArchiveRun() {
+    if (!permissions.canDeleteRuns) return;
+    setIsArchiving(true);
+    try {
+      await archiveAgentRun(run.id, "operator archived run from detail view");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["active-runs"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] }),
+        queryClient.invalidateQueries({ queryKey: ["decisions"] }),
+        queryClient.invalidateQueries({ queryKey: ["procurements"] }),
+        queryClient.invalidateQueries({ queryKey: ["compare-rows"] }),
+        queryClient.invalidateQueries({ queryKey: ["bids"] }),
+        queryClient.invalidateQueries({ queryKey: ["run-detail", run.id] }),
+      ]);
+      toast.success("Run archived");
+      navigate("/procurements");
+    } catch (err) {
+      toast.error("Archive failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setIsArchiving(false);
+    }
+  }
 
   return (
     <>
@@ -159,21 +200,37 @@ export default function RunDetail() {
         }
       />
 
-      {run.status === "failed" && (
+      {(run.status === "failed" || run.isStale) && (
         <Card className="mb-4 border-danger/40 bg-danger/5">
           <CardContent className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-2 text-sm">
               <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
               <div>
-                <p className="font-medium text-danger">Run failed at: {run.stage}</p>
+                <p className="font-medium text-danger">
+                  {run.isStale ? "Run stalled at" : "Run failed at"}: {run.stage}
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  The orchestrator stopped before a decision could be reached. Review inputs and re-run.
+                  {run.isStale
+                    ? "The worker is no longer updating this run. Archive it or start a fresh run."
+                    : "The orchestrator stopped before a decision could be reached. Review inputs and re-run."}
                 </p>
               </div>
             </div>
-            <Button variant="outline" size="sm" className="shrink-0">
-              <RefreshCw className="h-3 w-3" /> Re-run
-            </Button>
+            <div className="flex shrink-0 gap-2">
+              {permissions.canDeleteRuns && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleArchiveRun}
+                  disabled={isArchiving}
+                >
+                  <Archive className="h-3 w-3" /> Archive
+                </Button>
+              )}
+              <Button variant="outline" size="sm">
+                <RefreshCw className="h-3 w-3" /> Re-run
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}

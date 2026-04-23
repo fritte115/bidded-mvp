@@ -24,6 +24,7 @@ from bidded.orchestration import (
     create_pending_run_context,
     run_worker_once,
 )
+from bidded.orchestration.run_controls import RunControlError, archive_agent_run
 from bidded.retrieval import RetrievalError
 
 app = FastAPI(title="Bidded Agent API")
@@ -37,6 +38,10 @@ app.add_middleware(
 
 class StartRunRequest(BaseModel):
     tender_id: str
+
+
+class ArchiveRunRequest(BaseModel):
+    reason: str = "operator archived run"
 
 
 DEMO_ORGANIZATION_ID = "00000000-0000-4000-8000-000000000001"
@@ -248,6 +253,50 @@ def start_run(
     threading.Thread(target=_run_worker, daemon=True).start()
 
     return {"run_id": run_id}
+
+
+@app.post("/api/runs/{run_id}/archive")
+def archive_run(
+    run_id: str,
+    req: ArchiveRunRequest,
+    user: AuthenticatedUser = AUTHENTICATED_USER,
+) -> dict[str, Any]:
+    settings = load_settings()
+    from supabase import create_client  # noqa: PLC0415
+
+    client = create_client(settings.supabase_url, settings.supabase_service_role_key)
+    require_agent_run_admin(client, user, run_id)
+    try:
+        result = archive_agent_run(
+            client,
+            run_id=run_id,
+            reason=req.reason,
+        )
+    except RunControlError as exc:
+        status_code = 404 if "does not exist" in str(exc) else 422
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    return {
+        "run_id": str(result.run_id),
+        "archived_at": result.archived_at,
+        "already_archived": result.already_archived,
+    }
+
+
+def require_agent_run_admin(
+    client: Any,
+    user: AuthenticatedUser,
+    run_id: str,
+) -> str:
+    organization_id = _organization_id_for_row(client, "agent_runs", run_id)
+    _require_org_role(
+        client,
+        user,
+        organization_id,
+        allowed_roles={"admin"},
+        action="archive agent runs",
+    )
+    return organization_id
 
 
 def require_tender_member(

@@ -54,6 +54,9 @@ class FakeSupabaseClient:
             "tenders": [
                 {"id": TENDER_ID, "tenant_key": "demo", "organization_id": ORG_ID}
             ],
+            "agent_runs": [
+                {"id": RUN_ID, "tenant_key": "demo", "organization_id": ORG_ID}
+            ],
             "profiles": [
                 {"user_id": USER_ID, "global_role": None},
                 {"user_id": SUPERADMIN_ID, "global_role": "superadmin"},
@@ -189,6 +192,63 @@ def test_start_run_parses_pending_documents_and_starts_worker(
         "document_ids": [DOCUMENT_ID_1, DOCUMENT_ID_2],
     }
     assert captured["workers"] == [(client, RUN_ID, print, {"graph": "handlers"})]
+
+
+def test_archive_run_endpoint_uses_service_role_archive_control(
+    monkeypatch: Any,
+) -> None:
+    client = FakeSupabaseClient()
+    settings = SimpleNamespace(
+        supabase_url="https://example.supabase.co",
+        supabase_service_role_key="service-role",
+    )
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(api_server, "load_settings", lambda: settings)
+    monkeypatch.setitem(
+        sys.modules,
+        "supabase",
+        SimpleNamespace(create_client=lambda _url, _key: client),
+    )
+
+    def record_archive(
+        supabase_client: object,
+        *,
+        run_id: str,
+        reason: str,
+    ) -> SimpleNamespace:
+        captured["client"] = supabase_client
+        captured["run_id"] = run_id
+        captured["reason"] = reason
+        return SimpleNamespace(
+            run_id=RUN_ID,
+            archived_at="2026-04-19T10:30:00+00:00",
+            already_archived=False,
+        )
+
+    monkeypatch.setattr(api_server, "archive_agent_run", record_archive)
+    monkeypatch.setattr(
+        api_server,
+        "require_agent_run_admin",
+        lambda *_args, **_kwargs: "00000000-0000-4000-8000-000000000001",
+    )
+
+    result = api_server.archive_run(
+        RUN_ID,
+        api_server.ArchiveRunRequest(reason="clear stale run"),
+        user=AuthenticatedUser(user_id=USER_ID, email="user@example.com"),
+    )
+
+    assert result == {
+        "run_id": RUN_ID,
+        "archived_at": "2026-04-19T10:30:00+00:00",
+        "already_archived": False,
+    }
+    assert captured == {
+        "client": client,
+        "run_id": RUN_ID,
+        "reason": "clear stale run",
+    }
 
 
 def test_start_run_requires_bearer_token() -> None:
