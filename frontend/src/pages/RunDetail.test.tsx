@@ -55,6 +55,8 @@ describe("RunDetail", () => {
     renderRunDetail();
 
     expect(await screen.findByText("City CRM Procurement")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^Run \d+$/i })).toBeInTheDocument();
+    expect(screen.queryByText(/run-123/i)).not.toBeInTheDocument();
     expect(screen.queryByText("Run metadata")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Evidence Board/i })).toHaveAttribute(
       "href",

@@ -18,6 +18,7 @@ import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { usePermissions } from "@/lib/auth";
 import { fetchCompany, updateCompany } from "@/lib/api";
 import type { Company as CompanyType } from "@/data/mock";
 import {
@@ -49,6 +50,7 @@ const COMPLETENESS_FIELDS: {
 
 export default function CompanyProfile() {
   const queryClient = useQueryClient();
+  const permissions = usePermissions();
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["company"],
     queryFn: fetchCompany,
@@ -111,6 +113,12 @@ export default function CompanyProfile() {
 
   async function save() {
     if (!draft || !data) return;
+    if (!permissions.canManageCompany) {
+      toast.error("Admin access required", {
+        description: "Only admins can edit the company profile.",
+      });
+      return;
+    }
     setSaving(true);
     try {
       await updateCompany(draft, data.raw);
@@ -168,9 +176,11 @@ export default function CompanyProfile() {
             <Button variant="outline" size="sm">
               <Download className="h-4 w-4" /> Export PDF
             </Button>
-            <Button variant="default" size="sm" onClick={openEditor}>
-              <Pencil className="h-4 w-4" /> Edit Profile
-            </Button>
+            {permissions.canManageCompany && (
+              <Button variant="default" size="sm" onClick={openEditor}>
+                <Pencil className="h-4 w-4" /> Edit Profile
+              </Button>
+            )}
           </div>
         }
       />

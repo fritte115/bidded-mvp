@@ -2,6 +2,9 @@
 
 Keep `AGENTS.md` and `CLAUDE.md` identical so Codex, Claude, and Ralph follow the same workflow.
 
+## Top Priority
+- Commit and push every completed, verifiable change after the relevant checks pass. Keep each commit scoped, and push the branch before moving on when network access is available.
+
 ## Why
 Bidded is a hackathon-scoped agent core for bid/no-bid decisions in Swedish public procurement. It ingests a user-provided English text-PDF, compares requirements against a seeded IT consultancy profile, builds a shared evidence board, runs a traceable multi-agent review, and persists `bid`, `no_bid`, or `conditional_bid`.
 

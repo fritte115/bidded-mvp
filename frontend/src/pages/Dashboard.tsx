@@ -16,13 +16,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatDate, formatDuration } from "@/data/mock";
+import {
+  formatDate,
+  formatDuration,
+  humanizeVerdictText,
+  runDisplayId,
+} from "@/data/mock";
 import {
   fetchDashboardStats,
   fetchActiveRuns,
   fetchDecisions,
   deleteAgentRun,
 } from "@/lib/api";
+import { usePermissions } from "@/lib/auth";
 import {
   FileText,
   Files,
@@ -35,12 +41,9 @@ import {
   Target,
 } from "lucide-react";
 
-function shortRunId(id: string): string {
-  return `RUN-${id.replace(/-/g, "").slice(0, 4).toUpperCase()}`;
-}
-
 export default function Dashboard() {
   const queryClient = useQueryClient();
+  const permissions = usePermissions();
 
   const { data: stats } = useQuery({
     queryKey: ["dashboard-stats"],
@@ -71,6 +74,7 @@ export default function Dashboard() {
   const recentDecisions = decisions.slice(0, 3);
 
   async function handleDelete(id: string) {
+    if (!permissions.canDeleteRuns) return;
     setDeleting((prev) => new Set(prev).add(id));
     try {
       await deleteAgentRun(id);
@@ -184,7 +188,7 @@ export default function Dashboard() {
                           className={isDeleting ? "opacity-40 transition-opacity duration-300" : ""}
                         >
                           <TableCell className="text-sm font-medium">
-                            {shortRunId(r.id)}
+                            {runDisplayId(r.id)}
                           </TableCell>
                           <TableCell>
                             <Link
@@ -211,7 +215,7 @@ export default function Dashboard() {
                               <Button asChild variant="ghost" size="sm" className="h-8">
                                 <Link to={`/runs/${r.id}`}>View</Link>
                               </Button>
-                              {isTerminal && (
+                              {permissions.canDeleteRuns && isTerminal && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -266,7 +270,9 @@ export default function Dashboard() {
                     <VerdictBadge verdict={r.verdict} />
                   </div>
                   <ConfidenceBar value={r.confidence} className="mb-3" />
-                  <p className="line-clamp-2 text-xs text-muted-foreground">{r.citedMemo}</p>
+                  <p className="line-clamp-2 text-xs text-muted-foreground">
+                    {humanizeVerdictText(r.citedMemo)}
+                  </p>
                   <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
                     <span>{formatDate(r.completedAt ?? r.startedAt)}</span>
                     <span className="font-mono">{r.confidence}% confidence</span>
