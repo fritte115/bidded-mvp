@@ -15,6 +15,7 @@ import {
   Clock,
   FileText,
   Pencil,
+  Trash2,
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
@@ -35,6 +36,7 @@ interface Props {
   bid: Bid;
   onMove: (id: string, status: BidStatus) => void;
   onEdit?: (id: string) => void;
+  onDelete?: (id: string, name: string) => void;
   canManage?: boolean;
 }
 
@@ -75,7 +77,7 @@ function relativeDeadline(d: Date): { label: string; tone: string } {
   return { label: `in ${days}d`, tone: "text-muted-foreground" };
 }
 
-export function BidCard({ bid, onMove, onEdit, canManage = true }: Props) {
+export function BidCard({ bid, onMove, onEdit, onDelete, canManage = true }: Props) {
   const { data: companyData } = useQuery({
     queryKey: ["company"],
     queryFn: fetchCompany,
@@ -208,6 +210,17 @@ export function BidCard({ bid, onMove, onEdit, canManage = true }: Props) {
               aria-label="Edit bid"
             >
               <Pencil className="h-3.5 w-3.5" />
+            </Button>
+          )}
+          {canManage && onDelete && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+              onClick={() => onDelete(bid.id, bid.procurementName)}
+              aria-label="Delete bid"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
             </Button>
           )}
           {bid.runId && (

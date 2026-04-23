@@ -29,13 +29,14 @@ import { CitationSourceSheet } from "@/components/CitationSourceSheet";
 import { AgentMotionCard } from "@/components/AgentMotionCard";
 import { JudgeVerdictSummary } from "@/components/JudgeVerdictSummary";
 import { PipelineStep, type StepState } from "@/components/PipelineStep";
-import { archiveAgentRun, fetchRunDetail } from "@/lib/api";
+import { archiveAgentRun, downloadBidDocument, fetchRunDetail } from "@/lib/api";
 import { usePermissions } from "@/lib/auth";
 import { humanizeVerdictText, runDisplayId, type EvidenceCategory } from "@/data/mock";
 import {
   Archive,
   ArrowLeft,
   Download,
+  Loader2,
   RefreshCw,
   ChevronDown,
   FileSearch,
@@ -74,6 +75,7 @@ export default function RunDetail() {
   const queryClient = useQueryClient();
   const permissions = usePermissions();
   const [isArchiving, setIsArchiving] = useState(false);
+  const [isGeneratingDoc, setIsGeneratingDoc] = useState(false);
 
   const { data: run, isLoading } = useQuery({
     queryKey: ["run-detail", id],
@@ -186,6 +188,26 @@ export default function RunDetail() {
     }
   }
 
+  async function handleGenerateBidDocument() {
+    setIsGeneratingDoc(true);
+    try {
+      const blob = await downloadBidDocument(run.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `bid-response-${run.id.slice(0, 8)}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Bid document downloaded");
+    } catch (err) {
+      toast.error("Failed to generate document", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setIsGeneratingDoc(false);
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -204,6 +226,22 @@ export default function RunDetail() {
             <Button variant="outline">
               <Download className="h-4 w-4" /> Export
             </Button>
+            {run.judge &&
+              (run.judge.verdict === "bid" ||
+                run.judge.verdict === "conditional_bid") && (
+                <Button
+                  variant="outline"
+                  onClick={handleGenerateBidDocument}
+                  disabled={isGeneratingDoc}
+                >
+                  {isGeneratingDoc ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}{" "}
+                  Bid Document
+                </Button>
+              )}
             <Button asChild variant="outline">
               <Link to="/procurements">
                 <ArrowLeft className="h-4 w-4" /> Back to procurements

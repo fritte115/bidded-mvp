@@ -24,7 +24,16 @@ def authenticate_supabase_jwt(
     *,
     settings: Any | None = None,
 ) -> AuthenticatedUser:
-    """Validate a Supabase HS256 access token and return the caller identity."""
+    """Validate a Supabase access token and return the caller identity.
+
+    Primary path: HS256 signature verification using SUPABASE_JWT_SECRET.
+
+    Dev fallback (no JWT secret): validates the token against Supabase's
+    /auth/v1/user endpoint using the service-role key. This is still secure —
+    Supabase will reject any token it didn't issue. Add SUPABASE_JWT_SECRET to
+    .env (Settings → API → JWT Secret in the Supabase dashboard) to use the
+    faster local-verification path.
+    """
     if not authorization:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -40,24 +49,73 @@ def authenticate_supabase_jwt(
 
     resolved_settings = settings or load_settings()
     jwt_secret = getattr(resolved_settings, "supabase_jwt_secret", None)
-    if not jwt_secret:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="SUPABASE_JWT_SECRET is required for authenticated API requests.",
+
+    if jwt_secret:
+        payload = _decode_hs256_jwt(token, str(jwt_secret))
+        user_id = payload.get("sub")
+        if not isinstance(user_id, str) or not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Bearer token is missing a subject.",
+            )
+        email = payload.get("email")
+        return AuthenticatedUser(
+            user_id=user_id,
+            email=email if isinstance(email, str) else None,
         )
 
-    payload = _decode_hs256_jwt(token, str(jwt_secret))
-    user_id = payload.get("sub")
+    # Dev fallback: verify via Supabase /auth/v1/user
+    supabase_url = getattr(resolved_settings, "supabase_url", None)
+    service_key = getattr(resolved_settings, "supabase_service_role_key", None)
+
+    if not supabase_url or not service_key:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                "Add SUPABASE_JWT_SECRET to .env (Supabase dashboard → Settings → API → JWT Secret). "
+                "Also ensure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set."
+            ),
+        )
+
+    try:
+        import httpx  # noqa: PLC0415
+
+        resp = httpx.get(
+            f"{supabase_url}/auth/v1/user",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "apikey": service_key,
+            },
+            timeout=8.0,
+        )
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Could not reach Supabase to validate token: {exc}",
+        ) from exc
+
+    if resp.status_code == 401:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Bearer token is invalid or expired.",
+        )
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Token validation failed (Supabase returned {resp.status_code}).",
+        )
+
+    data = resp.json()
+    user_id = data.get("id")
     if not isinstance(user_id, str) or not user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Bearer token is missing a subject.",
+            detail="Supabase returned a user without an id.",
         )
 
-    email = payload.get("email")
     return AuthenticatedUser(
         user_id=user_id,
-        email=email if isinstance(email, str) else None,
+        email=data.get("email"),
     )
 
 

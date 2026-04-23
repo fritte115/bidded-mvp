@@ -444,6 +444,173 @@ def start_run(
     return {"run_id": run_id}
 
 
+class EnrichCompanyRequest(BaseModel):
+    organization_number: str
+    company_id: str | None = None
+
+
+@app.post("/api/company/enrich")
+def enrich_company_profile(
+    req: EnrichCompanyRequest,
+    user: AuthenticatedUser = AUTHENTICATED_USER,
+) -> dict[str, Any]:
+    from bidded.bolagsverket import (  # noqa: PLC0415
+        BolagsverketError,
+        fetch_company_data,
+    )
+
+    settings = load_settings()
+    client = _service_role_client(settings)
+    resolved_company_id = req.company_id or _demo_company_id(client)
+    require_company_admin(client, user, resolved_company_id)
+
+    _response_rows(
+        client.table("companies")
+        .update({"organization_number": req.organization_number})
+        .eq("tenant_key", "demo")
+        .eq("id", resolved_company_id)
+        .execute()
+    )
+
+    try:
+        enriched = fetch_company_data(req.organization_number)
+        return {
+            "enriched": True,
+            "requires_credentials": False,
+            "fields_available": [k for k in enriched if k != "raw"],
+            "data": enriched,
+        }
+    except BolagsverketError as exc:
+        requires_creds = "requires_credentials" in str(exc)
+        return {
+            "enriched": False,
+            "requires_credentials": requires_creds,
+            "organization_number_saved": True,
+            "message": str(exc),
+            "fields_that_would_be_filled": [
+                "name",
+                "registration_date",
+                "company_form",
+                "address",
+            ],
+        }
+
+
+class TedFetchRequest(BaseModel):
+    page: int = 1
+    limit: int = 25
+
+
+@app.post("/api/tenders/fetch-from-ted")
+def fetch_tenders_from_ted(
+    req: TedFetchRequest,
+    user: AuthenticatedUser = AUTHENTICATED_USER,
+) -> dict[str, Any]:
+    from bidded.ted_fetch import (  # noqa: PLC0415
+        TedFetchError,
+        fetch_swedish_notices,
+        upsert_notices_to_supabase,
+    )
+
+    settings = load_settings()
+    client = _service_role_client(settings)
+
+    def _do_fetch() -> None:
+        try:
+            notices = fetch_swedish_notices(page=req.page, limit=req.limit)
+            ids = upsert_notices_to_supabase(client, notices)
+            print(f"[ted-fetch] imported {len(ids)} notices (page={req.page})")
+        except TedFetchError as exc:
+            print(f"[ted-fetch] failed: {exc}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[ted-fetch] unexpected error: {exc}")
+
+    threading.Thread(target=_do_fetch, daemon=True).start()
+    return {"status": "fetch_started", "page": req.page, "limit": req.limit}
+
+
+@app.get("/api/tenders/search")
+def search_tenders_ted(page: int = 1, limit: int = 50) -> dict[str, Any]:
+    from bidded.ted_fetch import (  # noqa: PLC0415
+        TedFetchError,
+        fetch_swedish_notices,
+        map_notice_to_explore_shape,
+    )
+
+    try:
+        notices = fetch_swedish_notices(page=page, limit=limit)
+    except TedFetchError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    shaped = [map_notice_to_explore_shape(n) for n in notices]
+    return {"tenders": shaped, "total": len(shaped), "page": page}
+
+
+@app.get("/api/tenders/notice/{pub_number}")
+def get_notice_detail(pub_number: str) -> dict[str, Any]:
+    """Fetch and parse the full eForms XML for a single TED notice.
+
+    Returns enriched fields (description, requirements, award criteria,
+    contract duration, contact info, lots) parsed from the TED XML.
+    Falls back to an empty dict if the notice is unavailable.
+    """
+    from bidded.ted_fetch import fetch_notice_xml, parse_notice_xml  # noqa: PLC0415
+
+    xml_text = fetch_notice_xml(pub_number)
+    if not xml_text:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Notice {pub_number} not found or unavailable on TED.",
+        )
+    parsed = parse_notice_xml(xml_text)
+    return {"publicationNumber": pub_number, **parsed}
+
+
+@app.get("/api/runs/{run_id}/bid-document")
+def get_bid_document(
+    run_id: str,
+    user: AuthenticatedUser = AUTHENTICATED_USER,
+) -> Any:
+    from fastapi.responses import Response as FastAPIResponse  # noqa: PLC0415
+
+    from bidded.bid_document import (  # noqa: PLC0415
+        BidDocumentError,
+        generate_bid_document,
+    )
+
+    settings = load_settings()
+    client = _service_role_client(settings)
+    require_agent_run_admin(client, user, run_id)
+    try:
+        markdown = generate_bid_document(client, run_id=run_id)
+    except BidDocumentError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    filename = f"bid-response-{run_id[:8]}.md"
+    return FastAPIResponse(
+        content=markdown,
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.delete("/api/runs/{run_id}")
+def delete_run(
+    run_id: str,
+    user: AuthenticatedUser = AUTHENTICATED_USER,
+) -> dict[str, bool]:
+    """Permanently delete an agent run and its associated data."""
+    settings = load_settings()
+    from supabase import create_client  # noqa: PLC0415
+
+    client = create_client(settings.supabase_url, settings.supabase_service_role_key)
+    require_agent_run_admin(client, user, run_id)
+    try:
+        client.table("agent_runs").delete().eq("id", run_id).execute()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=422, detail=f"Failed to delete run: {exc}") from exc
+    return {"deleted": True}
+
+
 @app.post("/api/runs/{run_id}/archive")
 def archive_run(
     run_id: str,

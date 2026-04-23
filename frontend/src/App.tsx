@@ -19,6 +19,8 @@ import BidEditor from "./pages/BidEditor";
 import Settings from "./pages/Settings";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound.tsx";
+import ExploreProcurements from "./pages/ExploreProcurements";
+import ExploreTenderDetail from "./pages/ExploreTenderDetail";
 
 const queryClient = new QueryClient();
 
@@ -40,6 +42,8 @@ const App = () => (
             >
               <Route path="/" element={<Dashboard />} />
               <Route path="/procurements" element={<Procurements />} />
+              <Route path="/procurements/explore" element={<ExploreProcurements />} />
+              <Route path="/procurements/explore/:id" element={<ExploreTenderDetail />} />
               <Route path="/procurements/new" element={<RegisterProcurement />} />
               <Route path="/runs/:id" element={<RunDetail />} />
               <Route path="/runs/:id/evidence" element={<EvidenceBoard />} />

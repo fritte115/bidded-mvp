@@ -28,6 +28,7 @@ import {
 import { usePermissions } from "@/lib/auth";
 import {
   deleteCompanyKbDocument,
+  enrichCompanyFromBolagsverket,
   fetchCompany,
   fetchCompanyKbDocuments,
   fetchCompanyKbEvidence,
@@ -105,6 +106,13 @@ export default function CompanyProfile() {
   const [expandedKb, setExpandedKb] = useState<string | null>(null);
   const [kbEvidence, setKbEvidence] = useState<Record<string, CompanyKbEvidenceItem[]>>({});
   const [kbEvidenceLoading, setKbEvidenceLoading] = useState<string | null>(null);
+  const [isEnriching, setIsEnriching] = useState(false);
+  const [enrichResult, setEnrichResult] = useState<{
+    enriched: boolean;
+    requires_credentials: boolean;
+    fields_that_would_be_filled?: string[];
+    message?: string;
+  } | null>(null);
 
   const company = data?.company;
 
@@ -304,6 +312,39 @@ export default function CompanyProfile() {
 
   const latestFinancial = company.financials?.[company.financials.length - 1];
   const firstFinancial = company.financials?.[0];
+
+  async function handleEnrich() {
+    if (!draft?.orgNumber) return;
+    setIsEnriching(true);
+    setEnrichResult(null);
+    try {
+      const result = await enrichCompanyFromBolagsverket(draft.orgNumber);
+      const typed = result as {
+        enriched: boolean;
+        requires_credentials: boolean;
+        fields_that_would_be_filled?: string[];
+        message?: string;
+      };
+      setEnrichResult(typed);
+      if (typed.enriched) {
+        toast.success("Company data enriched from Bolagsverket");
+      } else if (typed.requires_credentials) {
+        toast.info("Bolagsverket requires API credentials", {
+          description: `Organisation number saved. Fields that could be auto-filled with credentials: ${(typed.fields_that_would_be_filled ?? []).join(", ")}.`,
+        });
+      } else {
+        toast.warning("Enrichment unavailable", {
+          description: typed.message,
+        });
+      }
+    } catch (err) {
+      toast.error("Enrichment request failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setIsEnriching(false);
+    }
+  }
 
   return (
     <>
@@ -973,7 +1014,39 @@ export default function CompanyProfile() {
                         />
                       </Field>
                       <Field label="Org. number">
-                        <Input value={draft.orgNumber} onChange={(e) => setDraft({ ...draft, orgNumber: e.target.value })} />
+                        <div className="flex gap-2">
+                          <Input
+                            value={draft.orgNumber}
+                            onChange={(e) =>
+                              setDraft({ ...draft, orgNumber: e.target.value })
+                            }
+                            placeholder="556000-0000"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={handleEnrich}
+                            disabled={isEnriching || !draft.orgNumber}
+                          >
+                            {isEnriching ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              "Enrich"
+                            )}
+                          </Button>
+                        </div>
+                        {enrichResult &&
+                          !enrichResult.enriched &&
+                          enrichResult.fields_that_would_be_filled && (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              With Bolagsverket credentials, these fields could
+                              be auto-filled:{" "}
+                              {enrichResult.fields_that_would_be_filled.join(
+                                ", ",
+                              )}.
+                            </p>
+                          )}
                       </Field>
                       <Field label="VAT number">
                         <Input
