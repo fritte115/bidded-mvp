@@ -395,6 +395,36 @@ def test_ingest_tender_pdf_document_extracts_and_persists_page_chunks() -> None:
     assert client.inserts["evidence_items"]
 
 
+def test_ingest_tender_pdf_document_propagates_procurement_document_role() -> None:
+    client = RecordingSupabaseClient(
+        pdf_bytes=_text_pdf(["Pris per månad ska anges i SEK exklusive moms."]),
+        document_row=_document_row(
+            metadata={
+                "source_label": "Prisbilaga.pdf",
+                "registered_via": "frontend_ui",
+                "procurement_document_role": "pricing_appendix",
+            }
+        ),
+    )
+
+    ingest_tender_pdf_document(
+        client,
+        document_id=DOCUMENT_ID,
+        bucket_name="procurement-fixtures",
+        max_chunk_chars=160,
+    )
+
+    inserted_chunks = client.inserts["document_chunks"][0]
+    inserted_evidence = client.inserts["evidence_items"][0]
+    assert inserted_chunks[0]["metadata"]["procurement_document_role"] == (
+        "pricing_appendix"
+    )
+    assert inserted_evidence[0]["source_metadata"] == {
+        "source_label": "Prisbilaga.pdf",
+        "procurement_document_role": "pricing_appendix",
+    }
+
+
 def test_ingest_tender_pdf_populates_chunk_embeddings_when_configured() -> None:
     adapter = RecordingEmbeddingAdapter()
     client = RecordingSupabaseClient(
