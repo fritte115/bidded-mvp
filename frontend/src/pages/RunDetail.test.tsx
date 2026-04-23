@@ -193,4 +193,29 @@ describe("RunDetail", () => {
     ).toBeInTheDocument();
     expect(within(sidebar).getByText("EVD-404")).toBeInTheDocument();
   });
+
+  it("hides judge disagreement when it repeats the verdict memo", async () => {
+    vi.mocked(fetchRunDetail).mockResolvedValue({
+      ...run,
+      judge: {
+        verdict: "CONDITIONAL_BID",
+        confidence: 82,
+        voteSummary: { BID: 1, NO_BID: 0, CONDITIONAL_BID: 3 },
+        disagreement: "All four agents unanimously recommend CONDITIONAL_BID.",
+        citedMemo: "All four agents unanimously recommend conditional bid.",
+        complianceMatrix: [],
+        complianceBlockers: [],
+        potentialBlockers: [],
+        riskRegister: [],
+        missingInfo: [],
+        recommendedActions: [],
+        evidenceIds: [],
+      },
+    });
+
+    renderRunDetail();
+
+    expect(await screen.findByText("Final verdict")).toBeInTheDocument();
+    expect(screen.queryByText("Disagreement")).not.toBeInTheDocument();
+  });
 });

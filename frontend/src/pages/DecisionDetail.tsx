@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/table";
 import { fetchRunDetail } from "@/lib/api";
 import { humanizeVerdictText, runDisplayId, verdictLabel } from "@/data/mock";
+import { isDuplicateJudgeDisagreement } from "@/lib/judgeMemo";
 import { ArrowLeft, FileCheck2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -59,6 +60,9 @@ export default function DecisionDetail() {
   }
 
   const j = run.judge;
+  const showDisagreement =
+    j.disagreement.trim().length > 0 &&
+    !isDuplicateJudgeDisagreement(j.disagreement, j.citedMemo);
 
   return (
     <>
@@ -109,9 +113,11 @@ export default function DecisionDetail() {
                 onCitationClick={handleCitationClick}
               />
             </Section>
-            <Section title="Disagreement">
-              <p className="text-sm text-muted-foreground">{humanizeVerdictText(j.disagreement)}</p>
-            </Section>
+            {showDisagreement && (
+              <Section title="Disagreement">
+                <p className="text-sm text-muted-foreground">{humanizeVerdictText(j.disagreement)}</p>
+              </Section>
+            )}
             <Section title="Compliance Matrix">
               <Table>
                 <TableHeader>

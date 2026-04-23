@@ -92,4 +92,22 @@ describe("DecisionDetail", () => {
     expect(screen.getByRole("button", { name: "Open source for EVD-001" })).toBeInTheDocument();
     expect(screen.queryByText("Cited Evidence")).not.toBeInTheDocument();
   });
+
+  it("hides disagreement when it duplicates the judge memo", async () => {
+    vi.mocked(fetchRunDetail).mockResolvedValue({
+      ...run,
+      judge: run.judge
+        ? {
+            ...run.judge,
+            citedMemo: "All four agents unanimously recommend conditional bid.",
+            disagreement: "All four agents unanimously recommend CONDITIONAL_BID.",
+          }
+        : null,
+    });
+
+    renderDecisionDetail();
+
+    expect(await screen.findByText("Judge Memo")).toBeInTheDocument();
+    expect(screen.queryByText("Disagreement")).not.toBeInTheDocument();
+  });
 });
