@@ -901,6 +901,97 @@ export interface Bid {
   runId?: string;
 }
 
+export type BidDraftAnswerStatus = "drafted" | "needs_input" | "blocked" | "not_applicable";
+export type BidDraftAttachmentStatus = "attached" | "suggested" | "missing" | "needs_review";
+
+export interface BidDraftPricing {
+  source: "bid_row" | "estimator";
+  rateSEK: number;
+  marginPct: number;
+  hoursEstimated: number;
+  totalValueSEK: number;
+  bidId?: string;
+}
+
+export interface BidDraftAnswer {
+  questionId: string;
+  prompt: string;
+  answer: string;
+  status: BidDraftAnswerStatus;
+  evidenceKeys: string[];
+  requiredAttachmentTypes: string[];
+}
+
+export interface BidDraftAttachment {
+  filename: string;
+  storagePath?: string;
+  checksumSha256?: string;
+  attachmentType: string;
+  requiredByEvidenceKey: string;
+  status: BidDraftAttachmentStatus;
+  sourceEvidenceKeys: string[];
+  packetPath?: string;
+  publicUrl?: string;
+}
+
+export interface BidResponseDraft {
+  schemaVersion: string;
+  runId: string;
+  tenderId: string;
+  bidId?: string;
+  language: string;
+  status: "draft" | "needs_review" | "blocked";
+  verdict: Verdict;
+  confidence: number | null;
+  pricing: BidDraftPricing;
+  answers: BidDraftAnswer[];
+  attachments: BidDraftAttachment[];
+  missingInfo: string[];
+  sourceEvidenceKeys: string[];
+}
+
+export const bidDrafts: BidResponseDraft[] = [
+  {
+    schemaVersion: "2026-04-23.bid_response_draft.v1",
+    runId: "run_8f42b1c3",
+    tenderId: "tender-001",
+    language: "sv",
+    status: "needs_review",
+    verdict: "CONDITIONAL_BID",
+    confidence: 76,
+    pricing: {
+      source: "bid_row",
+      rateSEK: 1330,
+      marginPct: 14,
+      hoursEstimated: 800,
+      totalValueSEK: 1_064_000,
+    },
+    answers: [
+      {
+        questionId: "TENDER-ISO-CERT",
+        prompt: "The tender requires an ISO 27001 certificate.",
+        answer: "Bifoga ISO 27001-certifikat. Kravet adresseras med bifogad evidens.",
+        status: "drafted",
+        evidenceKeys: ["TENDER-ISO-CERT", "COMPANY-KB-ISO-27001"],
+        requiredAttachmentTypes: ["certificate"],
+      },
+    ],
+    attachments: [
+      {
+        filename: "iso-27001.pdf",
+        storagePath: "demo/company-kb/iso-27001.pdf",
+        checksumSha256: "demo-checksum",
+        attachmentType: "certificate",
+        requiredByEvidenceKey: "TENDER-ISO-CERT",
+        status: "attached",
+        sourceEvidenceKeys: ["TENDER-ISO-CERT", "COMPANY-KB-ISO-27001"],
+      },
+    ],
+    missingInfo: ["Confirm named project manager."],
+    sourceEvidenceKeys: ["TENDER-ISO-CERT", "COMPANY-KB-ISO-27001"],
+  },
+];
+
 export const bidStatusOrder: BidStatus[] = ["draft", "review", "submitted", "won", "lost"];
 
 export const bidStatusLabel: Record<BidStatus, string> = {

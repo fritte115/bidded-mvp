@@ -12,6 +12,8 @@ from bidded.documents.company_kb import (
     CompanyKbError,
     CompanyKbFactExtractor,
     CompanyKbIngestionResult,
+    CompanyKbPdfRegistrationResult,
+    CompanyKbRegistrationError,
     CompanyKbRegistrationResult,
     CompanyKbUploadFile,
     EvidenceExcerptRef,
@@ -24,6 +26,7 @@ from bidded.documents.company_kb import (
     list_company_kb_documents,
     list_company_kb_evidence,
     register_company_kb_documents,
+    register_company_kb_pdf,
 )
 from bidded.documents.pdf_ingestion import (
     ExtractedPdfPage,
@@ -32,6 +35,7 @@ from bidded.documents.pdf_ingestion import (
     PdfIngestionResult,
     build_document_chunks,
     ensure_tender_evidence_items_for_document,
+    ingest_company_kb_pdf_document,
     ingest_tender_pdf_document,
 )
 from bidded.documents.tender_registration import (
@@ -48,6 +52,8 @@ __all__ = [
     "CompanyKbError",
     "CompanyKbFactExtractor",
     "CompanyKbIngestionResult",
+    "CompanyKbPdfRegistrationResult",
+    "CompanyKbRegistrationError",
     "CompanyKbRegistrationResult",
     "CompanyKbUploadFile",
     "DocumentChunkEmbeddingResult",
@@ -66,10 +72,12 @@ __all__ = [
     "delete_company_kb_document",
     "ensure_tender_evidence_items_for_document",
     "ingest_company_kb_document",
+    "ingest_company_kb_pdf_document",
     "ingest_tender_pdf_document",
     "list_company_kb_documents",
     "list_company_kb_evidence",
     "populate_document_chunk_embeddings",
+    "register_company_kb_pdf",
     "register_company_kb_documents",
     "register_demo_tender_pdf",
 ]

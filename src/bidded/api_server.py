@@ -30,7 +30,10 @@ from bidded.llm.factory import resolve_graph_handlers
 from bidded.orchestration import (
     PendingRunContextError,
     WorkerLifecycleError,
+    bid_response_draft_to_payload,
     create_pending_run_context,
+    fetch_latest_bid_response_draft,
+    generate_bid_response_draft,
     run_worker_once,
 )
 from bidded.orchestration.run_controls import RunControlError, archive_agent_run
@@ -51,6 +54,11 @@ class StartRunRequest(BaseModel):
 
 class ArchiveRunRequest(BaseModel):
     reason: str = "operator archived run"
+
+
+class GenerateBidDraftRequest(BaseModel):
+    run_id: str
+    bid_id: str | None = None
 
 
 DEMO_ORGANIZATION_ID = "00000000-0000-4000-8000-000000000001"
@@ -472,6 +480,43 @@ def archive_run(
     }
 
 
+@app.post("/api/bid-drafts/generate")
+def generate_bid_draft(
+    req: GenerateBidDraftRequest,
+    user: AuthenticatedUser = AUTHENTICATED_USER,
+) -> dict[str, Any]:
+    settings = load_settings()
+    client = _service_role_client(settings)
+    require_agent_run_member(client, user, req.run_id)
+    try:
+        draft = generate_bid_response_draft(
+            client,
+            run_id=req.run_id,
+            bid_id=req.bid_id,
+            storage_bucket=(
+                getattr(settings, "supabase_storage_bucket", None)
+                or "public-procurements"
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return bid_response_draft_to_payload(draft)
+
+
+@app.get("/api/bid-drafts/latest")
+def latest_bid_draft(
+    run_id: str,
+    user: AuthenticatedUser = AUTHENTICATED_USER,
+) -> dict[str, Any]:
+    settings = load_settings()
+    client = _service_role_client(settings)
+    require_agent_run_member(client, user, run_id)
+    draft = fetch_latest_bid_response_draft(client, run_id=run_id)
+    if draft is None:
+        raise HTTPException(status_code=404, detail=f"No draft for run {run_id}.")
+    return bid_response_draft_to_payload(draft)
+
+
 def require_agent_run_admin(
     client: Any,
     user: AuthenticatedUser,
@@ -484,6 +529,22 @@ def require_agent_run_admin(
         organization_id,
         allowed_roles={"admin"},
         action="archive agent runs",
+    )
+    return organization_id
+
+
+def require_agent_run_member(
+    client: Any,
+    user: AuthenticatedUser,
+    run_id: str,
+) -> str:
+    organization_id = _organization_id_for_row(client, "agent_runs", run_id)
+    _require_org_role(
+        client,
+        user,
+        organization_id,
+        allowed_roles={"admin", "user"},
+        action="view bid draft responses",
     )
     return organization_id
 

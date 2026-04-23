@@ -16,6 +16,7 @@ import Compare from "./pages/Compare";
 import CompanyProfile from "./pages/CompanyProfile";
 import Bids from "./pages/Bids";
 import BidEditor from "./pages/BidEditor";
+import BidDraft from "./pages/BidDraft";
 import Settings from "./pages/Settings";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound.tsx";
@@ -49,6 +50,7 @@ const App = () => (
               <Route path="/bids" element={<Bids />} />
               <Route path="/bids/new" element={<BidEditor />} />
               <Route path="/bids/:bidId/edit" element={<BidEditor />} />
+              <Route path="/drafts/:runId" element={<BidDraft />} />
               <Route path="/company" element={<CompanyProfile />} />
               <Route path="/settings" element={<Settings />} />
             </Route>
