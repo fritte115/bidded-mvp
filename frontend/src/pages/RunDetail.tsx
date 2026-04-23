@@ -76,8 +76,11 @@ export default function RunDetail() {
     queryFn: () => fetchRunDetail(id),
     enabled: !!id,
     refetchInterval: (query) => {
-      const status = query.state.data?.status;
-      return status === "running" || status === "pending" ? 5_000 : false;
+      const run = query.state.data;
+      const status = run?.status;
+      return !run?.isStale && (status === "running" || status === "pending")
+        ? 5_000
+        : false;
     },
   });
 
@@ -109,7 +112,7 @@ export default function RunDetail() {
     if (run.status === "succeeded") {
       return { 1: "completed", 2: "completed", 3: "completed", 4: "completed" };
     }
-    if (run.status === "running") {
+    if (run.status === "running" && !run.isStale) {
       const s: Record<1 | 2 | 3 | 4, StepState> = {
         1: "pending", 2: "pending", 3: "pending", 4: "pending",
       };
@@ -118,7 +121,7 @@ export default function RunDetail() {
       s[currentStep] = "running";
       return s;
     }
-    if (run.status === "failed") {
+    if (run.status === "failed" || run.isStale) {
       const s: Record<1 | 2 | 3 | 4, StepState> = {
         1: "pending", 2: "pending", 3: "pending", 4: "pending",
       };
@@ -165,15 +168,19 @@ export default function RunDetail() {
         }
       />
 
-      {run.status === "failed" && (
+      {(run.status === "failed" || run.isStale) && (
         <Card className="mb-4 border-danger/40 bg-danger/5">
           <CardContent className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-2 text-sm">
               <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
               <div>
-                <p className="font-medium text-danger">Run failed at: {run.stage}</p>
+                <p className="font-medium text-danger">
+                  {run.isStale ? "Run stalled at" : "Run failed at"}: {run.stage}
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  The orchestrator stopped before a decision could be reached. Review inputs and re-run.
+                  {run.isStale
+                    ? "The worker is no longer updating this run. Delete it or start a fresh run."
+                    : "The orchestrator stopped before a decision could be reached. Review inputs and re-run."}
                 </p>
               </div>
             </div>

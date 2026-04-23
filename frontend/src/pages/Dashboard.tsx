@@ -176,7 +176,8 @@ export default function Dashboard() {
                       const isTerminal =
                         r.status === "succeeded" ||
                         r.status === "failed" ||
-                        r.status === "needs_human_review";
+                        r.status === "needs_human_review" ||
+                        r.isStale;
                       const isDeleting = deleting.has(r.id);
                       return (
                         <TableRow
@@ -195,7 +196,7 @@ export default function Dashboard() {
                             </Link>
                           </TableCell>
                           <TableCell>
-                            <StatusBadge status={r.status} />
+                            <StatusBadge status={r.status} isStale={r.isStale} />
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground">
                             {r.stage}
@@ -204,7 +205,11 @@ export default function Dashboard() {
                             {formatDate(r.startedAt)}
                           </TableCell>
                           <TableCell className="font-mono text-xs text-muted-foreground">
-                            {r.durationSec ? formatDuration(r.durationSec) : "—"}
+                            {r.durationSec
+                              ? formatDuration(r.durationSec)
+                              : r.isStale && r.staleAgeMinutes !== null
+                                ? `${r.staleAgeMinutes}m stale`
+                                : "—"}
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1">

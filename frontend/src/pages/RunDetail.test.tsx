@@ -4,14 +4,13 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import RunDetail from "@/pages/RunDetail";
-import { fetchRunDetail } from "@/lib/api";
-import type { Run } from "@/data/mock";
+import { fetchRunDetail, type RunDetail as RunDetailModel } from "@/lib/api";
 
 vi.mock("@/lib/api", () => ({
   fetchRunDetail: vi.fn(),
 }));
 
-const run: Run = {
+const run: RunDetailModel = {
   id: "run-123",
   tenderId: "tender-123",
   tenderName: "City CRM Procurement",
@@ -20,13 +19,15 @@ const run: Run = {
   completedAt: "2026-04-19T08:10:00Z",
   durationSec: 600,
   status: "succeeded",
+  isStale: false,
+  staleAgeMinutes: null,
   stage: "Judge",
   decision: "BID",
   confidence: 82,
   evidence: [],
   round1: [],
   round2: [],
-  judge: undefined,
+  judge: null,
 };
 
 function renderRunDetail() {

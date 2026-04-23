@@ -90,9 +90,11 @@ export default function Procurements() {
         if (q !== "" && !p.name.toLowerCase().includes(q.toLowerCase())) return false;
         if (runFilter === "all") return true;
         if (runFilter === "not_run") return !run;
-        if (runFilter === "running") return run?.status === "running" || run?.status === "pending";
+        if (runFilter === "running")
+          return !run?.isStale && (run?.status === "running" || run?.status === "pending");
         if (runFilter === "done")
           return (
+            run?.isStale ||
             run?.status === "succeeded" ||
             run?.status === "failed" ||
             run?.status === "needs_human_review"
@@ -103,7 +105,11 @@ export default function Procurements() {
   );
 
   const inFlight = useMemo(
-    () => rows.filter(({ run }) => run?.status === "running" || run?.status === "pending").length,
+    () =>
+      rows.filter(
+        ({ run }) =>
+          !run?.isStale && (run?.status === "running" || run?.status === "pending"),
+      ).length,
     [rows],
   );
 
@@ -278,8 +284,10 @@ export default function Procurements() {
                 <TableBody>
                   {filtered.map(({ procurement: t, run }) => {
                     const checked = selectedIds.includes(t.id);
-                    const isActiveRun = run?.status === "running" || run?.status === "pending";
+                    const isActiveRun =
+                      !run?.isStale && (run?.status === "running" || run?.status === "pending");
                     const isFinishedRun =
+                      run?.isStale ||
                       run?.status === "succeeded" ||
                       run?.status === "failed" ||
                       run?.status === "needs_human_review";
@@ -348,7 +356,7 @@ export default function Procurements() {
                         </TableCell>
                         <TableCell>
                           {run ? (
-                            <StatusBadge status={run.status} />
+                            <StatusBadge status={run.status} isStale={run.isStale} />
                           ) : (
                             <span className="inline-flex items-center rounded-sm border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                               Not run
