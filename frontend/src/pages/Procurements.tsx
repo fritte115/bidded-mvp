@@ -361,7 +361,7 @@ export default function Procurements() {
                           <div className="max-w-[240px]">
                             <span className="inline-flex items-center gap-1.5 rounded-sm bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
                               <Files className="h-3 w-3" />
-                              {t.documentCount} {t.documentCount === 1 ? "PDF" : "PDFs"}
+                              {t.documentCount} {t.documentCount === 1 ? "document" : "documents"}
                             </span>
                           </div>
                         </TableCell>

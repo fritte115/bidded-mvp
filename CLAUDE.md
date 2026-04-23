@@ -6,7 +6,7 @@ Keep `AGENTS.md` and `CLAUDE.md` identical so Codex, Claude, and Ralph follow th
 - Commit and push every completed, verifiable change after the relevant checks pass. Keep each commit scoped, and push the branch before moving on when network access is available.
 
 ## Why
-Bidded is a hackathon-scoped agent core for bid/no-bid decisions in Swedish public procurement. It ingests a user-provided English text-PDF, compares requirements against a seeded IT consultancy profile, builds a shared evidence board, runs a traceable multi-agent review, and persists `bid`, `no_bid`, or `conditional_bid`.
+Bidded is a hackathon-scoped agent core for bid/no-bid decisions in Swedish public procurement. It ingests user-provided English text-PDF or DOCX tender documents, compares requirements against a seeded IT consultancy profile, builds a shared evidence board, runs a traceable multi-agent review, and persists `bid`, `no_bid`, or `conditional_bid`.
 
 ## Current State
 - The root Python application is not scaffolded yet. Planned app code should live under `src/bidded`.
@@ -17,7 +17,7 @@ Bidded is a hackathon-scoped agent core for bid/no-bid decisions in Swedish publ
 - Runtime: Python, LangGraph, Claude via Anthropic API.
 - Backend/data: hosted Supabase Postgres, Supabase Storage, SQL migrations, JSONB where agent/domain payloads need flexibility.
 - Schemas/validation: Pydantic.
-- Documents: text-based PDF extraction only.
+- Documents: text-based PDF extraction and DOCX-to-PDF conversion through LibreOffice/`soffice` for page-stable evidence references. Legacy `.doc`, RTF, and OCR remain out of scope.
 - Retrieval: deterministic keyword/full-text fallback, optional embeddings later.
 - Quality: pytest and Ruff for Bidded; Cargo only when touching `brain-in-the-fish/`.
 - Current automation: Make + Ralph + Claude CLI. `.env` carries local secrets such as `ANTHROPIC_API_KEY` and Supabase credentials.
@@ -37,7 +37,7 @@ Bidded is a hackathon-scoped agent core for bid/no-bid decisions in Swedish publ
 - Default loop: red, green, refactor.
 - Start with the acceptance criteria in `ralph/prd.json` and encode the expected behavior in tests before implementation.
 - If existing behavior is unclear, add characterization tests first, then continue with red-green-refactor.
-- Use deterministic mocks for Claude, embeddings, Supabase, and PDF processing wherever possible.
+- Use deterministic mocks for Claude, embeddings, Supabase, LibreOffice/DOCX conversion, and PDF processing wherever possible.
 - Exceptions: docs-only changes, formatting-only changes, generated files, and emergency hotfixes. Hotfix tests must be added immediately after the fix.
 
 ## Core Rules
@@ -69,7 +69,7 @@ Bidded is a hackathon-scoped agent core for bid/no-bid decisions in Swedish publ
 - If a command needs elevated permission, request the narrowest task-specific prefix.
 
 ## Do Not
-- Do not build OCR, DOCX ingestion, tender search/import, auth/RLS, or a full Next.js/React UI for this PRD.
+- Do not build OCR, legacy `.doc`/RTF ingestion, tender search/import, auth/RLS, or a full Next.js/React UI for this PRD.
 - Do not let LLM agents use arbitrary web search, filesystem access, code execution, direct database mutation, or new external sources in v1.
 - Do not treat missing company evidence as automatic `no_bid`; route it to missing info, assumptions, actions, or blockers.
 - Do not pass private free-form context between agents; handoffs are validated artifacts in shared state.
