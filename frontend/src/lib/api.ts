@@ -13,8 +13,6 @@
 import {
   company as mockCompany,
   bids as mockBids,
-  findRun as findMockRun,
-  latestRunForProcurement,
   procurements as mockProcurements,
   runs as mockRuns,
   type AgentMotion,
@@ -87,6 +85,153 @@ function requireSupabase() {
   return supabase;
 }
 
+export const STALE_RUN_AFTER_MINUTES = 30;
+export const STALE_RUN_STAGE = "Stale - worker stopped";
+export const ARCHIVED_RUN_STAGE = "Archived";
+
+const MOCK_ARCHIVED_AGENT_RUN_IDS_KEY = "bidded:mock-archived-agent-run-ids";
+
+interface RunLifecycleInput {
+  status: RunStatus;
+  startedAt: string | null | undefined;
+  createdAt: string | null | undefined;
+  completedAt: string | null | undefined;
+  archivedAt?: string | null | undefined;
+  metadata: unknown;
+}
+
+export interface RunLifecycleDisplay {
+  isActive: boolean;
+  isStale: boolean;
+  isArchived: boolean;
+  staleAgeMinutes: number | null;
+  stage: string;
+}
+
+function timestampMs(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function workerUpdatedAt(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const worker = (metadata as Record<string, unknown>).worker;
+  if (!worker || typeof worker !== "object") return null;
+  const updatedAt = (worker as Record<string, unknown>).updated_at;
+  return typeof updatedAt === "string" && updatedAt.length > 0 ? updatedAt : null;
+}
+
+function staleReferenceMs(input: RunLifecycleInput): number | null {
+  return (
+    timestampMs(workerUpdatedAt(input.metadata)) ??
+    timestampMs(input.startedAt) ??
+    timestampMs(input.createdAt)
+  );
+}
+
+export function runLifecycleForDisplay(
+  input: RunLifecycleInput,
+  options: { nowMs?: number; staleAfterMinutes?: number } = {},
+): RunLifecycleDisplay {
+  const status = input.status;
+  const isInFlight = status === "running" || status === "pending";
+  const fallbackStage = dashboardStageLabel(status, input.metadata);
+  if (input.archivedAt) {
+    return {
+      isActive: false,
+      isStale: false,
+      isArchived: true,
+      staleAgeMinutes: null,
+      stage: ARCHIVED_RUN_STAGE,
+    };
+  }
+  if (!isInFlight || input.completedAt) {
+    return {
+      isActive: false,
+      isStale: false,
+      isArchived: false,
+      staleAgeMinutes: null,
+      stage: fallbackStage,
+    };
+  }
+
+  const referenceMs = staleReferenceMs(input);
+  if (referenceMs === null) {
+    return {
+      isActive: true,
+      isStale: false,
+      isArchived: false,
+      staleAgeMinutes: null,
+      stage: fallbackStage,
+    };
+  }
+
+  const nowMs = options.nowMs ?? Date.now();
+  const staleAfterMinutes = options.staleAfterMinutes ?? STALE_RUN_AFTER_MINUTES;
+  const ageMinutes = Math.max(0, Math.floor((nowMs - referenceMs) / 60_000));
+  const isStale = ageMinutes > staleAfterMinutes;
+  return {
+    isActive: !isStale,
+    isStale,
+    isArchived: false,
+    staleAgeMinutes: isStale ? ageMinutes : null,
+    stage: isStale ? STALE_RUN_STAGE : fallbackStage,
+  };
+}
+
+function readMockArchivedRunIds(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.localStorage.getItem(MOCK_ARCHIVED_AGENT_RUN_IDS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(
+      Array.isArray(parsed)
+        ? parsed.filter((value): value is string => typeof value === "string")
+        : [],
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+function archiveMockAgentRun(runId: string): void {
+  if (typeof window === "undefined") return;
+  const archived = readMockArchivedRunIds();
+  archived.add(runId);
+  window.localStorage.setItem(
+    MOCK_ARCHIVED_AGENT_RUN_IDS_KEY,
+    JSON.stringify(Array.from(archived).sort()),
+  );
+}
+
+function visibleMockRuns(): Run[] {
+  const archived = readMockArchivedRunIds();
+  return mockRuns.filter((run) => !archived.has(run.id));
+}
+
+function mockLifecycle(run: Run): RunLifecycleDisplay {
+  return runLifecycleForDisplay({
+    status: run.status,
+    startedAt: run.startedAt,
+    createdAt: run.startedAt,
+    completedAt: run.completedAt ?? null,
+    archivedAt: null,
+    metadata: {},
+  });
+}
+
+async function requireAccessToken(): Promise<string> {
+  const client = requireSupabase();
+  const { data, error } = await client.auth.getSession();
+  if (error) throw new Error(`getSession: ${error.message}`);
+  const token = data.session?.access_token;
+  if (!token) {
+    throw new Error("You must be signed in to call the Bidded agent API.");
+  }
+  return token;
+}
+
 function mockParseStatus(procurement: Procurement): ProcurementDocumentRow["parseStatus"] {
   if (procurement.status === "done") return "parsed";
   if (procurement.status === "processing") return "parsing";
@@ -94,30 +239,35 @@ function mockParseStatus(procurement: Procurement): ProcurementDocumentRow["pars
 }
 
 function mockDashboardStats(): DashboardStats {
+  const runs = visibleMockRuns();
   return {
     totalProcurements: mockProcurements.length,
     totalPdfDocuments: mockProcurements.reduce(
       (sum, procurement) => sum + procurement.documents.length,
       0,
     ),
-    activeRuns: mockRuns.filter(
-      (run) => run.status === "running" || run.status === "pending",
-    ).length,
+    activeRuns: runs.filter((run) => mockLifecycle(run).isActive).length,
   };
 }
 
 function mockActiveRuns(): ActiveRun[] {
-  return mockRuns
+  return visibleMockRuns()
     .filter((run) => run.status === "running" || run.status === "pending")
-    .map((run) => ({
-      id: run.id,
-      tenderName: run.tenderName,
-      status: run.status,
-      stage: run.stage,
-      startedAt: run.startedAt,
-      completedAt: run.completedAt ?? null,
-      durationSec: run.durationSec ?? null,
-    }))
+    .map((run) => {
+      const lifecycle = mockLifecycle(run);
+      return {
+        id: run.id,
+        tenderName: run.tenderName,
+        status: run.status,
+        stage: lifecycle.stage,
+        startedAt: run.startedAt,
+        completedAt: run.completedAt ?? null,
+        durationSec: run.durationSec ?? null,
+        isStale: lifecycle.isStale,
+        isArchived: lifecycle.isArchived,
+        staleAgeMinutes: lifecycle.staleAgeMinutes,
+      };
+    })
     .sort(
       (left, right) =>
         new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime(),
@@ -127,19 +277,28 @@ function mockActiveRuns(): ActiveRun[] {
 function mockProcurementLatestRun(
   procurementId: string,
 ): ProcurementLatestRun | null {
-  const latestRun = latestRunForProcurement(procurementId);
+  const latestRun = visibleMockRuns()
+    .filter((run) => run.tenderId === procurementId)
+    .sort(
+      (left, right) =>
+        new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime(),
+    )[0];
   if (!latestRun) return null;
+  const lifecycle = mockLifecycle(latestRun);
 
   return {
     id: latestRun.id,
     status: latestRun.status,
     startedAt: latestRun.startedAt,
-    stage: latestRun.stage,
+    stage: lifecycle.stage,
     decision:
       latestRun.status === "needs_human_review"
         ? null
         : (latestRun.decision ?? null),
     needsJudgeReview: latestRun.status === "needs_human_review",
+    isStale: lifecycle.isStale,
+    isArchived: lifecycle.isArchived,
+    staleAgeMinutes: lifecycle.staleAgeMinutes,
   };
 }
 
@@ -215,7 +374,7 @@ function mockDecisionSummary(run: Run): DecisionSummary | null {
 }
 
 function mockDecisionRows(): DecisionRow[] {
-  return mockRuns
+  return visibleMockRuns()
     .map((run) => {
       const summary = mockDecisionSummary(run);
       if (!summary) return null;
@@ -234,8 +393,9 @@ function mockDecisionRows(): DecisionRow[] {
 }
 
 function mockRunDetail(runId: string): RunDetail | null {
-  const run = findMockRun(runId);
+  const run = visibleMockRuns().find((row) => row.id === runId);
   if (!run) return null;
+  const lifecycle = mockLifecycle(run);
 
   return {
     id: run.id,
@@ -243,7 +403,10 @@ function mockRunDetail(runId: string): RunDetail | null {
     tenderId: run.tenderId,
     company: run.company,
     status: run.status,
-    stage: run.stage,
+    stage: lifecycle.stage,
+    isStale: lifecycle.isStale,
+    isArchived: lifecycle.isArchived,
+    staleAgeMinutes: lifecycle.staleAgeMinutes,
     startedAt: run.startedAt,
     completedAt: run.completedAt ?? null,
     durationSec: run.durationSec ?? null,
@@ -257,14 +420,15 @@ function mockRunDetail(runId: string): RunDetail | null {
 }
 
 function mockBidRows(): Bid[] {
+  const runs = visibleMockRuns();
   return mockBids
     .map((bid) => {
       const procurement = mockProcurements.find(
         (row) => row.id === bid.procurementId,
       );
       const run = bid.runId
-        ? findMockRun(bid.runId)
-        : mockRuns.find((candidate) => candidate.tenderId === bid.procurementId);
+        ? runs.find((candidate) => candidate.id === bid.runId)
+        : runs.find((candidate) => candidate.tenderId === bid.procurementId);
       const decision = run ? mockDecisionSummary(run) : null;
 
       return {
@@ -279,12 +443,60 @@ function mockBidRows(): Bid[] {
     );
 }
 
+function mockDbCompany(): DbCompany {
+  return {
+    name: mockCompany.name,
+    organization_number: mockCompany.orgNumber === "—" ? null : mockCompany.orgNumber,
+    headquarters_country: "SE",
+    employee_count: mockCompany.headcount ?? null,
+    annual_revenue_sek: null,
+    capabilities: {
+      service_lines: { user_edits: mockCompany.capabilities },
+    },
+    certifications: mockCompany.certifications.map((cert) => ({
+      name: cert.name,
+      scope: cert.issuer,
+      status: cert.validUntil === "Active" ? "active" : cert.validUntil,
+      source_label: "mock_data",
+    })),
+    reference_projects: mockCompany.references.map((ref, index) => ({
+      reference_id: `mock-ref-${index + 1}`,
+      customer_type: ref.client,
+      case_study_summary: ref.scope,
+      contract_value_band_sek: ref.value.replace(/\s?SEK$/i, "").trim(),
+      delivery_years: String(ref.year),
+      source_label: "mock_data",
+    })),
+    financial_assumptions: {},
+    profile_details: {
+      company_size: mockCompany.size,
+      legal_name: mockCompany.legalName,
+      vat_number: mockCompany.vatNumber,
+      founded: mockCompany.founded,
+      headcount: mockCompany.headcount,
+      offices: mockCompany.offices,
+      website: mockCompany.website,
+      email: mockCompany.email,
+      phone: mockCompany.phone,
+      description: mockCompany.description,
+      leadership: mockCompany.leadership,
+      industries: mockCompany.industries,
+      insurance: mockCompany.insurance,
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Company
 // ---------------------------------------------------------------------------
 
-/** Raw shape returned by Supabase for the companies table */
-interface DbCompany {
+/** Raw shape returned by Supabase for the companies table.
+ *
+ * Exported so callers (see `updateCompany`) can hand back the last-fetched row
+ * as the merge baseline — protects rich JSONB fields (rate cards, CV summaries,
+ * delivery_capacity, etc.) that the UI doesn't expose for editing but the
+ * swarm relies on when materializing `company_profile` evidence items. */
+export interface DbCompany {
   name: string;
   organization_number: string | null;
   headquarters_country: string;
@@ -300,27 +512,91 @@ interface DbCompany {
     scope?: string;
     status?: string;
     source_label?: string;
+    [key: string]: unknown;
   }>;
   reference_projects: Array<{
+    reference_id?: string;
+    sector?: string;
     customer_type?: string;
     case_study_summary?: string;
     contract_value_band_sek?: string;
     delivery_years?: string;
+    capabilities_used?: unknown;
+    source_label?: string;
+    [key: string]: unknown;
   }>;
   financial_assumptions: {
     revenue_band_sek?: { min: number; max: number };
     target_gross_margin_percent?: number;
     minimum_acceptable_margin_percent?: number;
+    [key: string]: unknown;
   };
   profile_details: {
     company_size?: string;
+    legal_name?: string;
+    vat_number?: string;
+    founded?: number;
+    headcount?: number;
+    offices?: string[];
+    website?: string;
+    email?: string;
+    phone?: string;
+    description?: string;
+    leadership?: Array<{ name: string; title: string; email?: string }>;
+    industries?: string[];
+    financials?: Array<{
+      year: number;
+      revenue_msek: number;
+      ebit_margin_pct: number;
+      headcount: number;
+    }>;
+    team_composition?: Array<{ role: string; count: number; avg_years: number }>;
+    insurance?: Array<{ type: string; insurer: string; coverage: string }>;
+    framework_agreements?: Array<{
+      name: string;
+      authority: string;
+      valid_until: string;
+      status: "Active" | "Expiring" | "Expired";
+    }>;
+    security_posture?: Array<{
+      item: string;
+      status: "Implemented" | "Partial" | "Planned";
+      note?: string;
+    }>;
+    sustainability?: {
+      co2_reduction_pct: number;
+      renewable_energy_pct: number;
+      diversity_pct: number;
+      code_of_conduct_signed: boolean;
+    };
+    bid_stats?: {
+      total_bids: number;
+      won: number;
+      lost: number;
+      in_progress: number;
+      win_rate_pct: number;
+      avg_contract_msek: number;
+    };
+    [key: string]: unknown;
   };
+  [key: string]: unknown;
+}
+
+/** Return shape for `fetchCompany` — mapped UI shape plus the raw DB row so
+ * callers (the save path) can merge-update without losing JSONB fields. */
+export interface CompanyWithRaw {
+  company: Company;
+  raw: DbCompany;
 }
 
 function mapDbCompany(row: DbCompany): Company {
-  // Flatten service_lines into a single capabilities array
+  // Flatten service_lines into a single capabilities array.
+  // Prefer user-edited list when present (see `mergeCompanyIntoDb`).
   const serviceLines = row.capabilities?.service_lines ?? {};
-  const capabilities = Object.values(serviceLines).flat() as string[];
+  const userEdits = (serviceLines as Record<string, unknown>).user_edits;
+  const capabilities = Array.isArray(userEdits)
+    ? (userEdits as string[])
+    : (Object.values(serviceLines).flat() as string[]);
 
   // Certifications: scope is the closest thing to an issuer description
   const certifications = (row.certifications ?? []).map((c) => ({
@@ -337,6 +613,9 @@ function mapDbCompany(row: DbCompany): Company {
       ? `${r.contract_value_band_sek} SEK`
       : "—",
     year: parseStartYear(r.delivery_years ?? ""),
+    sector: typeof r.sector === "string" ? (r.sector as string) : undefined,
+    duration: typeof r.duration === "string" ? (r.duration as string) : undefined,
+    outcome: typeof r.outcome === "string" ? (r.outcome as string) : undefined,
   }));
 
   // Financial assumptions
@@ -354,85 +633,287 @@ function mapDbCompany(row: DbCompany): Company {
     ? `Min. margin ${fa.minimum_acceptable_margin_percent}%`
     : "—";
 
+  // Extended fields — all live under profile_details JSONB (no schema change).
+  const pd = row.profile_details ?? {};
+  const financials = (pd.financials ?? []).map((f) => ({
+    year: f.year,
+    revenueMSEK: f.revenue_msek,
+    ebitMarginPct: f.ebit_margin_pct,
+    headcount: f.headcount,
+  }));
+  const teamComposition = (pd.team_composition ?? []).map((t) => ({
+    role: t.role,
+    count: t.count,
+    avgYears: t.avg_years,
+  }));
+  const frameworkAgreements = (pd.framework_agreements ?? []).map((f) => ({
+    name: f.name,
+    authority: f.authority,
+    validUntil: f.valid_until,
+    status: f.status,
+  }));
+  const securityPosture = (pd.security_posture ?? []).map((s) => ({
+    item: s.item,
+    status: s.status,
+    note: s.note,
+  }));
+  const sustainability = pd.sustainability
+    ? {
+        co2ReductionPct: pd.sustainability.co2_reduction_pct,
+        renewableEnergyPct: pd.sustainability.renewable_energy_pct,
+        diversityPct: pd.sustainability.diversity_pct,
+        codeOfConductSigned: pd.sustainability.code_of_conduct_signed,
+      }
+    : undefined;
+  const bidStats = pd.bid_stats
+    ? {
+        totalBids: pd.bid_stats.total_bids,
+        won: pd.bid_stats.won,
+        lost: pd.bid_stats.lost,
+        inProgress: pd.bid_stats.in_progress,
+        winRatePct: pd.bid_stats.win_rate_pct,
+        avgContractMSEK: pd.bid_stats.avg_contract_msek,
+      }
+    : undefined;
+
   return {
     name: row.name,
+    legalName: pd.legal_name,
     orgNumber: row.organization_number ?? "—",
+    vatNumber: pd.vat_number,
+    founded: pd.founded,
     size: row.employee_count != null
       ? `${row.employee_count.toLocaleString("sv-SE")} employees`
-      : (row.profile_details?.company_size ?? "—"),
+      : (pd.company_size ?? "—"),
+    headcount: pd.headcount ?? row.employee_count ?? undefined,
     hq: countryName(row.headquarters_country),
+    offices: pd.offices,
+    website: pd.website,
+    email: pd.email,
+    phone: pd.phone,
+    description: pd.description,
+    leadership: pd.leadership,
+    industries: pd.industries,
     capabilities,
     certifications,
     references,
     financialAssumptions: { revenueRange, targetMargin, maxContractSize },
+    financials: financials.length > 0 ? financials : undefined,
+    teamComposition: teamComposition.length > 0 ? teamComposition : undefined,
+    insurance: pd.insurance,
+    frameworkAgreements:
+      frameworkAgreements.length > 0 ? frameworkAgreements : undefined,
+    securityPosture:
+      securityPosture.length > 0 ? securityPosture : undefined,
+    sustainability,
+    bidStats,
   };
 }
 
 /**
- * Map a frontend Company back to the DB columns we can safely update.
- * Scalars are exact; JSONB fields preserve the DB keys Ralph's seed created.
+ * Merge a user-edited Company onto the last-fetched raw DB row.
+ *
+ * The UI now edits a superset of the canonical schema: top-level columns
+ * (name, orgNumber, HQ, employees) plus ~15 fields under `profile_details`
+ * JSONB (leadership, offices, financials, sustainability, bid_stats, etc.).
+ * We deep-clone `prev` and overlay only the fields the UI exposes — every
+ * other JSONB key (rate cards, CV summaries, delivery_capacity,
+ * geographic_availability, metadata.*) is preserved untouched.
+ *
+ * Merge rules:
+ *   - Top-level scalars: overwrite from UI values.
+ *   - capabilities.service_lines: store the UI's flat list under a reserved
+ *     `user_edits` key; leave seeded category-keyed arrays intact.
+ *   - certifications / reference_projects: merge by identity (name / client).
+ *     Matched rows are updated in place, new rows tagged `source_label:
+ *     'user_edit'`, rows missing from the UI draft are dropped.
+ *   - financial_assumptions: only patch `target_gross_margin_percent`;
+ *     everything else (revenue band, rate cards, margin floors) passes through.
+ *   - profile_details: overwrite only keys the editor exposes. Reserved keys
+ *     like `company_size` (seeded) and `metadata.*` are never written here.
  */
-function mapCompanyToDbUpdate(c: Company): Record<string, unknown> {
+export function mergeCompanyIntoDb(
+  c: Company,
+  prev: DbCompany,
+): Record<string, unknown> {
+  const base = structuredClone(prev) as DbCompany;
+
   // Reverse country name → code ("Sweden" → "SE")
   const COUNTRY_CODES = Object.fromEntries(
-    Object.entries(COUNTRY_NAMES).map(([k, v]) => [v, k])
+    Object.entries(COUNTRY_NAMES).map(([k, v]) => [v, k]),
   );
 
-  // Parse "1 850 employees" → 1850  (sv-SE locale uses non-breaking space)
+  // Parse "1 850 employees" → 1850 (sv-SE locale uses non-breaking space)
   const empMatch = c.size.replace(/\s/g, "").match(/\d+/);
-  const employeeCount = empMatch ? parseInt(empMatch[0], 10) : null;
+  const employeeCount =
+    empMatch && !Number.isNaN(parseInt(empMatch[0], 10))
+      ? parseInt(empMatch[0], 10)
+      : base.employee_count;
 
-  // Capabilities: store flat list under service_lines.all
-  const capabilities = {
-    service_lines: { all: c.capabilities },
+  // ── capabilities: preserve seeded category buckets; keep user edits isolated
+  const baseServiceLines = base.capabilities?.service_lines ?? {};
+  const nextCapabilities = {
+    ...base.capabilities,
+    service_lines: {
+      ...baseServiceLines,
+      user_edits: c.capabilities,
+    },
   };
 
-  // Certifications: scope = issuer description, status inferred from validUntil
-  const certifications = c.certifications.map((cert) => ({
-    name: cert.name,
-    scope: cert.issuer !== "—" ? cert.issuer : "",
-    status: cert.validUntil === "Active" ? "active" : "active",
-    source_label: "user_edit",
-  }));
+  // ── certifications: merge by name
+  const prevCerts = base.certifications ?? [];
+  const mergedCerts = c.certifications.map((cert) => {
+    const existing = prevCerts.find((p) => p.name === cert.name);
+    if (existing) {
+      return {
+        ...existing,
+        name: cert.name,
+        scope: cert.issuer !== "—" ? cert.issuer : (existing.scope ?? ""),
+        status: cert.validUntil === "Active" ? "active" : (existing.status ?? "active"),
+      };
+    }
+    return {
+      name: cert.name,
+      scope: cert.issuer !== "—" ? cert.issuer : "",
+      status: "active",
+      source_label: "user_edit",
+    };
+  });
 
-  // Reference projects: map back from frontend fields
-  const reference_projects = c.references.map((ref, i) => ({
-    reference_id: `ref-user-${i + 1}`,
-    sector: "public_sector",
-    customer_type: ref.client,
-    delivery_years: String(ref.year),
-    contract_value_band_sek: ref.value.replace(/\s?SEK$/i, "").trim(),
-    case_study_summary: ref.scope,
-    capabilities_used: [],
-    source_label: "user_edit",
-  }));
+  // ── references: merge by customer_type; carry UI-surface fields through
+  const prevRefs = base.reference_projects ?? [];
+  const mergedRefs = c.references.map((ref, i) => {
+    const existing = prevRefs.find((p) => p.customer_type === ref.client);
+    const valueBand = ref.value.replace(/\s?SEK$/i, "").trim();
+    const uiExtras: Record<string, unknown> = {};
+    if (ref.sector !== undefined) uiExtras.sector = ref.sector;
+    if (ref.duration !== undefined) uiExtras.duration = ref.duration;
+    if (ref.outcome !== undefined) uiExtras.outcome = ref.outcome;
 
-  // Financial assumptions: parse percentage strings back to numbers
+    if (existing) {
+      return {
+        ...existing,
+        ...uiExtras,
+        customer_type: ref.client,
+        case_study_summary: ref.scope,
+        contract_value_band_sek: valueBand || existing.contract_value_band_sek,
+        delivery_years: String(ref.year),
+      };
+    }
+    return {
+      reference_id: `ref-user-${i + 1}`,
+      sector: ref.sector ?? "public_sector",
+      customer_type: ref.client,
+      delivery_years: String(ref.year),
+      contract_value_band_sek: valueBand,
+      case_study_summary: ref.scope,
+      capabilities_used: [],
+      source_label: "user_edit",
+      ...(ref.duration !== undefined ? { duration: ref.duration } : {}),
+      ...(ref.outcome !== undefined ? { outcome: ref.outcome } : {}),
+    };
+  });
+
+  // ── financial assumptions: only patch target margin; preserve everything else
+  const prevFa = base.financial_assumptions ?? {};
   const marginMatch = c.financialAssumptions.targetMargin.match(/\d+/);
-  const financial_assumptions = {
-    target_gross_margin_percent: marginMatch ? parseInt(marginMatch[0], 10) : null,
-    pricing_notes: [c.financialAssumptions.revenueRange, c.financialAssumptions.maxContractSize],
+  const nextFa = {
+    ...prevFa,
+    target_gross_margin_percent:
+      marginMatch != null
+        ? parseInt(marginMatch[0], 10)
+        : prevFa.target_gross_margin_percent,
   };
+
+  // ── profile_details: start from prev, then overlay each UI-edited key.
+  //    Keys not present in the UI are preserved. `undefined` UI values DO NOT
+  //    clear DB keys — use an explicit empty array / empty string to clear.
+  const pd = { ...(base.profile_details ?? {}) } as Record<string, unknown>;
+  const setIfDefined = (key: string, value: unknown) => {
+    if (value !== undefined) pd[key] = value;
+  };
+  setIfDefined("legal_name", c.legalName);
+  setIfDefined("vat_number", c.vatNumber);
+  setIfDefined("founded", c.founded);
+  setIfDefined("headcount", c.headcount);
+  setIfDefined("offices", c.offices);
+  setIfDefined("website", c.website);
+  setIfDefined("email", c.email);
+  setIfDefined("phone", c.phone);
+  setIfDefined("description", c.description);
+  setIfDefined("leadership", c.leadership);
+  setIfDefined("industries", c.industries);
+  // Convert camelCase UI shapes → snake_case JSONB at the boundary.
+  if (c.financials !== undefined) {
+    pd.financials = c.financials.map((f) => ({
+      year: f.year,
+      revenue_msek: f.revenueMSEK,
+      ebit_margin_pct: f.ebitMarginPct,
+      headcount: f.headcount,
+    }));
+  }
+  if (c.teamComposition !== undefined) {
+    pd.team_composition = c.teamComposition.map((t) => ({
+      role: t.role,
+      count: t.count,
+      avg_years: t.avgYears,
+    }));
+  }
+  setIfDefined("insurance", c.insurance);
+  if (c.frameworkAgreements !== undefined) {
+    pd.framework_agreements = c.frameworkAgreements.map((f) => ({
+      name: f.name,
+      authority: f.authority,
+      valid_until: f.validUntil,
+      status: f.status,
+    }));
+  }
+  if (c.securityPosture !== undefined) {
+    pd.security_posture = c.securityPosture.map((s) => ({
+      item: s.item,
+      status: s.status,
+      ...(s.note !== undefined ? { note: s.note } : {}),
+    }));
+  }
+  if (c.sustainability !== undefined) {
+    pd.sustainability = {
+      co2_reduction_pct: c.sustainability.co2ReductionPct,
+      renewable_energy_pct: c.sustainability.renewableEnergyPct,
+      diversity_pct: c.sustainability.diversityPct,
+      code_of_conduct_signed: c.sustainability.codeOfConductSigned,
+    };
+  }
+  if (c.bidStats !== undefined) {
+    pd.bid_stats = {
+      total_bids: c.bidStats.totalBids,
+      won: c.bidStats.won,
+      lost: c.bidStats.lost,
+      in_progress: c.bidStats.inProgress,
+      win_rate_pct: c.bidStats.winRatePct,
+      avg_contract_msek: c.bidStats.avgContractMSEK,
+    };
+  }
 
   return {
     name: c.name,
     organization_number: c.orgNumber !== "—" ? c.orgNumber : null,
     headquarters_country: COUNTRY_CODES[c.hq] ?? c.hq,
-    employee_count: employeeCount && !isNaN(employeeCount) ? employeeCount : null,
-    capabilities,
-    certifications,
-    reference_projects,
-    financial_assumptions,
+    employee_count: employeeCount,
+    capabilities: nextCapabilities,
+    certifications: mergedCerts,
+    reference_projects: mergedRefs,
+    financial_assumptions: nextFa,
+    profile_details: pd,
+    // metadata and annual_revenue_sek pass through `base` untouched — not in payload.
   };
 }
 
-/**
- * Fetch the single demo company from Supabase.
- * Falls back gracefully — callers should handle null (use mock data as fallback).
- */
-export async function fetchCompany(): Promise<Company> {
+/** Fetch the single demo company from Supabase. Returns both the mapped UI
+ * shape and the raw DB row — pass `raw` back to `updateCompany` to keep saves
+ * merge-based instead of destructive. */
+export async function fetchCompany(): Promise<CompanyWithRaw> {
   if (isMockMode()) {
-    return mockCompany;
+    return { company: mockCompany, raw: mockDbCompany() };
   }
 
   const client = requireSupabase();
@@ -444,24 +925,57 @@ export async function fetchCompany(): Promise<Company> {
     .single();
 
   if (error) throw new Error(`fetchCompany: ${error.message}`);
-  return mapDbCompany(data as DbCompany);
+  const raw = data as DbCompany;
+  return { company: mapDbCompany(raw), raw };
 }
 
-/**
- * Persist edited company data back to Supabase.
- * Requires the "demo update" RLS policy to be enabled on the companies table.
- */
-export async function updateCompany(c: Company): Promise<void> {
+/** Persist edited company data back to Supabase. Callers must pass the raw DB
+ * row that was last fetched so we can merge UI edits onto it instead of
+ * replacing rich JSONB fields.
+ *
+ * After the Supabase write succeeds, best-effort triggers the FastAPI
+ * `/api/company/resync-evidence` endpoint so the swarm sees the edit on its
+ * next run. If the FastAPI server is unreachable the save still succeeds —
+ * evidence simply stays stale until the next tender run rebuilds it. */
+export async function updateCompany(c: Company, prev: DbCompany): Promise<void> {
   if (isMockMode()) {
     throw new Error(MOCK_MODE_WRITE_MESSAGE);
   }
 
-  const res = await fetch(`${AGENT_API_URL}/api/company/profile`, {
+  const companyId = typeof prev.id === "string" ? prev.id : undefined;
+  const token = await requireAccessToken();
+  const url = new URL(`${AGENT_API_URL}/api/company/profile`);
+  if (companyId) url.searchParams.set("company_id", companyId);
+  const res = await fetch(url.toString(), {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(mapCompanyToDbUpdate(c)),
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(mergeCompanyIntoDb(c, prev)),
   });
-  await parseAgentResponse<{ company_id: string; evidence_count: number }>(res);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
+  }
+}
+
+/** Ask the FastAPI worker to re-materialize `company_profile` evidence rows
+ * from the current `companies` row. Returns the number of evidence items
+ * upserted; throws on HTTP error. */
+export async function resyncCompanyEvidence(): Promise<{
+  evidence_count: number;
+  rows_returned: number;
+}> {
+  const token = await requireAccessToken();
+  const res = await fetch(`${AGENT_API_URL}/api/company/resync-evidence`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    throw new Error(`resyncCompanyEvidence: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
 }
 
 // ---------------------------------------------------------------------------
@@ -493,15 +1007,28 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
       .eq("document_role", "tender_document"),
     client
       .from("agent_runs")
-      .select("id", { count: "exact", head: true })
+      .select("id, status, started_at, created_at, completed_at, archived_at, metadata")
       .eq("tenant_key", "demo")
-      .in("status", ["running", "pending"]),
+      .in("status", ["running", "pending"])
+      .is("archived_at", null),
   ]);
+
+  const activeRuns = ((activeRunsRes.data ?? []) as Record<string, unknown>[]).filter(
+    (row) =>
+      runLifecycleForDisplay({
+        status: (row.status as RunStatus) ?? "pending",
+        startedAt: row.started_at as string | null,
+        createdAt: row.created_at as string | null,
+        completedAt: row.completed_at as string | null,
+        archivedAt: row.archived_at as string | null,
+        metadata: row.metadata,
+      }).isActive,
+  ).length;
 
   return {
     totalProcurements: tendersRes.count ?? 0,
     totalPdfDocuments: docsRes.count ?? 0,
-    activeRuns: activeRunsRes.count ?? 0,
+    activeRuns,
   };
 }
 
@@ -510,6 +1037,9 @@ export interface ActiveRun {
   id: string;
   tenderName: string;
   status: RunStatus;
+  isStale: boolean;
+  isArchived: boolean;
+  staleAgeMinutes: number | null;
   /** Human-readable pipeline stage (resolved from metadata + status). */
   stage: string;
   startedAt: string;
@@ -575,8 +1105,9 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
 
   const { data, error } = await client
     .from("agent_runs")
-    .select("id, status, started_at, completed_at, metadata, tenders(title)")
+    .select("id, status, started_at, created_at, completed_at, archived_at, metadata, tenders(title)")
     .eq("tenant_key", "demo")
+    .is("archived_at", null)
     .or(
       `status.in.(running,pending),and(status.in.(succeeded,failed,needs_human_review),completed_at.gte.${yesterday})`,
     )
@@ -588,6 +1119,7 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
   return (data ?? []).map((r: Record<string, unknown>) => {
     const tender = r.tenders as { title: string } | null;
     const startedAt = r.started_at as string | null;
+    const createdAt = r.created_at as string | null;
     const completedAt = r.completed_at as string | null;
     const durationSec =
       startedAt && completedAt
@@ -597,12 +1129,23 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
         : null;
 
     const status = (r.status as RunStatus) ?? "pending";
+    const lifecycle = runLifecycleForDisplay({
+      status,
+      startedAt,
+      createdAt,
+      completedAt,
+      archivedAt: r.archived_at as string | null,
+      metadata: r.metadata,
+    });
     return {
       id: r.id as string,
       tenderName: tender?.title ?? "Unknown procurement",
       status,
-      stage: dashboardStageLabel(status, r.metadata),
-      startedAt: startedAt ?? (r as Record<string, unknown>).created_at as string,
+      isStale: lifecycle.isStale,
+      isArchived: lifecycle.isArchived,
+      staleAgeMinutes: lifecycle.staleAgeMinutes,
+      stage: lifecycle.stage,
+      startedAt: startedAt ?? createdAt ?? "",
       completedAt,
       durationSec,
     };
@@ -617,6 +1160,9 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
 export interface ProcurementLatestRun {
   id: string;
   status: RunStatus;
+  isStale: boolean;
+  isArchived: boolean;
+  staleAgeMinutes: number | null;
   startedAt: string;
   stage: string;
   decision: Verdict | null;
@@ -677,6 +1223,8 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
         status,
         started_at,
         created_at,
+        archived_at,
+        archived_reason,
         metadata,
         bid_decisions(verdict)
       )
@@ -699,13 +1247,15 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
         status: string;
         started_at: string | null;
         created_at: string;
+        archived_at: string | null;
+        archived_reason: string | null;
         metadata: Record<string, unknown>;
         bid_decisions: { verdict: string }[] | { verdict: string } | null;
       }>
     ) ?? [];
 
     // Sort runs by created_at desc, pick latest
-    const latestRun = runs.sort(
+    const latestRun = runs.filter((run) => !run.archived_at).sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
     )[0] ?? null;
 
@@ -721,14 +1271,24 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
       const verdictRow = Array.isArray(bd) ? bd[0] : bd;
       const rawVerdict = verdictRow?.verdict;
       const { decision, needsJudgeReview } = verdictFromBidDecisionRow(rawVerdict);
+      const status = latestRun.status as RunStatus;
+      const startedAt = latestRun.started_at ?? latestRun.created_at;
+      const lifecycle = runLifecycleForDisplay({
+        status,
+        startedAt: latestRun.started_at,
+        createdAt: latestRun.created_at,
+        completedAt: null,
+        archivedAt: latestRun.archived_at,
+        metadata: latestRun.metadata,
+      });
       latestRunPayload = {
         id: latestRun.id,
-        status: latestRun.status as RunStatus,
-        startedAt: latestRun.started_at ?? latestRun.created_at,
-        stage: dashboardStageLabel(
-          latestRun.status as RunStatus,
-          latestRun.metadata,
-        ),
+        status,
+        isStale: lifecycle.isStale,
+        isArchived: lifecycle.isArchived,
+        staleAgeMinutes: lifecycle.staleAgeMinutes,
+        startedAt,
+        stage: lifecycle.stage,
         decision,
         needsJudgeReview,
       };
@@ -1056,6 +1616,8 @@ const DECISION_SUMMARY_SELECT = `
     status,
     started_at,
     completed_at,
+    archived_at,
+    archived_reason,
     tenders!inner(title, created_at, documents(id))
   )
 `;
@@ -1100,6 +1662,9 @@ export interface RunDetail {
   tenderId: string;
   company: string;
   status: RunStatus;
+  isStale: boolean;
+  isArchived: boolean;
+  staleAgeMinutes: number | null;
   stage: string;
   startedAt: string;
   completedAt: string | null;
@@ -1121,7 +1686,7 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
   const { data: runRow, error: runErr } = await client
     .from("agent_runs")
     .select(
-      `id, status, started_at, completed_at, metadata, tender_id, company_id,
+      `id, status, created_at, started_at, completed_at, archived_at, archived_reason, metadata, tender_id, company_id,
        tenders!inner(title),
        bid_decisions(verdict, confidence, final_decision, metadata)`,
     )
@@ -1140,8 +1705,10 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
 
   const tenderId = run.tender_id as string;
   const companyId = run.company_id as string;
+  const createdAt = run.created_at as string | null;
   const startedAt = run.started_at as string | null;
   const completedAt = run.completed_at as string | null;
+  const archivedAt = run.archived_at as string | null;
 
   const [outputsRes, docsRes] = await Promise.all([
     client
@@ -1233,9 +1800,14 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
   const judge = fd ? mapFinalDecision(fd, evidenceIdToKey) : null;
 
   const status = run.status as RunStatus;
-  const step = resolveMetadataCurrentStep(run.metadata);
-  const stage =
-    step != null ? stageDisplayName(step) : dashboardStageLabel(status, run.metadata);
+  const lifecycle = runLifecycleForDisplay({
+    status,
+    startedAt,
+    createdAt,
+    completedAt,
+    archivedAt,
+    metadata: run.metadata,
+  });
 
   return {
     id: runId,
@@ -1243,8 +1815,11 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
     tenderId,
     company: "Demo company",
     status,
-    stage,
-    startedAt: startedAt ?? (run.created_at as string) ?? "",
+    isStale: lifecycle.isStale,
+    isArchived: lifecycle.isArchived,
+    staleAgeMinutes: lifecycle.staleAgeMinutes,
+    stage: lifecycle.stage,
+    startedAt: startedAt ?? createdAt ?? "",
     completedAt,
     durationSec:
       startedAt && completedAt
@@ -1430,6 +2005,8 @@ const BID_SELECT = `
     status,
     started_at,
     completed_at,
+    archived_at,
+    archived_reason,
     bid_decisions(created_at, verdict, confidence, final_decision)
   )
 `;
@@ -1585,38 +2162,6 @@ export async function deleteBid(id: string): Promise<void> {
 const AGENT_API_URL =
   (import.meta.env.VITE_AGENT_API_URL as string | undefined) ?? "http://localhost:8000";
 
-export async function deleteAgentRun(runId: string): Promise<void> {
-  if (isMockMode()) {
-    throw new Error(MOCK_MODE_WRITE_MESSAGE);
-  }
-
-  const client = requireSupabase();
-  const { error } = await client
-    .from("agent_runs")
-    .delete()
-    .eq("id", runId)
-    .eq("tenant_key", "demo");
-  if (error) throw new Error(`deleteAgentRun: ${error.message}`);
-}
-
-export async function startAgentRun(tenderId: string): Promise<string> {
-  if (isMockMode()) {
-    throw new Error(MOCK_MODE_WRITE_MESSAGE);
-  }
-
-  const res = await fetch(`${AGENT_API_URL}/api/runs/start`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ tender_id: tenderId }),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
-  }
-  const data = (await res.json()) as { run_id: string };
-  return data.run_id;
-}
-
 export type CompanyKbDocumentType =
   | "certification"
   | "case_study"
@@ -1668,6 +2213,7 @@ export async function uploadCompanyKbDocuments(
   if (isMockMode()) {
     throw new Error(MOCK_MODE_WRITE_MESSAGE);
   }
+  const token = await requireAccessToken();
   const form = new FormData();
   for (const item of items) {
     form.append("files", item.file);
@@ -1675,6 +2221,7 @@ export async function uploadCompanyKbDocuments(
   }
   const res = await fetch(`${AGENT_API_URL}/api/company/kb/documents`, {
     method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
     body: form,
   });
   return parseAgentResponse<CompanyKbDocumentsResponse>(res);
@@ -1684,7 +2231,10 @@ export async function fetchCompanyKbDocuments(): Promise<CompanyKbDocumentsRespo
   if (isMockMode()) {
     return { documents: [] };
   }
-  const res = await fetch(`${AGENT_API_URL}/api/company/kb/documents`);
+  const token = await requireAccessToken();
+  const res = await fetch(`${AGENT_API_URL}/api/company/kb/documents`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   return parseAgentResponse<CompanyKbDocumentsResponse>(res);
 }
 
@@ -1694,8 +2244,10 @@ export async function fetchCompanyKbEvidence(
   if (isMockMode()) {
     return { evidence: [] };
   }
+  const token = await requireAccessToken();
   const res = await fetch(
     `${AGENT_API_URL}/api/company/kb/documents/${documentId}/evidence`,
+    { headers: { Authorization: `Bearer ${token}` } },
   );
   return parseAgentResponse<CompanyKbEvidenceResponse>(res);
 }
@@ -1704,11 +2256,55 @@ export async function deleteCompanyKbDocument(documentId: string): Promise<void>
   if (isMockMode()) {
     throw new Error(MOCK_MODE_WRITE_MESSAGE);
   }
+  const token = await requireAccessToken();
   const res = await fetch(
     `${AGENT_API_URL}/api/company/kb/documents/${documentId}`,
-    { method: "DELETE" },
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    },
   );
   await parseAgentResponse<{ deleted: boolean }>(res);
+}
+
+export async function archiveAgentRun(
+  runId: string,
+  reason = "operator archived run",
+): Promise<void> {
+  if (isMockMode()) {
+    archiveMockAgentRun(runId);
+    return;
+  }
+
+  const token = await requireAccessToken();
+  const res = await fetch(`${AGENT_API_URL}/api/runs/${encodeURIComponent(runId)}/archive`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
+  }
+}
+
+export async function startAgentRun(tenderId: string): Promise<string> {
+  if (isMockMode()) {
+    throw new Error(MOCK_MODE_WRITE_MESSAGE);
+  }
+
+  const token = await requireAccessToken();
+  const res = await fetch(`${AGENT_API_URL}/api/runs/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ tender_id: tenderId }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
+  }
+  const data = (await res.json()) as { run_id: string };
+  return data.run_id;
 }
 
 async function parseAgentResponse<T>(res: Response): Promise<T> {

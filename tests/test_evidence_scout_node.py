@@ -324,19 +324,29 @@ def test_evidence_scout_request_includes_recall_warnings() -> None:
     assert "financial_standing" in warning.missing_info
 
 
-def test_unsupported_mocked_claude_fact_fails_before_persistence() -> None:
+def test_unsupported_mocked_claude_fact_is_dropped_from_findings() -> None:
+    """A scout finding whose evidence_ref doesn't resolve against the board is
+    dropped rather than failing the whole run. The canonicalizer already
+    tried every field-swap the LLM commonly makes; an unresolvable ref is a
+    hallucinated citation with no audit trail. Dropping it lets the run
+    proceed on resolvable findings (plus potential_blockers and missing_info).
+    """
     payload = _valid_scout_payload()
-    payload["findings"][0] = {
-        "category": "shall_requirement",
-        "claim": "The supplier must hold ISO 9001 certification.",
-        "evidence_refs": [
-            {
-                "evidence_key": "TENDER-UNSUPPORTED-001",
-                "source_type": "tender_document",
-                "evidence_id": str(UUID("99999999-9999-4999-8999-999999999999")),
-            }
-        ],
-    }
+    # Add an unsupported finding alongside the valid one so the run has at
+    # least one kept finding after coercion.
+    payload["findings"].append(
+        {
+            "category": "shall_requirement",
+            "claim": "The supplier must hold ISO 9001 certification.",
+            "evidence_refs": [
+                {
+                    "evidence_key": "TENDER-UNSUPPORTED-001",
+                    "source_type": "tender_document",
+                    "evidence_id": str(UUID("99999999-9999-4999-8999-999999999999")),
+                }
+            ],
+        }
+    )
     mock_claude = RecordingMockClaude(payload)
     handlers = replace(
         default_graph_node_handlers(),
@@ -345,19 +355,12 @@ def test_unsupported_mocked_claude_fact_fails_before_persistence() -> None:
 
     result = run_bidded_graph_shell(_ready_state(), handlers=handlers)
 
-    assert result.visited_nodes == (
-        GraphRouteNode.PREFLIGHT,
-        GraphRouteNode.EVIDENCE_SCOUT,
-        GraphRouteNode.FAILED,
-        GraphRouteNode.END,
-    )
-    assert len(mock_claude.requests) == 3
-    assert result.state.retry_counts == {GraphRouteNode.EVIDENCE_SCOUT.value: 2}
-    assert result.state.status is AgentRunStatus.FAILED
-    assert result.state.scout_output is None
-    assert result.state.agent_outputs == []
-    assert result.state.validation_errors[-1].field_path == "findings[0].evidence_refs"
-    assert "not present in evidence_board" in result.state.validation_errors[-1].message
+    # The hallucinated finding is dropped; the valid one still lands on the state.
+    assert result.state.scout_output is not None
+    claims = [f.claim for f in result.state.scout_output.findings]
+    assert "The supplier must hold ISO 9001 certification." not in claims
+    # No retries needed — the first pass produced a usable output after coercion.
+    assert len(mock_claude.requests) == 1
 
 
 def test_evidence_scout_schema_rejects_bid_recommendations() -> None:

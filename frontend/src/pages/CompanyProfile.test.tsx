@@ -28,6 +28,10 @@ vi.mock("@/lib/api", () => ({
   uploadCompanyKbDocuments: vi.fn(),
 }));
 
+vi.mock("@/lib/auth", () => ({
+  usePermissions: () => ({ canManageCompany: true }),
+}));
+
 vi.mock("sonner", () => ({
   toast: {
     error: vi.fn(),
@@ -62,7 +66,22 @@ function renderCompanyProfile() {
 
 describe("CompanyProfile Knowledge Base", () => {
   beforeEach(() => {
-    vi.mocked(fetchCompany).mockResolvedValue(mockCompany);
+    vi.mocked(fetchCompany).mockResolvedValue({
+      company: mockCompany,
+      raw: {
+        id: "company-1",
+        name: mockCompany.name,
+        organization_number: mockCompany.orgNumber,
+        headquarters_country: "SE",
+        employee_count: 100,
+        annual_revenue_sek: null,
+        capabilities: { service_lines: {} },
+        certifications: [],
+        reference_projects: [],
+        financial_assumptions: {},
+        profile_details: {},
+      },
+    });
     vi.mocked(fetchCompanyKbDocuments).mockResolvedValue({
       documents: [kbDocument],
     });
@@ -86,7 +105,7 @@ describe("CompanyProfile Knowledge Base", () => {
   it("renders KB document status, evidence preview, and delete action", async () => {
     renderCompanyProfile();
 
-    expect(await screen.findByText("Knowledge Base")).toBeInTheDocument();
+    fireEvent.mouseDown(await screen.findByRole("tab", { name: "Knowledge Base" }));
     const row = screen.getByText("iso-cert.pdf").closest("tr");
     expect(row).not.toBeNull();
     expect(within(row as HTMLTableRowElement).getByText("Certification"))
@@ -113,6 +132,7 @@ describe("CompanyProfile Knowledge Base", () => {
     vi.mocked(fetchCompanyKbDocuments).mockResolvedValue({ documents: [] });
     const { container } = renderCompanyProfile();
 
+    fireEvent.mouseDown(await screen.findByRole("tab", { name: "Knowledge Base" }));
     expect(await screen.findByText("No company knowledge base files yet."))
       .toBeInTheDocument();
 

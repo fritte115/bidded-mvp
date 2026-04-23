@@ -11,7 +11,7 @@ from bidded.agents.schemas import (
     EvidenceReference,
     Round2Rebuttal,
 )
-from bidded.orchestration.evidence_refs import resolve_evidence_ref_dict_against_board
+from bidded.orchestration.evidence_refs import coerce_evidence_refs
 from bidded.orchestration.graph import (
     GraphRouteNode,
     InvalidGraphOutput,
@@ -107,22 +107,18 @@ _ROUND_2_ROUTE_BY_ROLE: dict[SpecialistRole, GraphRouteNode] = {
 _BID_POSITIVE_VERDICTS = {Verdict.BID, Verdict.CONDITIONAL_BID}
 
 
-def _resolve_ref_against_board(
-    ref_dict: dict[str, Any],
-    board: Sequence[EvidenceItemState],
-) -> dict[str, Any]:
-    return resolve_evidence_ref_dict_against_board(ref_dict, board)
-
-
 def _coerce_refs_list(
     refs: Any,
     board: Sequence[EvidenceItemState],
-) -> list[Any]:
-    if not isinstance(refs, list):
-        return refs
-    return [
-        _resolve_ref_against_board(r, board) if isinstance(r, dict) else r for r in refs
-    ]
+) -> list[dict[str, Any]]:
+    """Normalize LLM-produced ``evidence_refs`` via the shared canonicalizer.
+
+    See :func:`bidded.orchestration.evidence_refs.coerce_evidence_refs` —
+    drops non-dict items, fills missing evidence_id from evidence_key (and
+    vice versa) where the match is unambiguous, and drops refs that can't
+    be resolved to a board item.
+    """
+    return coerce_evidence_refs(refs, board)
 
 
 def _normalize_blocker_position(value: Any) -> Any:
@@ -196,12 +192,44 @@ def _coerce_revised_stance(value: Any) -> Any:
     return value
 
 
+_ROUND_2_REBUTTAL_ALLOWED_KEYS = frozenset(
+    {
+        "agent_role",
+        "target_roles",
+        "targeted_disagreements",
+        "unsupported_claims",
+        "blocker_challenges",
+        "revised_stance",
+        "confidence",
+        "evidence_refs",
+        "missing_info",
+        "potential_evidence_gaps",
+        "recommended_actions",
+        "validation_errors",
+    }
+)
+
+
 def _coerce_round2_rebuttal_mapping(
     raw: Mapping[str, Any],
     evidence_board: Sequence[EvidenceItemState],
 ) -> dict[str, Any]:
-    """Normalize and resolve evidence_ids before Pydantic validation."""
+    """Heal LLM-drift shape issues before strict Pydantic validation.
+
+    Mirrors the Round 1 coercer. Whitelists top-level keys (``extra="forbid"``
+    on the strict schema rejects anything else), normalizes agent_role /
+    target_role / revised_stance / blocker positions, and canonicalizes every
+    evidence_refs list via the shared helper (which drops refs that don't
+    resolve to a board item and drops blocker_challenges whose refs become
+    empty — the schema requires ``min_length=1`` on that list).
+    """
     out = dict(raw)
+
+    # Whitelist top-level keys first so extras don't survive to model_validate.
+    for extra_key in list(out.keys()):
+        if extra_key not in _ROUND_2_REBUTTAL_ALLOWED_KEYS:
+            out.pop(extra_key, None)
+
     if "agent_role" in out:
         out["agent_role"] = _normalize_agent_role(out["agent_role"])
     # Normalize target_roles list
@@ -214,13 +242,21 @@ def _coerce_round2_rebuttal_mapping(
     refs = out.get("evidence_refs")
     if isinstance(refs, list):
         out["evidence_refs"] = _coerce_refs_list(refs, evidence_board)
-    # targeted_disagreements: normalize target_role + resolve evidence_refs
+    # targeted_disagreements: normalize target_role + resolve evidence_refs.
+    # Drop any disagreement whose refs list is empty after canonicalization —
+    # the schema requires ``min_length=1`` on evidence_refs, so an empty list
+    # would trip Pydantic validation and abort the whole rebuttal.
     disagreements = out.get("targeted_disagreements")
     if isinstance(disagreements, list):
-        out["targeted_disagreements"] = [
-            _coerce_disagreement_item(d, evidence_board) if isinstance(d, dict) else d
-            for d in disagreements
-        ]
+        coerced_disagreements: list[Any] = []
+        for d in disagreements:
+            if not isinstance(d, dict):
+                continue
+            d = _coerce_disagreement_item(d, evidence_board)
+            if not d.get("evidence_refs"):
+                continue
+            coerced_disagreements.append(d)
+        out["targeted_disagreements"] = coerced_disagreements
     # unsupported_claims: normalize target_role
     unsupported = out.get("unsupported_claims")
     if isinstance(unsupported, list):
@@ -336,6 +372,11 @@ def validate_round_2_rebuttal_output(
 
     _validate_complete_motion_set(motions, field_path="motions")
     _validate_target_roles(output)
+    # Defensible coercion: drop evidence_refs that do not resolve against the
+    # board before strict validation. The canonicalizer already tried every
+    # field-swap the LLM commonly makes; anything unresolvable is a
+    # hallucinated citation and should not crash the run.
+    output = _drop_unsupported_rebuttal_refs(output, evidence_board=evidence_board)
     _validate_focused_rebuttal(output)
     _validate_red_team_scope(output, motions=motions, expected_role=expected_role)
     _validate_rebuttal_evidence_refs(output, evidence_board=evidence_board)
@@ -567,6 +608,50 @@ def _validate_red_team_scope(
             "Red Team rebuttals must challenge the strongest bid arguments.",
             field_path="target_roles",
         )
+
+
+def _drop_unsupported_rebuttal_refs(
+    output: Round2Rebuttal,
+    *,
+    evidence_board: Sequence[EvidenceItemState],
+) -> Round2Rebuttal:
+    """Filter each evidence_refs list to only those that resolve against the
+    board. Claims whose ref lists become empty (schema requires min_length=1)
+    are dropped entirely rather than leaving invariant-violating objects in
+    memory. The top-level `evidence_refs` list allows empty, so it's scrubbed
+    in place.
+    """
+
+    def _kept(refs: Sequence[EvidenceReference]) -> list[EvidenceReference]:
+        return [
+            ref
+            for ref in refs
+            if _matching_evidence_item(ref, evidence_board) is not None
+        ]
+
+    new_top_refs = _kept(output.evidence_refs)
+
+    new_targeted = []
+    for d in output.targeted_disagreements:
+        kept_refs = _kept(d.evidence_refs)
+        if not kept_refs:
+            continue
+        new_targeted.append(d.model_copy(update={"evidence_refs": kept_refs}))
+
+    new_blockers = []
+    for c in output.blocker_challenges:
+        kept_refs = _kept(c.evidence_refs)
+        if not kept_refs:
+            continue
+        new_blockers.append(c.model_copy(update={"evidence_refs": kept_refs}))
+
+    return output.model_copy(
+        update={
+            "evidence_refs": new_top_refs,
+            "targeted_disagreements": new_targeted,
+            "blocker_challenges": new_blockers,
+        }
+    )
 
 
 def _validate_rebuttal_evidence_refs(

@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -6,6 +7,7 @@ import { EvidenceBadge } from "@/components/EvidenceBadge";
 import { buildBidDraftPath, decisionToEstimateInput } from "@/lib/bidIntegrationMapping";
 import { Zap, Target } from "lucide-react";
 import { estimateBid, formatSEK } from "@/lib/bidEstimator";
+import { fetchCompany } from "@/lib/api";
 import type { DecisionSummary } from "@/data/mock";
 
 interface Props {
@@ -17,7 +19,15 @@ interface Props {
 
 export function BidRecommendation({ decision, heading, className }: Props) {
   const navigate = useNavigate();
-  const e = estimateBid(decisionToEstimateInput(decision, decision.tenderId));
+  const { data: companyData } = useQuery({
+    queryKey: ["company"],
+    queryFn: fetchCompany,
+  });
+  if (!companyData) return null;
+  const e = estimateBid(
+    decisionToEstimateInput(decision, decision.tenderId),
+    companyData.company,
+  );
   const bidPath = buildBidDraftPath(decision);
 
   const handleUseAsDraft = () => {
