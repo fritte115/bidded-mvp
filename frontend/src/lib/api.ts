@@ -456,13 +456,12 @@ export async function updateCompany(c: Company): Promise<void> {
     throw new Error(MOCK_MODE_WRITE_MESSAGE);
   }
 
-  const client = requireSupabase();
-  const { error } = await client
-    .from("companies")
-    .update(mapCompanyToDbUpdate(c))
-    .eq("tenant_key", "demo");
-
-  if (error) throw new Error(`updateCompany: ${error.message}`);
+  const res = await fetch(`${AGENT_API_URL}/api/company/profile`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(mapCompanyToDbUpdate(c)),
+  });
+  await parseAgentResponse<{ company_id: string; evidence_count: number }>(res);
 }
 
 // ---------------------------------------------------------------------------
@@ -997,6 +996,7 @@ function mapEvidenceRow(
   referencedBy: AgentName[],
 ): Evidence {
   const sm = (row.source_metadata as Record<string, string>) ?? {};
+  const sourceLabel = evidenceSourceLabel(sm);
   return {
     id: row.evidence_key as string,
     key: row.evidence_key as string,
@@ -1004,13 +1004,35 @@ function mapEvidenceRow(
       (EVIDENCE_CAT_MAP[row.category as string] as EvidenceCategory) ??
       (row.category as EvidenceCategory),
     excerpt: row.excerpt as string,
-    source: sm.source_label ?? "Unknown",
+    source: sourceLabel,
     page: (row.page_start as number) ?? 0,
     referencedBy,
     kind: (row.source_type as "tender_document" | "company_profile") ??
       "tender_document",
     companyFieldPath: (row.field_path as string) ?? undefined,
   };
+}
+
+const KB_DOCUMENT_TYPE_LABELS: Record<string, string> = {
+  certification: "Certification",
+  case_study: "Case study",
+  cv_profile: "CV/profile",
+  capability_statement: "Capability statement",
+  policy_process: "Policy/process",
+  financial_pricing: "Financial/pricing",
+  legal_insurance: "Legal/insurance",
+};
+
+function evidenceSourceLabel(sourceMetadata: Record<string, string>): string {
+  if (sourceMetadata.kb_document_type) {
+    const filename =
+      sourceMetadata.original_filename || sourceMetadata.source_label || "Company KB";
+    const documentType =
+      KB_DOCUMENT_TYPE_LABELS[sourceMetadata.kb_document_type] ??
+      sourceMetadata.kb_document_type;
+    return `${filename} · ${documentType}`;
+  }
+  return sourceMetadata.source_label ?? "Unknown";
 }
 
 // ---------------------------------------------------------------------------
@@ -1101,7 +1123,7 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
     .select(
       `id, status, started_at, completed_at, metadata, tender_id, company_id,
        tenders!inner(title),
-       bid_decisions(verdict, confidence, final_decision)`,
+       bid_decisions(verdict, confidence, final_decision, metadata)`,
     )
     .eq("id", runId)
     .single();
@@ -1166,14 +1188,20 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
     evidenceRows = (evData ?? []) as Record<string, unknown>[];
   }
 
-  // Build UUID → evidence_key map for judge output evidence_ids
+  const snapshotEvidenceRows = decisionEvidenceSnapshotRows(bd);
+  const displayEvidenceRows = mergeEvidenceRows(evidenceRows, snapshotEvidenceRows);
+
+  // Build UUID → evidence_key map for judge output evidence_ids, including
+  // decision snapshots for hard-deleted company KB source documents.
   const evidenceIdToKey = new Map<string, string>(
-    evidenceRows.map((r) => [r.id as string, r.evidence_key as string]),
+    displayEvidenceRows.flatMap((r) =>
+      r.id && r.evidence_key ? [[String(r.id), String(r.evidence_key)]] : [],
+    ),
   );
 
   const referencedByMap = buildReferencedByMap(outputs);
 
-  const evidence: Evidence[] = evidenceRows.map((r) =>
+  const evidence: Evidence[] = displayEvidenceRows.map((r) =>
     mapEvidenceRow(r, referencedByMap.get(r.evidence_key as string) ?? []),
   );
 
@@ -1243,6 +1271,42 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
     round2,
     judge,
   };
+}
+
+function decisionEvidenceSnapshotRows(
+  decisionRow: Record<string, unknown> | null | undefined,
+): Record<string, unknown>[] {
+  const metadata = decisionRow?.metadata;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return [];
+  }
+  const snapshot = (metadata as Record<string, unknown>).evidence_snapshot;
+  if (!Array.isArray(snapshot)) return [];
+  return snapshot.filter(
+    (row): row is Record<string, unknown> =>
+      Boolean(row && typeof row === "object" && !Array.isArray(row)),
+  );
+}
+
+function mergeEvidenceRows(
+  liveRows: Record<string, unknown>[],
+  snapshotRows: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  const seenIds = new Set(liveRows.map((row) => row.id).filter(Boolean).map(String));
+  const seenKeys = new Set(
+    liveRows.map((row) => row.evidence_key).filter(Boolean).map(String),
+  );
+  const merged = [...liveRows];
+  for (const snapshotRow of snapshotRows) {
+    const id = snapshotRow.id == null ? null : String(snapshotRow.id);
+    const key =
+      snapshotRow.evidence_key == null ? null : String(snapshotRow.evidence_key);
+    if ((id && seenIds.has(id)) || (key && seenKeys.has(key))) continue;
+    merged.push(snapshotRow);
+    if (id) seenIds.add(id);
+    if (key) seenKeys.add(key);
+  }
+  return merged;
 }
 
 // ---------------------------------------------------------------------------
@@ -1551,4 +1615,106 @@ export async function startAgentRun(tenderId: string): Promise<string> {
   }
   const data = (await res.json()) as { run_id: string };
   return data.run_id;
+}
+
+export type CompanyKbDocumentType =
+  | "certification"
+  | "case_study"
+  | "cv_profile"
+  | "capability_statement"
+  | "policy_process"
+  | "financial_pricing"
+  | "legal_insurance";
+
+export interface CompanyKbUploadItem {
+  file: File;
+  kbDocumentType: CompanyKbDocumentType;
+}
+
+export interface CompanyKbDocument {
+  document_id: string;
+  company_id: string;
+  original_filename: string;
+  storage_path: string;
+  content_type: string;
+  parse_status: "pending" | "parsing" | "parsed" | "parser_failed";
+  kb_document_type: CompanyKbDocumentType;
+  extraction_status: "pending" | "parsing" | "extracted" | "fallback" | "failed";
+  evidence_count: number;
+  warnings: string[];
+}
+
+export interface CompanyKbEvidenceItem {
+  evidence_key: string;
+  excerpt: string;
+  normalized_meaning?: string;
+  category: string;
+  confidence: number;
+  source_metadata?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CompanyKbDocumentsResponse {
+  documents: CompanyKbDocument[];
+}
+
+export interface CompanyKbEvidenceResponse {
+  evidence: CompanyKbEvidenceItem[];
+}
+
+export async function uploadCompanyKbDocuments(
+  items: CompanyKbUploadItem[],
+): Promise<CompanyKbDocumentsResponse> {
+  if (isMockMode()) {
+    throw new Error(MOCK_MODE_WRITE_MESSAGE);
+  }
+  const form = new FormData();
+  for (const item of items) {
+    form.append("files", item.file);
+    form.append("kb_document_types", item.kbDocumentType);
+  }
+  const res = await fetch(`${AGENT_API_URL}/api/company/kb/documents`, {
+    method: "POST",
+    body: form,
+  });
+  return parseAgentResponse<CompanyKbDocumentsResponse>(res);
+}
+
+export async function fetchCompanyKbDocuments(): Promise<CompanyKbDocumentsResponse> {
+  if (isMockMode()) {
+    return { documents: [] };
+  }
+  const res = await fetch(`${AGENT_API_URL}/api/company/kb/documents`);
+  return parseAgentResponse<CompanyKbDocumentsResponse>(res);
+}
+
+export async function fetchCompanyKbEvidence(
+  documentId: string,
+): Promise<CompanyKbEvidenceResponse> {
+  if (isMockMode()) {
+    return { evidence: [] };
+  }
+  const res = await fetch(
+    `${AGENT_API_URL}/api/company/kb/documents/${documentId}/evidence`,
+  );
+  return parseAgentResponse<CompanyKbEvidenceResponse>(res);
+}
+
+export async function deleteCompanyKbDocument(documentId: string): Promise<void> {
+  if (isMockMode()) {
+    throw new Error(MOCK_MODE_WRITE_MESSAGE);
+  }
+  const res = await fetch(
+    `${AGENT_API_URL}/api/company/kb/documents/${documentId}`,
+    { method: "DELETE" },
+  );
+  await parseAgentResponse<{ deleted: boolean }>(res);
+}
+
+async function parseAgentResponse<T>(res: Response): Promise<T> {
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
+  }
+  return (await res.json()) as T;
 }

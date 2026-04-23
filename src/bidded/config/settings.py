@@ -33,6 +33,7 @@ class BiddedSettings(BaseSettings):
     supabase_url: str | None = None
     supabase_service_role_key: str | None = None
     supabase_storage_bucket: str = "public-procurements"
+    company_kb_storage_bucket: str = "company-knowledge"
     embedding_provider: str = DEFAULT_LIVE_EMBEDDING_PROVIDER
     embedding_model: str = DEFAULT_LIVE_EMBEDDING_MODEL
     embedding_dimensions: int = DOCUMENT_CHUNK_EMBEDDING_DIMENSIONS

@@ -514,6 +514,20 @@ def test_judge_gates_formal_compliance_blockers_to_no_bid_and_persists() -> None
         "round_name": "final_decision",
         "output_type": "decision",
     } in persisted["metadata"]["source_agent_outputs"]
+    snapshot = persisted["metadata"]["evidence_snapshot"]
+    company_snapshot = next(
+        item for item in snapshot if item["evidence_id"] == str(COMPANY_EVIDENCE_ID)
+    )
+    assert company_snapshot["evidence_key"] == "COMPANY-CERT-001"
+    assert company_snapshot["source_type"] == "company_profile"
+    assert company_snapshot["excerpt"] == (
+        "The company maintains ISO 27001 certification."
+    )
+    assert company_snapshot["source_metadata"] == {"source_label": "Company profile"}
+    assert company_snapshot["metadata"] == {}
+    assert all(
+        item["evidence_id"] in persisted["evidence_ids"] for item in snapshot
+    )
 
 
 def test_judge_may_override_majority_without_hard_blocker() -> None:
