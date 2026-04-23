@@ -315,7 +315,6 @@ export default function Procurements() {
   const { data: pageData = [], isLoading } = useQuery({
     queryKey: ["procurements", page],
     queryFn: () => fetchProcurements(page, PAGE_SIZE),
-    refetchInterval: 10_000,
   });
 
   // Merge pages: on page 0 reset, on subsequent pages append
