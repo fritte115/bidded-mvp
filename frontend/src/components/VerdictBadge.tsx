@@ -23,7 +23,7 @@ export function VerdictBadge({
     <span
       title={verdictLabel[verdict]}
       className={cn(
-        "inline-flex shrink-0 items-center whitespace-nowrap rounded-sm border font-semibold tracking-wide uppercase",
+        "inline-flex shrink-0 items-center whitespace-nowrap rounded-sm border font-semibold",
         size === "sm" && "px-2 py-0.5 text-[11px]",
         size === "md" && "px-2.5 py-1 text-xs",
         size === "lg" && "px-3 py-1.5 text-sm",

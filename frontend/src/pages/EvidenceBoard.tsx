@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/select";
 import { EvidenceBadge } from "@/components/EvidenceBadge";
 import { fetchEvidenceBoard } from "@/lib/api";
-import type { EvidenceCategory } from "@/data/mock";
+import { runDisplayId, type EvidenceCategory } from "@/data/mock";
 import { ArrowLeft } from "lucide-react";
 
 const cats: ("all" | EvidenceCategory)[] = [
@@ -49,7 +49,7 @@ export default function EvidenceBoard() {
     <>
       <PageHeader
         title="Evidence Board"
-        description={`Indexed evidence for run ${id.slice(0, 8)}…`}
+        description={`Indexed evidence for ${runDisplayId(id)}`}
         actions={
           <Button asChild variant="outline">
             <Link to={`/runs/${id}`}>

@@ -1,4 +1,5 @@
 import { PageHeader } from "@/components/PageHeader";
+import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -22,6 +23,7 @@ import {
   Shield,
 } from "lucide-react";
 import biddedLogo from "@/assets/bidded-logo.png";
+import { usePermissions } from "@/lib/auth";
 
 type Member = {
   name: string;
@@ -50,7 +52,7 @@ type Integration = {
 };
 
 const integrations: Integration[] = [
-  { name: "Slack", description: "Post BID verdicts to #bids", icon: Slack, connected: true },
+  { name: "Slack", description: "Post Bid verdicts to #bids", icon: Slack, connected: true },
   { name: "Microsoft Teams", description: "Channel notifications", icon: MessageSquare, connected: false },
   { name: "TED EU", description: "European procurement feed", icon: DatabaseIcon, connected: true },
   { name: "Visma Opic", description: "Swedish procurement source", icon: DatabaseIcon, connected: true },
@@ -71,6 +73,21 @@ function StatPill({ value, label }: { value: string; label: string }) {
 }
 
 export default function Settings() {
+  const permissions = usePermissions();
+
+  if (!permissions.canManageTeam) {
+    return (
+      <>
+        <PageHeader title="Settings" />
+        <EmptyState
+          icon={Shield}
+          title="Admin access required"
+          description="Workspace, billing, integrations, and team access are limited to admins."
+        />
+      </>
+    );
+  }
+
   return (
     <>
       <PageHeader title="Settings" description="Configure workspace, team, integrations, models, and billing." />
@@ -169,7 +186,7 @@ export default function Settings() {
           <CardContent className="space-y-3">
             {[
               { id: "n1", label: "Email on run complete", desc: "Get an email when an analysis finishes", on: true },
-              { id: "n2", label: "Slack on BID verdict", desc: "Post to #bids when a BID is recommended", on: true },
+              { id: "n2", label: "Slack on Bid verdict", desc: "Post to #bids when a Bid is recommended", on: true },
               { id: "n3", label: "Weekly digest", desc: "Monday morning summary of last week", on: false },
               { id: "n4", label: "Deadline reminders", desc: "Notify 7 days before tender deadline", on: true },
             ].map((n) => (

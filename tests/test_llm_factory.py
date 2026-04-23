@@ -29,11 +29,21 @@ def test_resolve_auto_uses_anthropic_when_key_present(
 ) -> None:
     from bidded.llm import anthropic_swarm
 
-    captured: dict[str, str] = {}
+    captured: dict[str, str | None] = {}
 
-    def fake_anthropic_handlers(*, api_key: str, model: str):
+    def fake_anthropic_handlers(
+        *,
+        api_key: str,
+        model: str,
+        fast_model: str | None = None,
+        reasoning_model: str | None = None,
+        model_routing: str = "mixed",
+    ):
         captured["api_key"] = api_key
         captured["model"] = model
+        captured["fast_model"] = fast_model
+        captured["reasoning_model"] = reasoning_model
+        captured["model_routing"] = model_routing
         return evidence_locked_graph_handlers()
 
     monkeypatch.setattr(
@@ -52,6 +62,9 @@ def test_resolve_auto_uses_anthropic_when_key_present(
     assert captured == {
         "api_key": "sk-ant-test-key",
         "model": "claude-sonnet-4-6",
+        "fast_model": "claude-haiku-4-5",
+        "reasoning_model": "claude-sonnet-4-6",
+        "model_routing": "mixed",
     }
 
 
@@ -76,6 +89,54 @@ def test_resolve_anthropic_with_key_uses_anthropic_handlers(
     h = resolve_graph_handlers(settings)
     assert h.evidence_scout is not None
     assert h.round_1_specialist is not None
+
+
+def test_resolve_anthropic_passes_explicit_mixed_models(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from bidded.llm import anthropic_swarm
+
+    captured: dict[str, str | None] = {}
+
+    def fake_anthropic_handlers(
+        *,
+        api_key: str,
+        model: str,
+        fast_model: str | None = None,
+        reasoning_model: str | None = None,
+        model_routing: str = "mixed",
+    ):
+        captured["api_key"] = api_key
+        captured["model"] = model
+        captured["fast_model"] = fast_model
+        captured["reasoning_model"] = reasoning_model
+        captured["model_routing"] = model_routing
+        return evidence_locked_graph_handlers()
+
+    monkeypatch.setattr(
+        anthropic_swarm,
+        "anthropic_graph_handlers",
+        fake_anthropic_handlers,
+    )
+
+    resolve_graph_handlers(
+        BiddedSettings(
+            anthropic_api_key="sk-ant-test-key",
+            bidded_swarm_backend="anthropic",
+            bidded_anthropic_model="claude-sonnet-legacy",
+            bidded_anthropic_fast_model="claude-haiku-fast",
+            bidded_anthropic_reasoning_model="claude-sonnet-reasoning",
+            bidded_anthropic_model_routing="mixed",
+        )
+    )
+
+    assert captured == {
+        "api_key": "sk-ant-test-key",
+        "model": "claude-sonnet-legacy",
+        "fast_model": "claude-haiku-fast",
+        "reasoning_model": "claude-sonnet-reasoning",
+        "model_routing": "mixed",
+    }
 
 
 def test_resolve_evidence_locked_even_if_key_present(

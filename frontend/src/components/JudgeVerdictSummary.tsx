@@ -3,7 +3,7 @@ import { EvidenceBadge } from "@/components/EvidenceBadge";
 import { VerdictBadge } from "@/components/VerdictBadge";
 import { formatJudgeMemo } from "@/lib/judgeMemo";
 import { cn } from "@/lib/utils";
-import type { Verdict } from "@/data/mock";
+import { verdictLabel, type Verdict } from "@/data/mock";
 
 type VoteSummary = {
   BID: number;
@@ -33,7 +33,7 @@ function renderMemoText(text: string, onCitationClick?: CitationClickHandler) {
         />
       );
     }
-    return <span key={index}>{part}</span>;
+    return <EmphasizedVerdictText key={index} text={part} />;
   });
 }
 
@@ -53,7 +53,7 @@ export function JudgeMemo({
   return (
     <div className={cn("space-y-3", className)}>
       <h3 className="text-base font-semibold leading-snug text-foreground">
-        {title}
+        {renderMemoText(title, onCitationClick)}
       </h3>
       {blocks.length > 0 && (
         <div className="space-y-3 text-sm leading-relaxed text-foreground">
@@ -134,10 +134,10 @@ export function JudgeVerdictSummary({
 function VoteSummaryChips({ voteSummary }: { voteSummary: VoteSummary }) {
   return (
     <div className="flex flex-wrap gap-1.5 sm:justify-end">
-      <VoteChip label="BID" count={voteSummary.BID} tone="success" />
-      <VoteChip label="NO BID" count={voteSummary.NO_BID} tone="danger" />
+      <VoteChip label={verdictLabel.BID} count={voteSummary.BID} tone="success" />
+      <VoteChip label={verdictLabel.NO_BID} count={voteSummary.NO_BID} tone="danger" />
       <VoteChip
-        label="COND."
+        label={verdictLabel.CONDITIONAL_BID}
         count={voteSummary.CONDITIONAL_BID}
         tone="warning"
       />
@@ -169,7 +169,19 @@ function VoteChip({
       )}
     >
       <span className="font-mono tabular-nums">{count}</span>
-      <span className="uppercase tracking-wide">{label}</span>
+      <span>{label}</span>
     </div>
+  );
+}
+
+function EmphasizedVerdictText({ text }: { text: string }) {
+  return text.split(/(\bnot bid\b)/i).map((part, index) =>
+    part.toLowerCase() === "not bid" ? (
+      <em key={index} className="font-medium">
+        {part.toLowerCase()}
+      </em>
+    ) : (
+      <span key={index}>{part}</span>
+    ),
   );
 }

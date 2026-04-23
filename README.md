@@ -459,7 +459,10 @@ status, export och fallback-replay finns i
 | Variabel | Används av | Kommentar |
 | --- | --- | --- |
 | `BIDDED_SWARM_BACKEND` | Python worker/API | Default `auto`: använder Anthropic-handlers när `ANTHROPIC_API_KEY` finns och annars deterministiska `evidence_locked`-handlers. Sätt `evidence_locked` för offline/test och `anthropic` för fail-fast livekrav. |
-| `BIDDED_ANTHROPIC_MODEL` | Python worker/API Anthropic swarm | Valfri modelloverride för swarmen; default dokumenteras i `.env.example`. |
+| `BIDDED_ANTHROPIC_MODEL` | Python worker/API Anthropic swarm | Legacy/single-modell och fallback för reasoning-modellen; default dokumenteras i `.env.example`. |
+| `BIDDED_ANTHROPIC_FAST_MODEL` | Python worker/API Anthropic swarm | Modell för bounded/low-risk steg i mixed routing, till exempel Evidence Scout, Win Strategist och Delivery/CFO. |
+| `BIDDED_ANTHROPIC_REASONING_MODEL` | Python worker/API Anthropic swarm | Modell för high-stakes steg i mixed routing, till exempel Judge, Red Team och blocker-risk. Defaultar till `BIDDED_ANTHROPIC_MODEL`. |
+| `BIDDED_ANTHROPIC_MODEL_ROUTING` | Python worker/API Anthropic swarm | Default `mixed`; sätt `single` för att tvinga alla Anthropic-steg till `BIDDED_ANTHROPIC_MODEL`. |
 | `ANTHROPIC_API_KEY` | Python worker/API Claude swarm | När nyckeln finns och ingen backend override är satt kör worker/API den riktiga Anthropic-swarmvägen. |
 
 ## Utvecklingsflöde Idag
