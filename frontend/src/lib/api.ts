@@ -325,6 +325,7 @@ function mockProcurementRows(): ProcurementRow[] {
       })),
     documentCount: procurement.documents.length,
     latestRun: mockProcurementLatestRun(procurement.id),
+    hasRunHistory: mockRuns.some((run) => run.tenderId === procurement.id),
   }));
 }
 
@@ -1189,6 +1190,7 @@ export interface ProcurementRow {
   documents: ProcurementDocumentRow[];
   documentCount: number;
   latestRun: ProcurementLatestRun | null;
+  hasRunHistory: boolean;
 }
 
 function metadataParseNote(metadata: unknown): string | null {
@@ -1306,6 +1308,7 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
       documents: documentRows,
       documentCount: docs.length,
       latestRun: latestRunPayload,
+      hasRunHistory: runs.length > 0,
     };
   });
 }
@@ -1357,6 +1360,20 @@ export async function deleteProcurement(tenderId: string): Promise<void> {
   }
 
   const client = requireSupabase();
+  const { count: runCount, error: runCountErr } = await client
+    .from("agent_runs")
+    .select("id", { head: true, count: "exact" })
+    .eq("tender_id", tenderId)
+    .eq("tenant_key", "demo");
+  if (runCountErr) {
+    throw new Error(`deleteProcurement (count runs): ${runCountErr.message}`);
+  }
+  if ((runCount ?? 0) > 0) {
+    throw new Error(
+      "This procurement cannot be deleted because it has run history. Bidded preserves immutable run audit rows, so procurements with linked runs must remain in place.",
+    );
+  }
+
   const { data: docRows, error: docListErr } = await client
     .from("documents")
     .select("storage_path")

@@ -59,6 +59,8 @@ import {
 } from "@/components/ui/alert-dialog";
 
 type RunFilter = "all" | "not_run" | "running" | "done";
+const DELETE_BLOCKED_REASON =
+  "This procurement has run history. Bidded preserves linked run audit rows, so it cannot be hard-deleted.";
 
 export default function Procurements() {
   const navigate = useNavigate();
@@ -429,19 +431,40 @@ export default function Procurements() {
                               </>
                             )}
                             {permissions.canDeleteProcurements && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 text-muted-foreground hover:text-destructive"
-                                disabled={deletingId === t.id}
-                                onClick={() => setPendingDelete({ id: t.id, name: t.name })}
-                              >
-                                {deletingId === t.id ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <Trash2 className="h-3 w-3" />
-                                )}
-                              </Button>
+                              t.hasRunHistory ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="inline-flex" tabIndex={0}>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 text-muted-foreground hover:text-destructive"
+                                        disabled
+                                        aria-label="Delete unavailable"
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                      </Button>
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="max-w-xs text-xs">
+                                    {DELETE_BLOCKED_REASON}
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 text-muted-foreground hover:text-destructive"
+                                  disabled={deletingId === t.id}
+                                  onClick={() => setPendingDelete({ id: t.id, name: t.name })}
+                                >
+                                  {deletingId === t.id ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-3 w-3" />
+                                  )}
+                                </Button>
+                              )
                             )}
                           </div>
                         </TableCell>
