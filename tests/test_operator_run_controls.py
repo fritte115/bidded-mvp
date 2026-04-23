@@ -10,6 +10,7 @@ from bidded.orchestration import AgentRunStatus
 from bidded.orchestration.run_controls import (
     DemoTraceEntry,
     RunControlError,
+    archive_agent_run,
     get_run_status,
     reset_stale_runs,
     retry_agent_run,
@@ -324,6 +325,64 @@ def test_reset_stale_marks_only_old_running_runs_failed_with_reason() -> None:
         "max_age_minutes": 30,
         "stale_age_minutes": 60,
     }
+
+
+def test_archive_agent_run_marks_run_archived_without_touching_audit_rows() -> None:
+    client = RecordingRunControlClient()
+
+    result = archive_agent_run(
+        client,
+        run_id=RUN_ID,
+        reason="clear stale run from operator dashboard",
+        now_factory=lambda: datetime(2026, 4, 19, 10, 30, tzinfo=UTC),
+    )
+
+    assert result.run_id == RUN_ID
+    assert result.archived_at == "2026-04-19T10:30:00+00:00"
+    assert result.already_archived is False
+    assert client.rows["agent_runs"][0]["archived_at"] == "2026-04-19T10:30:00+00:00"
+    assert client.rows["agent_runs"][0]["archived_reason"] == (
+        "clear stale run from operator dashboard"
+    )
+
+    update_payload, update_filters = client.updates["agent_runs"][0]
+    assert ("id", str(RUN_ID)) in update_filters
+    assert update_payload["archived_at"] == "2026-04-19T10:30:00+00:00"
+    assert update_payload["archived_reason"] == (
+        "clear stale run from operator dashboard"
+    )
+    assert update_payload["metadata"]["operator_control"] == {
+        "action": "archive_run",
+        "reason": "clear stale run from operator dashboard",
+        "requested_at": "2026-04-19T10:30:00+00:00",
+    }
+    assert "agent_outputs" not in client.updates
+    assert "bid_decisions" not in client.updates
+
+
+def test_archive_agent_run_is_idempotent_for_already_archived_runs() -> None:
+    client = RecordingRunControlClient()
+    client.rows["agent_runs"][0]["archived_at"] = "2026-04-18T10:00:00+00:00"
+    client.rows["agent_runs"][0]["archived_reason"] = "already hidden"
+
+    result = archive_agent_run(
+        client,
+        run_id=RUN_ID,
+        reason="clear stale run from operator dashboard",
+        now_factory=lambda: datetime(2026, 4, 19, 10, 30, tzinfo=UTC),
+    )
+
+    assert result.run_id == RUN_ID
+    assert result.archived_at == "2026-04-18T10:00:00+00:00"
+    assert result.already_archived is True
+    assert "agent_runs" not in client.updates
+
+
+def test_archive_agent_run_requires_reason() -> None:
+    client = RecordingRunControlClient()
+
+    with pytest.raises(RunControlError, match="reason"):
+        archive_agent_run(client, run_id=RUN_ID, reason=" ")
 
 
 def test_retry_reports_insert_persistence_failure() -> None:

@@ -1,5 +1,7 @@
-import { Link, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,9 +28,10 @@ import { EvidenceBadge } from "@/components/EvidenceBadge";
 import { AgentMotionCard } from "@/components/AgentMotionCard";
 import { JudgeVerdictSummary } from "@/components/JudgeVerdictSummary";
 import { PipelineStep, type StepState } from "@/components/PipelineStep";
-import { fetchRunDetail } from "@/lib/api";
+import { archiveAgentRun, fetchRunDetail } from "@/lib/api";
 import type { EvidenceCategory } from "@/data/mock";
 import {
+  Archive,
   ArrowLeft,
   Download,
   RefreshCw,
@@ -70,6 +73,9 @@ function runDisplayId(id: string): string {
 
 export default function RunDetail() {
   const { id = "" } = useParams();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [isArchiving, setIsArchiving] = useState(false);
 
   const { data: run, isLoading } = useQuery({
     queryKey: ["run-detail", id],
@@ -78,9 +84,11 @@ export default function RunDetail() {
     refetchInterval: (query) => {
       const run = query.state.data;
       const status = run?.status;
-      return !run?.isStale && (status === "running" || status === "pending")
-        ? 5_000
-        : false;
+      const shouldRefetch =
+        !run?.isArchived &&
+        !run?.isStale &&
+        (status === "running" || status === "pending");
+      return shouldRefetch ? 5_000 : false;
     },
   });
 
@@ -109,6 +117,9 @@ export default function RunDetail() {
   const currentStep = stageRank[run.stage] ?? 1;
 
   const stepStates = (function (): Record<1 | 2 | 3 | 4, StepState> {
+    if (run.isArchived) {
+      return { 1: "pending", 2: "pending", 3: "pending", 4: "pending" };
+    }
     if (run.status === "succeeded") {
       return { 1: "completed", 2: "completed", 3: "completed", 4: "completed" };
     }
@@ -140,6 +151,30 @@ export default function RunDetail() {
     cat,
     items: run.evidence.filter((e) => e.category === cat),
   }));
+
+  async function handleArchiveRun() {
+    setIsArchiving(true);
+    try {
+      await archiveAgentRun(run.id, "operator archived run from detail view");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["active-runs"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] }),
+        queryClient.invalidateQueries({ queryKey: ["decisions"] }),
+        queryClient.invalidateQueries({ queryKey: ["procurements"] }),
+        queryClient.invalidateQueries({ queryKey: ["compare-rows"] }),
+        queryClient.invalidateQueries({ queryKey: ["bids"] }),
+        queryClient.invalidateQueries({ queryKey: ["run-detail", run.id] }),
+      ]);
+      toast.success("Run archived");
+      navigate("/procurements");
+    } catch (err) {
+      toast.error("Archive failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setIsArchiving(false);
+    }
+  }
 
   return (
     <>
@@ -179,14 +214,24 @@ export default function RunDetail() {
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {run.isStale
-                    ? "The worker is no longer updating this run. Delete it or start a fresh run."
+                    ? "The worker is no longer updating this run. Archive it or start a fresh run."
                     : "The orchestrator stopped before a decision could be reached. Review inputs and re-run."}
                 </p>
               </div>
             </div>
-            <Button variant="outline" size="sm" className="shrink-0">
-              <RefreshCw className="h-3 w-3" /> Re-run
-            </Button>
+            <div className="flex shrink-0 gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleArchiveRun}
+                disabled={isArchiving}
+              >
+                <Archive className="h-3 w-3" /> Archive
+              </Button>
+              <Button variant="outline" size="sm">
+                <RefreshCw className="h-3 w-3" /> Re-run
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}

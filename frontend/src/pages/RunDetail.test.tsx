@@ -7,6 +7,7 @@ import RunDetail from "@/pages/RunDetail";
 import { fetchRunDetail, type RunDetail as RunDetailModel } from "@/lib/api";
 
 vi.mock("@/lib/api", () => ({
+  archiveAgentRun: vi.fn(),
   fetchRunDetail: vi.fn(),
 }));
 
@@ -20,6 +21,7 @@ const run: RunDetailModel = {
   durationSec: 600,
   status: "succeeded",
   isStale: false,
+  isArchived: false,
   staleAgeMinutes: null,
   stage: "Judge",
   decision: "BID",

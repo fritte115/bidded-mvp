@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -21,9 +22,10 @@ import {
   fetchDashboardStats,
   fetchActiveRuns,
   fetchDecisions,
-  deleteAgentRun,
+  archiveAgentRun,
 } from "@/lib/api";
 import {
+  Archive,
   FileText,
   Files,
   PlayCircle,
@@ -31,7 +33,6 @@ import {
   FileSignature,
   ChevronDown,
   ChevronUp,
-  Trash2,
   Target,
 } from "lucide-react";
 
@@ -61,7 +62,7 @@ export default function Dashboard() {
   });
 
   const [collapsed, setCollapsed] = useState(false);
-  const [deleting, setDeleting] = useState<Set<string>>(new Set());
+  const [archiving, setArchiving] = useState<Set<string>>(new Set());
 
   const avgConfidence =
     decisions.length > 0
@@ -70,14 +71,25 @@ export default function Dashboard() {
 
   const recentDecisions = decisions.slice(0, 3);
 
-  async function handleDelete(id: string) {
-    setDeleting((prev) => new Set(prev).add(id));
+  async function handleArchive(id: string) {
+    setArchiving((prev) => new Set(prev).add(id));
     try {
-      await deleteAgentRun(id);
-      await queryClient.invalidateQueries({ queryKey: ["active-runs"] });
-      await queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      await archiveAgentRun(id, "operator archived run from dashboard");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["active-runs"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] }),
+        queryClient.invalidateQueries({ queryKey: ["decisions"] }),
+        queryClient.invalidateQueries({ queryKey: ["procurements"] }),
+        queryClient.invalidateQueries({ queryKey: ["compare-rows"] }),
+        queryClient.invalidateQueries({ queryKey: ["bids"] }),
+      ]);
+      toast.success("Run archived");
+    } catch (err) {
+      toast.error("Archive failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
     } finally {
-      setDeleting((prev) => {
+      setArchiving((prev) => {
         const next = new Set(prev);
         next.delete(id);
         return next;
@@ -178,11 +190,11 @@ export default function Dashboard() {
                         r.status === "failed" ||
                         r.status === "needs_human_review" ||
                         r.isStale;
-                      const isDeleting = deleting.has(r.id);
+                      const isArchiving = archiving.has(r.id);
                       return (
                         <TableRow
                           key={r.id}
-                          className={isDeleting ? "opacity-40 transition-opacity duration-300" : ""}
+                          className={isArchiving ? "opacity-40 transition-opacity duration-300" : ""}
                         >
                           <TableCell className="text-sm font-medium">
                             {shortRunId(r.id)}
@@ -220,12 +232,12 @@ export default function Dashboard() {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
-                                  onClick={() => handleDelete(r.id)}
-                                  disabled={isDeleting}
-                                  title="Delete run"
+                                  className="h-8 w-8 p-0 text-muted-foreground hover:text-primary"
+                                  onClick={() => handleArchive(r.id)}
+                                  disabled={isArchiving}
+                                  title="Archive run"
                                 >
-                                  <Trash2 className="h-3.5 w-3.5" />
+                                  <Archive className="h-3.5 w-3.5" />
                                 </Button>
                               )}
                             </div>

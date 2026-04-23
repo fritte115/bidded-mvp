@@ -63,6 +63,19 @@ def _pgvector_search_sql() -> str:
     return migration_files[0].read_text()
 
 
+def _agent_run_archive_sql() -> str:
+    migration_files = sorted(
+        (PROJECT_ROOT / "supabase" / "migrations").glob(
+            "*_add_agent_run_archive.sql"
+        )
+    )
+
+    assert [path.name for path in migration_files] == [
+        "20260423113000_add_agent_run_archive.sql"
+    ]
+    return migration_files[0].read_text()
+
+
 def _table_body(sql: str, table_name: str) -> str:
     match = re.search(
         rf"create table if not exists public\.{table_name}\s*\((?P<body>.*?)\);",
@@ -221,6 +234,30 @@ def test_agent_runs_track_lifecycle_targets_and_runtime_metadata() -> None:
         ),
     ]:
         assert required_fragment in table_body
+
+
+def test_agent_run_archive_migration_adds_soft_archive_contract() -> None:
+    sql = _agent_run_archive_sql().lower()
+    normalized_sql = re.sub(r"\s+", " ", sql)
+
+    for required_fragment in [
+        "alter table if exists public.agent_runs",
+        "add column if not exists archived_at timestamptz",
+        "add column if not exists archived_reason text",
+        "to_regclass('public.agent_runs') is not null",
+        (
+            "constraint agent_runs_archived_reason_check "
+            "check (archived_reason is null or archived_reason <> '')"
+        ),
+        (
+            "create index if not exists agent_runs_unarchived_status_idx "
+            "on public.agent_runs (status, created_at desc) where archived_at is null"
+        ),
+    ]:
+        assert required_fragment in normalized_sql
+
+    assert "delete from public.agent_runs" not in sql
+    assert "drop trigger agent_outputs_immutable_before_update" not in sql
 
 
 def test_agent_outputs_are_validated_immutable_agent_round_artifacts() -> None:

@@ -158,3 +158,54 @@ def test_start_run_parses_pending_documents_and_starts_worker(
         "document_ids": [DOCUMENT_ID_1, DOCUMENT_ID_2],
     }
     assert captured["workers"] == [(client, RUN_ID, print, {"graph": "handlers"})]
+
+
+def test_archive_run_endpoint_uses_service_role_archive_control(
+    monkeypatch: Any,
+) -> None:
+    client = FakeSupabaseClient()
+    settings = SimpleNamespace(
+        supabase_url="https://example.supabase.co",
+        supabase_service_role_key="service-role",
+    )
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(api_server, "load_settings", lambda: settings)
+    monkeypatch.setitem(
+        sys.modules,
+        "supabase",
+        SimpleNamespace(create_client=lambda _url, _key: client),
+    )
+
+    def record_archive(
+        supabase_client: object,
+        *,
+        run_id: str,
+        reason: str,
+    ) -> SimpleNamespace:
+        captured["client"] = supabase_client
+        captured["run_id"] = run_id
+        captured["reason"] = reason
+        return SimpleNamespace(
+            run_id=RUN_ID,
+            archived_at="2026-04-19T10:30:00+00:00",
+            already_archived=False,
+        )
+
+    monkeypatch.setattr(api_server, "archive_agent_run", record_archive)
+
+    result = api_server.archive_run(
+        RUN_ID,
+        api_server.ArchiveRunRequest(reason="clear stale run"),
+    )
+
+    assert result == {
+        "run_id": RUN_ID,
+        "archived_at": "2026-04-19T10:30:00+00:00",
+        "already_archived": False,
+    }
+    assert captured == {
+        "client": client,
+        "run_id": RUN_ID,
+        "reason": "clear stale run",
+    }

@@ -23,6 +23,7 @@ from bidded.orchestration import (
     create_pending_run_context,
     run_worker_once,
 )
+from bidded.orchestration.run_controls import RunControlError, archive_agent_run
 from bidded.retrieval import RetrievalError
 
 app = FastAPI(title="Bidded Agent API")
@@ -36,6 +37,10 @@ app.add_middleware(
 
 class StartRunRequest(BaseModel):
     tender_id: str
+
+
+class ArchiveRunRequest(BaseModel):
+    reason: str = "operator archived run"
 
 
 @app.get("/api/health")
@@ -53,8 +58,9 @@ def resync_company_evidence() -> dict[str, Any]:
     upsert can bypass RLS on `evidence_items`.
     """
     settings = load_settings()
-    from supabase import create_client  # noqa: PLC0415
     from uuid import UUID  # noqa: PLC0415
+
+    from supabase import create_client  # noqa: PLC0415
 
     client = create_client(settings.supabase_url, settings.supabase_service_role_key)
 
@@ -227,6 +233,29 @@ def start_run(req: StartRunRequest) -> dict[str, str]:
     threading.Thread(target=_run_worker, daemon=True).start()
 
     return {"run_id": run_id}
+
+
+@app.post("/api/runs/{run_id}/archive")
+def archive_run(run_id: str, req: ArchiveRunRequest) -> dict[str, Any]:
+    settings = load_settings()
+    from supabase import create_client  # noqa: PLC0415
+
+    client = create_client(settings.supabase_url, settings.supabase_service_role_key)
+    try:
+        result = archive_agent_run(
+            client,
+            run_id=run_id,
+            reason=req.reason,
+        )
+    except RunControlError as exc:
+        status_code = 404 if "does not exist" in str(exc) else 422
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    return {
+        "run_id": str(result.run_id),
+        "archived_at": result.archived_at,
+        "already_archived": result.already_archived,
+    }
 
 
 # ---------------------------------------------------------------------------

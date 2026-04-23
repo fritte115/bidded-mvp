@@ -87,20 +87,23 @@ function requireSupabase() {
 
 export const STALE_RUN_AFTER_MINUTES = 30;
 export const STALE_RUN_STAGE = "Stale - worker stopped";
+export const ARCHIVED_RUN_STAGE = "Archived";
 
-const MOCK_DELETED_AGENT_RUN_IDS_KEY = "bidded:mock-deleted-agent-run-ids";
+const MOCK_ARCHIVED_AGENT_RUN_IDS_KEY = "bidded:mock-archived-agent-run-ids";
 
 interface RunLifecycleInput {
   status: RunStatus;
   startedAt: string | null | undefined;
   createdAt: string | null | undefined;
   completedAt: string | null | undefined;
+  archivedAt?: string | null | undefined;
   metadata: unknown;
 }
 
 export interface RunLifecycleDisplay {
   isActive: boolean;
   isStale: boolean;
+  isArchived: boolean;
   staleAgeMinutes: number | null;
   stage: string;
 }
@@ -134,10 +137,20 @@ export function runLifecycleForDisplay(
   const status = input.status;
   const isInFlight = status === "running" || status === "pending";
   const fallbackStage = dashboardStageLabel(status, input.metadata);
+  if (input.archivedAt) {
+    return {
+      isActive: false,
+      isStale: false,
+      isArchived: true,
+      staleAgeMinutes: null,
+      stage: ARCHIVED_RUN_STAGE,
+    };
+  }
   if (!isInFlight || input.completedAt) {
     return {
       isActive: false,
       isStale: false,
+      isArchived: false,
       staleAgeMinutes: null,
       stage: fallbackStage,
     };
@@ -148,6 +161,7 @@ export function runLifecycleForDisplay(
     return {
       isActive: true,
       isStale: false,
+      isArchived: false,
       staleAgeMinutes: null,
       stage: fallbackStage,
     };
@@ -160,15 +174,16 @@ export function runLifecycleForDisplay(
   return {
     isActive: !isStale,
     isStale,
+    isArchived: false,
     staleAgeMinutes: isStale ? ageMinutes : null,
     stage: isStale ? STALE_RUN_STAGE : fallbackStage,
   };
 }
 
-function readMockDeletedRunIds(): Set<string> {
+function readMockArchivedRunIds(): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
-    const raw = window.localStorage.getItem(MOCK_DELETED_AGENT_RUN_IDS_KEY);
+    const raw = window.localStorage.getItem(MOCK_ARCHIVED_AGENT_RUN_IDS_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
     return new Set(
       Array.isArray(parsed)
@@ -180,19 +195,19 @@ function readMockDeletedRunIds(): Set<string> {
   }
 }
 
-function hideMockAgentRun(runId: string): void {
+function archiveMockAgentRun(runId: string): void {
   if (typeof window === "undefined") return;
-  const hidden = readMockDeletedRunIds();
-  hidden.add(runId);
+  const archived = readMockArchivedRunIds();
+  archived.add(runId);
   window.localStorage.setItem(
-    MOCK_DELETED_AGENT_RUN_IDS_KEY,
-    JSON.stringify(Array.from(hidden).sort()),
+    MOCK_ARCHIVED_AGENT_RUN_IDS_KEY,
+    JSON.stringify(Array.from(archived).sort()),
   );
 }
 
 function visibleMockRuns(): Run[] {
-  const hidden = readMockDeletedRunIds();
-  return mockRuns.filter((run) => !hidden.has(run.id));
+  const archived = readMockArchivedRunIds();
+  return mockRuns.filter((run) => !archived.has(run.id));
 }
 
 function mockLifecycle(run: Run): RunLifecycleDisplay {
@@ -201,6 +216,7 @@ function mockLifecycle(run: Run): RunLifecycleDisplay {
     startedAt: run.startedAt,
     createdAt: run.startedAt,
     completedAt: run.completedAt ?? null,
+    archivedAt: null,
     metadata: {},
   });
 }
@@ -237,6 +253,7 @@ function mockActiveRuns(): ActiveRun[] {
         completedAt: run.completedAt ?? null,
         durationSec: run.durationSec ?? null,
         isStale: lifecycle.isStale,
+        isArchived: lifecycle.isArchived,
         staleAgeMinutes: lifecycle.staleAgeMinutes,
       };
     })
@@ -269,6 +286,7 @@ function mockProcurementLatestRun(
         : (latestRun.decision ?? null),
     needsJudgeReview: latestRun.status === "needs_human_review",
     isStale: lifecycle.isStale,
+    isArchived: lifecycle.isArchived,
     staleAgeMinutes: lifecycle.staleAgeMinutes,
   };
 }
@@ -376,6 +394,7 @@ function mockRunDetail(runId: string): RunDetail | null {
     status: run.status,
     stage: lifecycle.stage,
     isStale: lifecycle.isStale,
+    isArchived: lifecycle.isArchived,
     staleAgeMinutes: lifecycle.staleAgeMinutes,
     startedAt: run.startedAt,
     completedAt: run.completedAt ?? null,
@@ -973,9 +992,10 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
       .eq("document_role", "tender_document"),
     client
       .from("agent_runs")
-      .select("id, status, started_at, created_at, completed_at, metadata")
+      .select("id, status, started_at, created_at, completed_at, archived_at, metadata")
       .eq("tenant_key", "demo")
-      .in("status", ["running", "pending"]),
+      .in("status", ["running", "pending"])
+      .is("archived_at", null),
   ]);
 
   const activeRuns = ((activeRunsRes.data ?? []) as Record<string, unknown>[]).filter(
@@ -985,6 +1005,7 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
         startedAt: row.started_at as string | null,
         createdAt: row.created_at as string | null,
         completedAt: row.completed_at as string | null,
+        archivedAt: row.archived_at as string | null,
         metadata: row.metadata,
       }).isActive,
   ).length;
@@ -1002,6 +1023,7 @@ export interface ActiveRun {
   tenderName: string;
   status: RunStatus;
   isStale: boolean;
+  isArchived: boolean;
   staleAgeMinutes: number | null;
   /** Human-readable pipeline stage (resolved from metadata + status). */
   stage: string;
@@ -1068,8 +1090,9 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
 
   const { data, error } = await client
     .from("agent_runs")
-    .select("id, status, started_at, created_at, completed_at, metadata, tenders(title)")
+    .select("id, status, started_at, created_at, completed_at, archived_at, metadata, tenders(title)")
     .eq("tenant_key", "demo")
+    .is("archived_at", null)
     .or(
       `status.in.(running,pending),and(status.in.(succeeded,failed,needs_human_review),completed_at.gte.${yesterday})`,
     )
@@ -1096,6 +1119,7 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
       startedAt,
       createdAt,
       completedAt,
+      archivedAt: r.archived_at as string | null,
       metadata: r.metadata,
     });
     return {
@@ -1103,6 +1127,7 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
       tenderName: tender?.title ?? "Unknown procurement",
       status,
       isStale: lifecycle.isStale,
+      isArchived: lifecycle.isArchived,
       staleAgeMinutes: lifecycle.staleAgeMinutes,
       stage: lifecycle.stage,
       startedAt: startedAt ?? createdAt ?? "",
@@ -1121,6 +1146,7 @@ export interface ProcurementLatestRun {
   id: string;
   status: RunStatus;
   isStale: boolean;
+  isArchived: boolean;
   staleAgeMinutes: number | null;
   startedAt: string;
   stage: string;
@@ -1182,6 +1208,8 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
         status,
         started_at,
         created_at,
+        archived_at,
+        archived_reason,
         metadata,
         bid_decisions(verdict)
       )
@@ -1204,13 +1232,15 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
         status: string;
         started_at: string | null;
         created_at: string;
+        archived_at: string | null;
+        archived_reason: string | null;
         metadata: Record<string, unknown>;
         bid_decisions: { verdict: string }[] | { verdict: string } | null;
       }>
     ) ?? [];
 
     // Sort runs by created_at desc, pick latest
-    const latestRun = runs.sort(
+    const latestRun = runs.filter((run) => !run.archived_at).sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
     )[0] ?? null;
 
@@ -1233,12 +1263,14 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
         startedAt: latestRun.started_at,
         createdAt: latestRun.created_at,
         completedAt: null,
+        archivedAt: latestRun.archived_at,
         metadata: latestRun.metadata,
       });
       latestRunPayload = {
         id: latestRun.id,
         status,
         isStale: lifecycle.isStale,
+        isArchived: lifecycle.isArchived,
         staleAgeMinutes: lifecycle.staleAgeMinutes,
         startedAt,
         stage: lifecycle.stage,
@@ -1546,6 +1578,8 @@ const DECISION_SUMMARY_SELECT = `
     status,
     started_at,
     completed_at,
+    archived_at,
+    archived_reason,
     tenders!inner(title, created_at, documents(id))
   )
 `;
@@ -1591,6 +1625,7 @@ export interface RunDetail {
   company: string;
   status: RunStatus;
   isStale: boolean;
+  isArchived: boolean;
   staleAgeMinutes: number | null;
   stage: string;
   startedAt: string;
@@ -1613,7 +1648,7 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
   const { data: runRow, error: runErr } = await client
     .from("agent_runs")
     .select(
-      `id, status, created_at, started_at, completed_at, metadata, tender_id, company_id,
+      `id, status, created_at, started_at, completed_at, archived_at, archived_reason, metadata, tender_id, company_id,
        tenders!inner(title),
        bid_decisions(verdict, confidence, final_decision)`,
     )
@@ -1635,6 +1670,7 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
   const createdAt = run.created_at as string | null;
   const startedAt = run.started_at as string | null;
   const completedAt = run.completed_at as string | null;
+  const archivedAt = run.archived_at as string | null;
 
   const [outputsRes, docsRes] = await Promise.all([
     client
@@ -1725,6 +1761,7 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
     startedAt,
     createdAt,
     completedAt,
+    archivedAt,
     metadata: run.metadata,
   });
 
@@ -1735,6 +1772,7 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
     company: "Demo company",
     status,
     isStale: lifecycle.isStale,
+    isArchived: lifecycle.isArchived,
     staleAgeMinutes: lifecycle.staleAgeMinutes,
     stage: lifecycle.stage,
     startedAt: startedAt ?? createdAt ?? "",
@@ -1887,6 +1925,8 @@ const BID_SELECT = `
     status,
     started_at,
     completed_at,
+    archived_at,
+    archived_reason,
     bid_decisions(created_at, verdict, confidence, final_decision)
   )
 `;
@@ -2042,19 +2082,24 @@ export async function deleteBid(id: string): Promise<void> {
 const AGENT_API_URL =
   (import.meta.env.VITE_AGENT_API_URL as string | undefined) ?? "http://localhost:8000";
 
-export async function deleteAgentRun(runId: string): Promise<void> {
+export async function archiveAgentRun(
+  runId: string,
+  reason = "operator archived run",
+): Promise<void> {
   if (isMockMode()) {
-    hideMockAgentRun(runId);
+    archiveMockAgentRun(runId);
     return;
   }
 
-  const client = requireSupabase();
-  const { error } = await client
-    .from("agent_runs")
-    .delete()
-    .eq("id", runId)
-    .eq("tenant_key", "demo");
-  if (error) throw new Error(`deleteAgentRun: ${error.message}`);
+  const res = await fetch(`${AGENT_API_URL}/api/runs/${encodeURIComponent(runId)}/archive`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
+  }
 }
 
 export async function startAgentRun(tenderId: string): Promise<string> {
