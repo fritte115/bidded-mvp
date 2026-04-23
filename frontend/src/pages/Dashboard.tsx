@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -16,14 +17,21 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatDate, formatDuration } from "@/data/mock";
+import {
+  formatDate,
+  formatDuration,
+  runDisplayId,
+} from "@/data/mock";
 import {
   fetchDashboardStats,
   fetchActiveRuns,
   fetchDecisions,
-  deleteAgentRun,
+  archiveAgentRun,
 } from "@/lib/api";
+import { usePermissions } from "@/lib/auth";
+import { renderFormattedText } from "@/lib/richText";
 import {
+  Archive,
   FileText,
   Files,
   PlayCircle,
@@ -31,16 +39,12 @@ import {
   FileSignature,
   ChevronDown,
   ChevronUp,
-  Trash2,
   Target,
 } from "lucide-react";
 
-function shortRunId(id: string): string {
-  return `RUN-${id.replace(/-/g, "").slice(0, 4).toUpperCase()}`;
-}
-
 export default function Dashboard() {
   const queryClient = useQueryClient();
+  const permissions = usePermissions();
 
   const { data: stats } = useQuery({
     queryKey: ["dashboard-stats"],
@@ -61,7 +65,7 @@ export default function Dashboard() {
   });
 
   const [collapsed, setCollapsed] = useState(false);
-  const [deleting, setDeleting] = useState<Set<string>>(new Set());
+  const [archiving, setArchiving] = useState<Set<string>>(new Set());
 
   const avgConfidence =
     decisions.length > 0
@@ -70,14 +74,26 @@ export default function Dashboard() {
 
   const recentDecisions = decisions.slice(0, 3);
 
-  async function handleDelete(id: string) {
-    setDeleting((prev) => new Set(prev).add(id));
+  async function handleArchive(id: string) {
+    if (!permissions.canDeleteRuns) return;
+    setArchiving((prev) => new Set(prev).add(id));
     try {
-      await deleteAgentRun(id);
-      await queryClient.invalidateQueries({ queryKey: ["active-runs"] });
-      await queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      await archiveAgentRun(id, "operator archived run from dashboard");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["active-runs"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] }),
+        queryClient.invalidateQueries({ queryKey: ["decisions"] }),
+        queryClient.invalidateQueries({ queryKey: ["procurements"] }),
+        queryClient.invalidateQueries({ queryKey: ["compare-rows"] }),
+        queryClient.invalidateQueries({ queryKey: ["bids"] }),
+      ]);
+      toast.success("Run archived");
+    } catch (err) {
+      toast.error("Archive failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
     } finally {
-      setDeleting((prev) => {
+      setArchiving((prev) => {
         const next = new Set(prev);
         next.delete(id);
         return next;
@@ -97,7 +113,7 @@ export default function Dashboard() {
           icon={FileText}
         />
         <StatCard
-          label="Registered PDFs"
+          label="Registered documents"
           value={stats?.totalPdfDocuments ?? "—"}
           hint="Stored tender documents"
           icon={Files}
@@ -176,15 +192,16 @@ export default function Dashboard() {
                       const isTerminal =
                         r.status === "succeeded" ||
                         r.status === "failed" ||
-                        r.status === "needs_human_review";
-                      const isDeleting = deleting.has(r.id);
+                        r.status === "needs_human_review" ||
+                        r.isStale;
+                      const isArchiving = archiving.has(r.id);
                       return (
                         <TableRow
                           key={r.id}
-                          className={isDeleting ? "opacity-40 transition-opacity duration-300" : ""}
+                          className={isArchiving ? "opacity-40 transition-opacity duration-300" : ""}
                         >
                           <TableCell className="text-sm font-medium">
-                            {shortRunId(r.id)}
+                            {runDisplayId(r)}
                           </TableCell>
                           <TableCell>
                             <Link
@@ -195,7 +212,7 @@ export default function Dashboard() {
                             </Link>
                           </TableCell>
                           <TableCell>
-                            <StatusBadge status={r.status} />
+                            <StatusBadge status={r.status} isStale={r.isStale} />
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground">
                             {r.stage}
@@ -204,23 +221,27 @@ export default function Dashboard() {
                             {formatDate(r.startedAt)}
                           </TableCell>
                           <TableCell className="font-mono text-xs text-muted-foreground">
-                            {r.durationSec ? formatDuration(r.durationSec) : "—"}
+                            {r.durationSec
+                              ? formatDuration(r.durationSec)
+                              : r.isStale && r.staleAgeMinutes !== null
+                                ? `${r.staleAgeMinutes}m stale`
+                                : "—"}
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1">
                               <Button asChild variant="ghost" size="sm" className="h-8">
                                 <Link to={`/runs/${r.id}`}>View</Link>
                               </Button>
-                              {isTerminal && (
+                              {permissions.canDeleteRuns && isTerminal && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
-                                  onClick={() => handleDelete(r.id)}
-                                  disabled={isDeleting}
-                                  title="Delete run"
+                                  className="h-8 w-8 p-0 text-muted-foreground hover:text-primary"
+                                  onClick={() => handleArchive(r.id)}
+                                  disabled={isArchiving}
+                                  title="Archive run"
                                 >
-                                  <Trash2 className="h-3.5 w-3.5" />
+                                  <Archive className="h-3.5 w-3.5" />
                                 </Button>
                               )}
                             </div>
@@ -266,7 +287,9 @@ export default function Dashboard() {
                     <VerdictBadge verdict={r.verdict} />
                   </div>
                   <ConfidenceBar value={r.confidence} className="mb-3" />
-                  <p className="line-clamp-2 text-xs text-muted-foreground">{r.citedMemo}</p>
+                  <p className="line-clamp-2 text-xs text-muted-foreground">
+                    {renderFormattedText(r.topReason)}
+                  </p>
                   <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
                     <span>{formatDate(r.completedAt ?? r.startedAt)}</span>
                     <span className="font-mono">{r.confidence}% confidence</span>

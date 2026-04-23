@@ -82,7 +82,7 @@ export async function normalizeDocumentUploads(
 }
 
 async function readZipArchiveEntries(file: File): Promise<ZipArchiveEntry[]> {
-  const archive = await JSZip.loadAsync(await file.arrayBuffer());
+  const archive = await JSZip.loadAsync(await readFileBuffer(file));
   const entries = Object.values(archive.files);
   const results: ZipArchiveEntry[] = [];
 
@@ -97,6 +97,13 @@ async function readZipArchiveEntries(file: File): Promise<ZipArchiveEntry[]> {
   }
 
   return results;
+}
+
+async function readFileBuffer(file: File): Promise<ArrayBuffer> {
+  if (typeof file.arrayBuffer === "function") {
+    return file.arrayBuffer();
+  }
+  return new Response(file).arrayBuffer();
 }
 
 function isPdfUpload(file: File): boolean {

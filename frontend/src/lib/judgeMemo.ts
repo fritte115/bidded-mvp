@@ -1,4 +1,4 @@
-import type { Verdict } from "@/data/mock";
+import { humanizeVerdictText, type Verdict } from "@/data/mock";
 
 export type MemoBlock =
   | { type: "paragraph"; text: string }
@@ -22,6 +22,20 @@ export function formatJudgeMemo(
     title: title || fallbackTitle,
     blocks: bodySentences.flatMap(blocksFromSentence),
   };
+}
+
+export function isDuplicateJudgeDisagreement(
+  disagreement: string,
+  memo: string,
+): boolean {
+  const normalizedDisagreement = normalizeComparableText(disagreement);
+  const normalizedMemo = normalizeComparableText(memo);
+
+  return (
+    normalizedDisagreement.length > 0 &&
+    normalizedMemo.length > 0 &&
+    normalizedDisagreement === normalizedMemo
+  );
 }
 
 function blocksFromSentence(sentence: string): MemoBlock[] {
@@ -66,8 +80,16 @@ function splitSentences(text: string): string[] {
   );
 }
 
+function normalizeComparableText(text: string): string {
+  return humanizeVerdictText(text)
+    .replace(/\s+/g, " ")
+    .replace(/[.!?]+$/g, "")
+    .trim()
+    .toLowerCase();
+}
+
 function cleanSentence(text: string): string {
-  return text
+  return humanizeVerdictText(text)
     .replace(/^\s*(?:and\s+)?/i, "")
     .replace(/\s+/g, " ")
     .replace(/[,\s]+$/g, "")

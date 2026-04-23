@@ -12,8 +12,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EvidenceBadge } from "@/components/EvidenceBadge";
-import { fetchEvidenceBoard } from "@/lib/api";
-import type { EvidenceCategory } from "@/data/mock";
+import { fetchEvidenceBoard, fetchRunDetail } from "@/lib/api";
+import { runDisplayId, type EvidenceCategory } from "@/data/mock";
 import { ArrowLeft } from "lucide-react";
 
 const cats: ("all" | EvidenceCategory)[] = [
@@ -36,6 +36,11 @@ export default function EvidenceBoard() {
     queryFn: () => fetchEvidenceBoard(id),
     enabled: !!id,
   });
+  const { data: run } = useQuery({
+    queryKey: ["run-detail", id],
+    queryFn: () => fetchRunDetail(id),
+    enabled: !!id,
+  });
 
   const filtered = evidence.filter((e) => {
     if (cat !== "all" && e.category !== cat) return false;
@@ -49,7 +54,7 @@ export default function EvidenceBoard() {
     <>
       <PageHeader
         title="Evidence Board"
-        description={`Indexed evidence for run ${id.slice(0, 8)}…`}
+        description={run ? `Indexed evidence for ${runDisplayId(run)}` : "Indexed evidence"}
         actions={
           <Button asChild variant="outline">
             <Link to={`/runs/${id}`}>

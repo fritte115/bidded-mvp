@@ -9,7 +9,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { ArrowLeft, UploadCloud, FileText, X, Loader2 } from "lucide-react";
-import { registerProcurement } from "@/lib/api";
+import {
+  isSupportedProcurementDocument,
+  registerProcurement,
+} from "@/lib/api";
 import { normalizeDocumentUploads } from "@/lib/documentUploads";
 
 export default function RegisterProcurement() {
@@ -25,28 +28,30 @@ export default function RegisterProcurement() {
   async function handleFiles(incoming: FileList | null) {
     if (!incoming) return;
 
-    const result = await normalizeDocumentUploads(Array.from(incoming));
-    if (result.accepted.length > 0) {
-      setFiles((prev) => {
-        const existingNames = new Set(prev.map((file) => file.name));
-        return [
-          ...prev,
-          ...result.accepted
-            .map((item) => item.file)
-            .filter((file) => !existingNames.has(file.name)),
-        ];
-      });
-    }
+    const allFiles = Array.from(incoming);
+    const directFiles = allFiles.filter(isSupportedProcurementDocument);
+    const zippedPdfFiles = await normalizeDocumentUploads(
+      allFiles.filter((file) => !isSupportedProcurementDocument(file)),
+    );
+    const next = [
+      ...directFiles,
+      ...zippedPdfFiles.accepted.map((item) => item.file),
+    ];
 
-    if (result.rejected.length > 0) {
-      const description = result.rejected
+    setFiles((prev) => {
+      const existingNames = new Set(prev.map((f) => f.name));
+      return [...prev, ...next.filter((f) => !existingNames.has(f.name))];
+    });
+
+    if (zippedPdfFiles.rejected.length > 0) {
+      const description = zippedPdfFiles.rejected
         .slice(0, 3)
         .map((entry) => `${entry.name}: ${entry.reason}`)
         .join(" · ");
-      if (result.accepted.length > 0) {
+      if (next.length > 0) {
         toast("Some files were skipped", { description });
       } else {
-        toast.error("No PDF files were added", { description });
+        toast.error("No supported files were added", { description });
       }
     }
   }
@@ -63,7 +68,7 @@ export default function RegisterProcurement() {
       await queryClient.invalidateQueries({ queryKey: ["procurements"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
       toast.success("Procurement registered", {
-        description: `${files.length} PDF${files.length === 1 ? "" : "s"} uploaded and indexed.`,
+        description: `${files.length} document${files.length === 1 ? "" : "s"} uploaded and indexed.`,
       });
       navigate("/procurements");
     } catch (err) {
@@ -81,7 +86,7 @@ export default function RegisterProcurement() {
     <>
       <PageHeader
         title="Register New Procurement"
-        description="Create a procurement case and attach one or more Swedish procurement PDFs."
+        description="Create a procurement case and attach one or more Swedish procurement documents."
         actions={
           <Button asChild variant="outline">
             <Link to="/procurements">
@@ -129,7 +134,7 @@ export default function RegisterProcurement() {
           </div>
 
           <div className="space-y-2">
-            <Label>Upload PDFs</Label>
+            <Label>Upload documents</Label>
             <label
               className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-secondary/40 px-6 py-12 text-center hover:border-primary/40"
               onDragOver={(e) => e.preventDefault()}
@@ -139,13 +144,13 @@ export default function RegisterProcurement() {
               }}
             >
               <UploadCloud className="mb-3 h-8 w-8 text-muted-foreground" />
-              <p className="text-sm font-medium text-foreground">Drop PDFs or ZIPs here or click to upload</p>
+              <p className="text-sm font-medium text-foreground">Drop PDF, DOCX, or ZIP files here</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Attach multiple files · ZIPs are unpacked into PDFs locally · max 50 MB per PDF
+                Attach multiple files · ZIPs are unpacked into PDFs locally · max 50 MB each
               </p>
               <input
                 type="file"
-                accept="application/pdf,.pdf,application/zip,.zip"
+                accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.docx,application/zip,.zip"
                 multiple
                 className="sr-only"
                 onChange={(e) => {
@@ -183,7 +188,7 @@ export default function RegisterProcurement() {
                   ))}
                 </ul>
                 <p className="text-xs text-muted-foreground">
-                  {files.length} {files.length === 1 ? "file" : "files"} attached · ZIP entries are stored as individual PDFs in Supabase; text extraction and chunking run when the ingest worker is available (PRD backlog).
+                  {files.length} {files.length === 1 ? "file" : "files"} attached · ZIP entries are stored as individual PDFs, while direct DOCX files keep their DOCX format for ingestion.
                 </p>
               </>
             )}

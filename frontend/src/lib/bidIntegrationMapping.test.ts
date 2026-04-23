@@ -69,6 +69,31 @@ describe("mapCompareRows", () => {
           },
         },
         {
+          agent_run_id: "66666666-6666-4666-8666-666666666666",
+          created_at: "2026-04-20T12:00:00Z",
+          verdict: "no_bid",
+          confidence: 0.99,
+          final_decision: {
+            cited_memo: "Archived decision should stay hidden.",
+            risk_register: [],
+            compliance_blockers: [],
+            potential_blockers: [],
+          },
+          agent_runs: {
+            id: "66666666-6666-4666-8666-666666666666",
+            tender_id: tenderA,
+            status: "succeeded",
+            started_at: "2026-04-20T11:00:00Z",
+            completed_at: "2026-04-20T12:00:00Z",
+            archived_at: "2026-04-20T12:30:00Z",
+            tenders: {
+              title: "Archived decision tender",
+              created_at: "2026-04-15T08:00:00Z",
+              documents: [{ id: "doc-3" }],
+            },
+          },
+        },
+        {
           agent_run_id: "55555555-5555-4555-8555-555555555555",
           created_at: "2026-04-18T15:00:00Z",
           verdict: "no_bid",
@@ -212,6 +237,38 @@ describe("mapBidRow", () => {
         topReason: "Bid rationale",
       },
     });
+  });
+
+  it("does not surface linked decisions for archived run rows", () => {
+    const bid = mapBidRow({
+      id: "bid-archived",
+      tender_id: tenderA,
+      status: "review",
+      agent_run_id: runNew,
+      tenders: {
+        title: "Archived run tender",
+        created_at: "2026-04-15T08:00:00Z",
+        documents: [],
+      },
+      agent_runs: {
+        id: runNew,
+        tender_id: tenderA,
+        status: "succeeded",
+        started_at: "2026-04-19T11:00:00Z",
+        completed_at: "2026-04-19T12:00:00Z",
+        archived_at: "2026-04-20T12:30:00Z",
+        bid_decisions: [
+          {
+            created_at: "2026-04-19T12:00:00Z",
+            verdict: "bid",
+            confidence: 0.7,
+            final_decision: { cited_memo: "Hidden rationale." },
+          },
+        ],
+      },
+    });
+
+    expect(bid.decision).toBeUndefined();
   });
 });
 

@@ -11,17 +11,19 @@
  */
 
 import {
+  buildRunNumberMap,
   company as mockCompany,
+  bidDrafts as mockBidDrafts,
   bids as mockBids,
-  findRun as findMockRun,
-  latestRunForProcurement,
   procurements as mockProcurements,
   runs as mockRuns,
   type AgentMotion,
   type AgentName,
   type Bid,
+  type BidResponseDraft,
   type BidStatus,
   type Company,
+  type CompanyWebsiteImportRecord,
   type ComplianceMatrixRow,
   type DecisionSummary,
   type Evidence,
@@ -39,13 +41,13 @@ import {
   mapRound1Output,
   mapRound2Output,
 } from "@/lib/agentOutputMapping";
-import { registerUploadedDocuments } from "@/lib/documentRegistration";
 import {
   buildSourceDecisionMetadata,
   mapBidRow,
   mapCompareRows,
   mapDecisionRow,
 } from "@/lib/bidIntegrationMapping";
+import { mapBidDraftPayload, type RawBidResponseDraft } from "@/lib/bidDraftMapping";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -53,6 +55,7 @@ import {
 
 const MOCK_MODE_WRITE_MESSAGE =
   "Frontend is running in mock mode because the public Supabase env vars are missing. Copy frontend/.env.example to frontend/.env to enable live writes.";
+const generatedMockBidDrafts = new Map<string, BidResponseDraft>();
 
 /** "SE" → "Sweden", fallback to the raw value */
 const COUNTRY_NAMES: Record<string, string> = {
@@ -88,6 +91,153 @@ function requireSupabase() {
   return supabase;
 }
 
+export const STALE_RUN_AFTER_MINUTES = 30;
+export const STALE_RUN_STAGE = "Stale - worker stopped";
+export const ARCHIVED_RUN_STAGE = "Archived";
+
+const MOCK_ARCHIVED_AGENT_RUN_IDS_KEY = "bidded:mock-archived-agent-run-ids";
+
+interface RunLifecycleInput {
+  status: RunStatus;
+  startedAt: string | null | undefined;
+  createdAt: string | null | undefined;
+  completedAt: string | null | undefined;
+  archivedAt?: string | null | undefined;
+  metadata: unknown;
+}
+
+export interface RunLifecycleDisplay {
+  isActive: boolean;
+  isStale: boolean;
+  isArchived: boolean;
+  staleAgeMinutes: number | null;
+  stage: string;
+}
+
+function timestampMs(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function workerUpdatedAt(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const worker = (metadata as Record<string, unknown>).worker;
+  if (!worker || typeof worker !== "object") return null;
+  const updatedAt = (worker as Record<string, unknown>).updated_at;
+  return typeof updatedAt === "string" && updatedAt.length > 0 ? updatedAt : null;
+}
+
+function staleReferenceMs(input: RunLifecycleInput): number | null {
+  return (
+    timestampMs(workerUpdatedAt(input.metadata)) ??
+    timestampMs(input.startedAt) ??
+    timestampMs(input.createdAt)
+  );
+}
+
+export function runLifecycleForDisplay(
+  input: RunLifecycleInput,
+  options: { nowMs?: number; staleAfterMinutes?: number } = {},
+): RunLifecycleDisplay {
+  const status = input.status;
+  const isInFlight = status === "running" || status === "pending";
+  const fallbackStage = dashboardStageLabel(status, input.metadata);
+  if (input.archivedAt) {
+    return {
+      isActive: false,
+      isStale: false,
+      isArchived: true,
+      staleAgeMinutes: null,
+      stage: ARCHIVED_RUN_STAGE,
+    };
+  }
+  if (!isInFlight || input.completedAt) {
+    return {
+      isActive: false,
+      isStale: false,
+      isArchived: false,
+      staleAgeMinutes: null,
+      stage: fallbackStage,
+    };
+  }
+
+  const referenceMs = staleReferenceMs(input);
+  if (referenceMs === null) {
+    return {
+      isActive: true,
+      isStale: false,
+      isArchived: false,
+      staleAgeMinutes: null,
+      stage: fallbackStage,
+    };
+  }
+
+  const nowMs = options.nowMs ?? Date.now();
+  const staleAfterMinutes = options.staleAfterMinutes ?? STALE_RUN_AFTER_MINUTES;
+  const ageMinutes = Math.max(0, Math.floor((nowMs - referenceMs) / 60_000));
+  const isStale = ageMinutes > staleAfterMinutes;
+  return {
+    isActive: !isStale,
+    isStale,
+    isArchived: false,
+    staleAgeMinutes: isStale ? ageMinutes : null,
+    stage: isStale ? STALE_RUN_STAGE : fallbackStage,
+  };
+}
+
+function readMockArchivedRunIds(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.localStorage.getItem(MOCK_ARCHIVED_AGENT_RUN_IDS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(
+      Array.isArray(parsed)
+        ? parsed.filter((value): value is string => typeof value === "string")
+        : [],
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+function archiveMockAgentRun(runId: string): void {
+  if (typeof window === "undefined") return;
+  const archived = readMockArchivedRunIds();
+  archived.add(runId);
+  window.localStorage.setItem(
+    MOCK_ARCHIVED_AGENT_RUN_IDS_KEY,
+    JSON.stringify(Array.from(archived).sort()),
+  );
+}
+
+function visibleMockRuns(): Run[] {
+  const archived = readMockArchivedRunIds();
+  return mockRuns.filter((run) => !archived.has(run.id));
+}
+
+function mockLifecycle(run: Run): RunLifecycleDisplay {
+  return runLifecycleForDisplay({
+    status: run.status,
+    startedAt: run.startedAt,
+    createdAt: run.startedAt,
+    completedAt: run.completedAt ?? null,
+    archivedAt: null,
+    metadata: {},
+  });
+}
+
+async function requireAccessToken(): Promise<string> {
+  const client = requireSupabase();
+  const { data, error } = await client.auth.getSession();
+  if (error) throw new Error(`getSession: ${error.message}`);
+  const token = data.session?.access_token;
+  if (!token) {
+    throw new Error("You must be signed in to call the Bidded agent API.");
+  }
+  return token;
+}
+
 function mockParseStatus(procurement: Procurement): ProcurementDocumentRow["parseStatus"] {
   if (procurement.status === "done") return "parsed";
   if (procurement.status === "processing") return "parsing";
@@ -95,30 +245,48 @@ function mockParseStatus(procurement: Procurement): ProcurementDocumentRow["pars
 }
 
 function mockDashboardStats(): DashboardStats {
+  const runs = visibleMockRuns();
   return {
     totalProcurements: mockProcurements.length,
     totalPdfDocuments: mockProcurements.reduce(
       (sum, procurement) => sum + procurement.documents.length,
       0,
     ),
-    activeRuns: mockRuns.filter(
-      (run) => run.status === "running" || run.status === "pending",
-    ).length,
+    activeRuns: runs.filter((run) => mockLifecycle(run).isActive).length,
   };
 }
 
-function mockActiveRuns(): ActiveRun[] {
-  return mockRuns
-    .filter((run) => run.status === "running" || run.status === "pending")
-    .map((run) => ({
+function mockRunNumberMap() {
+  return buildRunNumberMap(
+    mockRuns.map((run) => ({
       id: run.id,
-      tenderName: run.tenderName,
-      status: run.status,
-      stage: run.stage,
+      tenderId: run.tenderId,
       startedAt: run.startedAt,
-      completedAt: run.completedAt ?? null,
-      durationSec: run.durationSec ?? null,
-    }))
+      createdAt: run.startedAt,
+    })),
+  );
+}
+
+function mockActiveRuns(): ActiveRun[] {
+  const runNumbers = mockRunNumberMap();
+  return visibleMockRuns()
+    .filter((run) => run.status === "running" || run.status === "pending")
+    .map((run) => {
+      const lifecycle = mockLifecycle(run);
+      return {
+        id: run.id,
+        runNumber: runNumbers.get(run.id) ?? null,
+        tenderName: run.tenderName,
+        status: run.status,
+        stage: lifecycle.stage,
+        startedAt: run.startedAt,
+        completedAt: run.completedAt ?? null,
+        durationSec: run.durationSec ?? null,
+        isStale: lifecycle.isStale,
+        isArchived: lifecycle.isArchived,
+        staleAgeMinutes: lifecycle.staleAgeMinutes,
+      };
+    })
     .sort(
       (left, right) =>
         new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime(),
@@ -128,19 +296,30 @@ function mockActiveRuns(): ActiveRun[] {
 function mockProcurementLatestRun(
   procurementId: string,
 ): ProcurementLatestRun | null {
-  const latestRun = latestRunForProcurement(procurementId);
+  const runNumbers = mockRunNumberMap();
+  const latestRun = visibleMockRuns()
+    .filter((run) => run.tenderId === procurementId)
+    .sort(
+      (left, right) =>
+        new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime(),
+    )[0];
   if (!latestRun) return null;
+  const lifecycle = mockLifecycle(latestRun);
 
   return {
     id: latestRun.id,
+    runNumber: runNumbers.get(latestRun.id) ?? null,
     status: latestRun.status,
     startedAt: latestRun.startedAt,
-    stage: latestRun.stage,
+    stage: lifecycle.stage,
     decision:
       latestRun.status === "needs_human_review"
         ? null
         : (latestRun.decision ?? null),
     needsJudgeReview: latestRun.status === "needs_human_review",
+    isStale: lifecycle.isStale,
+    isArchived: lifecycle.isArchived,
+    staleAgeMinutes: lifecycle.staleAgeMinutes,
   };
 }
 
@@ -163,6 +342,7 @@ function mockProcurementRows(): ProcurementRow[] {
       })),
     documentCount: procurement.documents.length,
     latestRun: mockProcurementLatestRun(procurement.id),
+    hasRunHistory: mockRuns.some((run) => run.tenderId === procurement.id),
   }));
 }
 
@@ -216,7 +396,7 @@ function mockDecisionSummary(run: Run): DecisionSummary | null {
 }
 
 function mockDecisionRows(): DecisionRow[] {
-  return mockRuns
+  return visibleMockRuns()
     .map((run) => {
       const summary = mockDecisionSummary(run);
       if (!summary) return null;
@@ -235,21 +415,43 @@ function mockDecisionRows(): DecisionRow[] {
 }
 
 function mockRunDetail(runId: string): RunDetail | null {
-  const run = findMockRun(runId);
+  const runNumbers = mockRunNumberMap();
+  const run = visibleMockRuns().find((row) => row.id === runId);
   if (!run) return null;
+  const lifecycle = mockLifecycle(run);
+  const procurement = mockProcurements.find((row) => row.id === run.tenderId);
+  const documents =
+    procurement?.documentRefs?.map((doc) => ({
+      originalFilename: doc.filename,
+      parseStatus: doc.parseStatus,
+      parseNote: null,
+      publicUrl: undefined,
+    })) ??
+    procurement?.documents.map((filename) => ({
+      originalFilename: filename,
+      parseStatus: mockParseStatus(procurement),
+      parseNote: null,
+      publicUrl: undefined,
+    })) ??
+    [];
 
   return {
     id: run.id,
+    runNumber: runNumbers.get(run.id) ?? null,
     tenderName: run.tenderName,
     tenderId: run.tenderId,
     company: run.company,
     status: run.status,
-    stage: run.stage,
+    stage: lifecycle.stage,
+    isStale: lifecycle.isStale,
+    isArchived: lifecycle.isArchived,
+    staleAgeMinutes: lifecycle.staleAgeMinutes,
     startedAt: run.startedAt,
     completedAt: run.completedAt ?? null,
     durationSec: run.durationSec ?? null,
     decision: run.decision ?? null,
     confidence: run.confidence ?? null,
+    documents,
     evidence: run.evidence,
     round1: run.round1,
     round2: run.round2,
@@ -258,14 +460,15 @@ function mockRunDetail(runId: string): RunDetail | null {
 }
 
 function mockBidRows(): Bid[] {
+  const runs = visibleMockRuns();
   return mockBids
     .map((bid) => {
       const procurement = mockProcurements.find(
         (row) => row.id === bid.procurementId,
       );
       const run = bid.runId
-        ? findMockRun(bid.runId)
-        : mockRuns.find((candidate) => candidate.tenderId === bid.procurementId);
+        ? runs.find((candidate) => candidate.id === bid.runId)
+        : runs.find((candidate) => candidate.tenderId === bid.procurementId);
       const decision = run ? mockDecisionSummary(run) : null;
 
       return {
@@ -416,6 +619,7 @@ export interface DbCompany {
       win_rate_pct: number;
       avg_contract_msek: number;
     };
+    website_imports?: CompanyWebsiteImportRecord[];
     [key: string]: unknown;
   };
   [key: string]: unknown;
@@ -546,7 +750,102 @@ function mapDbCompany(row: DbCompany): Company {
       securityPosture.length > 0 ? securityPosture : undefined,
     sustainability,
     bidStats,
+    websiteImports: pd.website_imports,
   };
+}
+
+export type CompanyWebsiteProfilePatch = Partial<
+  Pick<
+    Company,
+    | "website"
+    | "email"
+    | "phone"
+    | "description"
+    | "offices"
+    | "industries"
+    | "capabilities"
+    | "certifications"
+    | "references"
+    | "securityPosture"
+    | "sustainability"
+  >
+>;
+
+export interface CompanyWebsiteImportPreview {
+  source_url: string;
+  pages: Array<{ url: string; title?: string | null; text_excerpt?: string }>;
+  profile_patch: CompanyWebsiteProfilePatch;
+  field_sources: Record<
+    string,
+    { page_url: string; excerpt: string; source_label: string }
+  >;
+  warnings: string[];
+}
+
+export function applyCompanyWebsiteImportPreview(
+  company: Company,
+  preview: CompanyWebsiteImportPreview,
+  importedAt = new Date().toISOString(),
+): Company {
+  const patch = preview.profile_patch;
+  const next: Company = {
+    ...company,
+    website: patch.website ?? company.website,
+    email: patch.email ?? company.email,
+    phone: patch.phone ?? company.phone,
+    description: patch.description ?? company.description,
+    offices: patch.offices ?? company.offices,
+    industries: patch.industries ?? company.industries,
+    sustainability: patch.sustainability ?? company.sustainability,
+    websiteImports: [
+      { ...preview, imported_at: importedAt },
+      ...(company.websiteImports ?? []),
+    ].slice(0, 5),
+  };
+
+  if (patch.capabilities) {
+    next.capabilities = mergeUnique(company.capabilities, patch.capabilities);
+  }
+  if (patch.certifications) {
+    next.certifications = mergeByKey(
+      company.certifications,
+      patch.certifications,
+      (cert) => cert.name,
+    );
+  }
+  if (patch.references) {
+    next.references = mergeByKey(
+      company.references,
+      patch.references,
+      (reference) => `${reference.client}-${reference.year}`,
+    );
+  }
+  if (patch.securityPosture) {
+    next.securityPosture = mergeByKey(
+      company.securityPosture ?? [],
+      patch.securityPosture,
+      (item) => item.item,
+    );
+  }
+
+  return next;
+}
+
+function mergeUnique(existing: string[], imported: string[]): string[] {
+  return Array.from(new Set([...existing, ...imported].filter(Boolean)));
+}
+
+function mergeByKey<T>(
+  existing: T[],
+  imported: T[],
+  keyFn: (item: T) => string,
+): T[] {
+  const byKey = new Map(existing.map((item) => [keyFn(item), item]));
+  for (const item of imported) {
+    const key = keyFn(item);
+    if (!byKey.has(key)) byKey.set(key, item);
+  }
+  return Array.from(byKey.values());
 }
 
 /**
@@ -732,6 +1031,9 @@ export function mergeCompanyIntoDb(
       avg_contract_msek: c.bidStats.avgContractMSEK,
     };
   }
+  if (c.websiteImports !== undefined) {
+    pd.website_imports = c.websiteImports;
+  }
 
   return {
     name: c.name,
@@ -781,19 +1083,21 @@ export async function updateCompany(c: Company, prev: DbCompany): Promise<void> 
     throw new Error(MOCK_MODE_WRITE_MESSAGE);
   }
 
-  const client = requireSupabase();
-  const { error } = await client
-    .from("companies")
-    .update(mergeCompanyIntoDb(c, prev))
-    .eq("tenant_key", "demo");
-
-  if (error) throw new Error(`updateCompany: ${error.message}`);
-
-  try {
-    await resyncCompanyEvidence();
-  } catch (err) {
-    // Non-fatal: the row saved; evidence resync can happen on next run.
-    console.warn("company evidence resync failed:", err);
+  const companyId = typeof prev.id === "string" ? prev.id : undefined;
+  const token = await requireAccessToken();
+  const url = new URL(`${AGENT_API_URL}/api/company/profile`);
+  if (companyId) url.searchParams.set("company_id", companyId);
+  const res = await fetch(url.toString(), {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(mergeCompanyIntoDb(c, prev)),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
   }
 }
 
@@ -804,11 +1108,32 @@ export async function resyncCompanyEvidence(): Promise<{
   evidence_count: number;
   rows_returned: number;
 }> {
+  const token = await requireAccessToken();
   const res = await fetch(`${AGENT_API_URL}/api/company/resync-evidence`, {
     method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) {
     throw new Error(`resyncCompanyEvidence: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function importCompanyWebsite(
+  url: string,
+  maxPages = 5,
+): Promise<CompanyWebsiteImportPreview> {
+  const res = await fetch(`${AGENT_API_URL}/api/company/import-website`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url, max_pages: maxPages }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { detail?: string }).detail ??
+        `importCompanyWebsite: ${res.status} ${res.statusText}`,
+    );
   }
   return res.json();
 }
@@ -819,7 +1144,7 @@ export async function resyncCompanyEvidence(): Promise<{
 
 export interface DashboardStats {
   totalProcurements: number;
-  /** Tender PDF rows in `documents` (tender_document role) */
+  /** Tender document rows in `documents` (tender_document role) */
   totalPdfDocuments: number;
   activeRuns: number;
 }
@@ -842,23 +1167,40 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
       .eq("document_role", "tender_document"),
     client
       .from("agent_runs")
-      .select("id", { count: "exact", head: true })
+      .select("id, status, started_at, created_at, completed_at, archived_at, metadata")
       .eq("tenant_key", "demo")
-      .in("status", ["running", "pending"]),
+      .in("status", ["running", "pending"])
+      .is("archived_at", null),
   ]);
+
+  const activeRuns = ((activeRunsRes.data ?? []) as Record<string, unknown>[]).filter(
+    (row) =>
+      runLifecycleForDisplay({
+        status: (row.status as RunStatus) ?? "pending",
+        startedAt: row.started_at as string | null,
+        createdAt: row.created_at as string | null,
+        completedAt: row.completed_at as string | null,
+        archivedAt: row.archived_at as string | null,
+        metadata: row.metadata,
+      }).isActive,
+  ).length;
 
   return {
     totalProcurements: tendersRes.count ?? 0,
     totalPdfDocuments: docsRes.count ?? 0,
-    activeRuns: activeRunsRes.count ?? 0,
+    activeRuns,
   };
 }
 
 // Lightweight run shape for the Dashboard active-analyses table
 export interface ActiveRun {
   id: string;
+  runNumber: number | null;
   tenderName: string;
   status: RunStatus;
+  isStale: boolean;
+  isArchived: boolean;
+  staleAgeMinutes: number | null;
   /** Human-readable pipeline stage (resolved from metadata + status). */
   stage: string;
   startedAt: string;
@@ -924,8 +1266,9 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
 
   const { data, error } = await client
     .from("agent_runs")
-    .select("id, status, started_at, completed_at, metadata, tenders(title)")
+    .select("id, tender_id, status, started_at, created_at, completed_at, archived_at, metadata, tenders(title)")
     .eq("tenant_key", "demo")
+    .is("archived_at", null)
     .or(
       `status.in.(running,pending),and(status.in.(succeeded,failed,needs_human_review),completed_at.gte.${yesterday})`,
     )
@@ -934,9 +1277,46 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
 
   if (error) throw new Error(`fetchActiveRuns: ${error.message}`);
 
-  return (data ?? []).map((r: Record<string, unknown>) => {
+  const rows = (data ?? []) as Record<string, unknown>[];
+  const tenderIds = Array.from(
+    new Set(
+      rows
+        .map((row) => row.tender_id)
+        .filter((value): value is string => typeof value === "string" && value.length > 0),
+    ),
+  );
+
+  let runNumbers = new Map<string, number>();
+  if (tenderIds.length > 0) {
+    const { data: sequenceRows, error: sequenceErr } = await client
+      .from("agent_runs")
+      .select("id, tender_id, started_at, created_at")
+      .eq("tenant_key", "demo")
+      .in("tender_id", tenderIds);
+
+    if (sequenceErr) {
+      throw new Error(`fetchActiveRuns (run numbers): ${sequenceErr.message}`);
+    }
+
+    runNumbers = buildRunNumberMap(
+      ((sequenceRows ?? []) as Array<{
+        id: string;
+        tender_id: string;
+        started_at: string | null;
+        created_at: string | null;
+      }>).map((row) => ({
+        id: row.id,
+        tenderId: row.tender_id,
+        startedAt: row.started_at,
+        createdAt: row.created_at,
+      })),
+    );
+  }
+
+  return rows.map((r: Record<string, unknown>) => {
     const tender = r.tenders as { title: string } | null;
     const startedAt = r.started_at as string | null;
+    const createdAt = r.created_at as string | null;
     const completedAt = r.completed_at as string | null;
     const durationSec =
       startedAt && completedAt
@@ -946,12 +1326,24 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
         : null;
 
     const status = (r.status as RunStatus) ?? "pending";
+    const lifecycle = runLifecycleForDisplay({
+      status,
+      startedAt,
+      createdAt,
+      completedAt,
+      archivedAt: r.archived_at as string | null,
+      metadata: r.metadata,
+    });
     return {
       id: r.id as string,
+      runNumber: runNumbers.get(r.id as string) ?? null,
       tenderName: tender?.title ?? "Unknown procurement",
       status,
-      stage: dashboardStageLabel(status, r.metadata),
-      startedAt: startedAt ?? (r as Record<string, unknown>).created_at as string,
+      isStale: lifecycle.isStale,
+      isArchived: lifecycle.isArchived,
+      staleAgeMinutes: lifecycle.staleAgeMinutes,
+      stage: lifecycle.stage,
+      startedAt: startedAt ?? createdAt ?? "",
       completedAt,
       durationSec,
     };
@@ -965,7 +1357,11 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
 // Minimal run info embedded in each procurement row
 export interface ProcurementLatestRun {
   id: string;
+  runNumber: number | null;
   status: RunStatus;
+  isStale: boolean;
+  isArchived: boolean;
+  staleAgeMinutes: number | null;
   startedAt: string;
   stage: string;
   decision: Verdict | null;
@@ -980,6 +1376,10 @@ export interface ProcurementDocumentRow {
   parseNote: string | null;
 }
 
+export interface RunDetailDocument extends ProcurementDocumentRow {
+  publicUrl?: string;
+}
+
 export interface ProcurementRow {
   id: string;
   name: string;
@@ -988,6 +1388,7 @@ export interface ProcurementRow {
   documents: ProcurementDocumentRow[];
   documentCount: number;
   latestRun: ProcurementLatestRun | null;
+  hasRunHistory: boolean;
 }
 
 function metadataParseNote(metadata: unknown): string | null {
@@ -1026,6 +1427,8 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
         status,
         started_at,
         created_at,
+        archived_at,
+        archived_reason,
         metadata,
         bid_decisions(verdict)
       )
@@ -1036,6 +1439,7 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
   if (error) throw new Error(`fetchProcurements: ${error.message}`);
 
   return (data ?? []).map((t: Record<string, unknown>) => {
+    const tenderId = t.id as string;
     const docs =
       (t.documents as Array<{
         original_filename: string;
@@ -1048,13 +1452,23 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
         status: string;
         started_at: string | null;
         created_at: string;
+        archived_at: string | null;
+        archived_reason: string | null;
         metadata: Record<string, unknown>;
         bid_decisions: { verdict: string }[] | { verdict: string } | null;
       }>
     ) ?? [];
+    const runNumbers = buildRunNumberMap(
+      runs.map((run) => ({
+        id: run.id,
+        tenderId,
+        startedAt: run.started_at,
+        createdAt: run.created_at,
+      })),
+    );
 
     // Sort runs by created_at desc, pick latest
-    const latestRun = runs.sort(
+    const latestRun = runs.filter((run) => !run.archived_at).sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
     )[0] ?? null;
 
@@ -1070,27 +1484,39 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
       const verdictRow = Array.isArray(bd) ? bd[0] : bd;
       const rawVerdict = verdictRow?.verdict;
       const { decision, needsJudgeReview } = verdictFromBidDecisionRow(rawVerdict);
+      const status = latestRun.status as RunStatus;
+      const startedAt = latestRun.started_at ?? latestRun.created_at;
+      const lifecycle = runLifecycleForDisplay({
+        status,
+        startedAt: latestRun.started_at,
+        createdAt: latestRun.created_at,
+        completedAt: null,
+        archivedAt: latestRun.archived_at,
+        metadata: latestRun.metadata,
+      });
       latestRunPayload = {
         id: latestRun.id,
-        status: latestRun.status as RunStatus,
-        startedAt: latestRun.started_at ?? latestRun.created_at,
-        stage: dashboardStageLabel(
-          latestRun.status as RunStatus,
-          latestRun.metadata,
-        ),
+        runNumber: runNumbers.get(latestRun.id) ?? null,
+        status,
+        isStale: lifecycle.isStale,
+        isArchived: lifecycle.isArchived,
+        staleAgeMinutes: lifecycle.staleAgeMinutes,
+        startedAt,
+        stage: lifecycle.stage,
         decision,
         needsJudgeReview,
       };
     }
 
     return {
-      id: t.id as string,
+      id: tenderId,
       name: t.title as string,
       uploadedAt: t.created_at as string,
       documentFilenames: docs.map((d) => d.original_filename),
       documents: documentRows,
       documentCount: docs.length,
       latestRun: latestRunPayload,
+      hasRunHistory: runs.length > 0,
     };
   });
 }
@@ -1102,21 +1528,55 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
 // Must match SUPABASE_STORAGE_BUCKET in .env
 const BUCKET_NAME = "public-procurements";
 
+function slugify(value: string): string {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
+  return slug || "tender";
+}
+
+export const PDF_CONTENT_TYPE = "application/pdf";
+export const DOCX_CONTENT_TYPE =
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+export function isSupportedProcurementDocument(file: File): boolean {
+  const loweredName = file.name.toLowerCase();
+  return (
+    file.type === PDF_CONTENT_TYPE ||
+    file.type === DOCX_CONTENT_TYPE ||
+    loweredName.endsWith(".pdf") ||
+    loweredName.endsWith(".docx")
+  );
+}
+
+export function contentTypeForProcurementDocument(file: File): string {
+  const loweredName = file.name.toLowerCase();
+  if (file.type === DOCX_CONTENT_TYPE || loweredName.endsWith(".docx")) {
+    return DOCX_CONTENT_TYPE;
+  }
+  return PDF_CONTENT_TYPE;
+}
+
+export function safeDocumentFilename(filename: string): string {
+  const loweredName = filename.toLowerCase();
+  const suffix = loweredName.endsWith(".docx") ? ".docx" : ".pdf";
+  const stem = filename.replace(/\.(pdf|docx)$/i, "");
+  return `${slugify(stem) || "document"}${suffix}`;
+}
+
+function buildStoragePath(title: string, checksumHex: string, originalFilename: string): string {
+  return `demo/procurements/${slugify(title)}/${checksumHex.slice(0, 12)}-${safeDocumentFilename(originalFilename)}`;
+}
 export interface RegisterProcurementInput {
   title: string;
   issuingAuthority: string;
   files: File[];
 }
 
-export interface CompanyKnowledgeBaseDocument {
-  id: string;
-  originalFilename: string;
-  parseStatus: ProcurementDocumentRow["parseStatus"];
-  uploadedAt: string;
-}
-
 /**
- * Upload PDFs to Supabase Storage and register them as a new tender.
+ * Upload PDFs/DOCX files to Supabase Storage and register them as a new tender.
  * Mirrors tender_registration.py — same storage paths, same upsert keys.
  * Returns the tender UUID.
  */
@@ -1131,6 +1591,20 @@ export async function deleteProcurement(tenderId: string): Promise<void> {
   }
 
   const client = requireSupabase();
+  const { count: runCount, error: runCountErr } = await client
+    .from("agent_runs")
+    .select("id", { head: true, count: "exact" })
+    .eq("tender_id", tenderId)
+    .eq("tenant_key", "demo");
+  if (runCountErr) {
+    throw new Error(`deleteProcurement (count runs): ${runCountErr.message}`);
+  }
+  if ((runCount ?? 0) > 0) {
+    throw new Error(
+      "This procurement cannot be deleted because it has run history. Bidded preserves immutable run audit rows, so procurements with linked runs must remain in place.",
+    );
+  }
+
   const { data: docRows, error: docListErr } = await client
     .from("documents")
     .select("storage_path")
@@ -1189,70 +1663,46 @@ export async function registerProcurement(input: RegisterProcurementInput): Prom
   if (tenderErr) throw new Error(`registerProcurement (tender upsert): ${tenderErr.message}`);
   const tenderId = (tenderRows as Array<{ id: string }>)[0].id;
 
-  await registerUploadedDocuments({
-    client,
-    bucketName: BUCKET_NAME,
-    ownerName: input.title,
-    companyId,
-    tenderId,
-    files: input.files,
-    scope: "tender_document",
-    registeredVia: "frontend_ui",
-    metadata: { demo_company_id: companyId },
-  });
+  // 3. For each document: compute SHA-256 -> upload -> upsert document row
+  for (const file of input.files) {
+    const contentType = contentTypeForProcurementDocument(file);
+    const buffer = await file.arrayBuffer();
+    const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+    const checksum = Array.from(new Uint8Array(hashBuffer))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    const storagePath = buildStoragePath(input.title, checksum, file.name);
+
+    const { error: uploadErr } = await client.storage
+      .from(BUCKET_NAME)
+      .upload(storagePath, new Blob([buffer], { type: contentType }), {
+        contentType,
+        upsert: true,
+      });
+    if (uploadErr)
+      throw new Error(
+        `registerProcurement (storage upload ${file.name}): ${uploadErr.message} [status: ${(uploadErr as { statusCode?: string }).statusCode ?? "?"}]`,
+      );
+
+    const { error: docErr } = await client.from("documents").upsert(
+      {
+        tenant_key: "demo",
+        tender_id: tenderId,
+        company_id: null,
+        storage_path: storagePath,
+        checksum_sha256: checksum,
+        content_type: contentType,
+        document_role: "tender_document",
+        parse_status: "pending",
+        original_filename: file.name,
+        metadata: { registered_via: "frontend_ui", demo_company_id: companyId },
+      },
+      { onConflict: "storage_path" },
+    );
+    if (docErr) throw new Error(`registerProcurement (document upsert ${file.name}): ${docErr.message}`);
+  }
 
   return tenderId;
-}
-
-export async function fetchCompanyKnowledgeBaseDocuments(
-  companyId: string,
-): Promise<CompanyKnowledgeBaseDocument[]> {
-  if (isMockMode()) {
-    return [];
-  }
-
-  const client = requireSupabase();
-  const { data, error } = await client
-    .from("documents")
-    .select("id, original_filename, parse_status, created_at")
-    .eq("tenant_key", "demo")
-    .eq("company_id", companyId)
-    .eq("document_role", "company_profile")
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    throw new Error(`fetchCompanyKnowledgeBaseDocuments: ${error.message}`);
-  }
-
-  return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
-    id: String(row.id),
-    originalFilename: String(row.original_filename ?? "Unknown.pdf"),
-    parseStatus: (row.parse_status as ProcurementDocumentRow["parseStatus"]) ?? "pending",
-    uploadedAt: String(row.created_at ?? ""),
-  }));
-}
-
-export async function uploadCompanyKnowledgeBaseDocuments(input: {
-  companyId: string;
-  companyName: string;
-  files: File[];
-}): Promise<void> {
-  if (isMockMode()) {
-    throw new Error(MOCK_MODE_WRITE_MESSAGE);
-  }
-
-  const client = requireSupabase();
-  await registerUploadedDocuments({
-    client,
-    bucketName: BUCKET_NAME,
-    ownerName: input.companyName,
-    companyId: input.companyId,
-    tenderId: null,
-    files: input.files,
-    scope: "company_profile",
-    registeredVia: "frontend_company_kb",
-    metadata: { demo_company_id: input.companyId },
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1359,6 +1809,7 @@ function mapEvidenceRow(
   referencedBy: AgentName[],
 ): Evidence {
   const sm = (row.source_metadata as Record<string, string>) ?? {};
+  const sourceLabel = evidenceSourceLabel(sm);
   return {
     id: row.evidence_key as string,
     key: row.evidence_key as string,
@@ -1366,13 +1817,35 @@ function mapEvidenceRow(
       (EVIDENCE_CAT_MAP[row.category as string] as EvidenceCategory) ??
       (row.category as EvidenceCategory),
     excerpt: row.excerpt as string,
-    source: sm.source_label ?? "Unknown",
+    source: sourceLabel,
     page: (row.page_start as number) ?? 0,
     referencedBy,
     kind: (row.source_type as "tender_document" | "company_profile") ??
       "tender_document",
     companyFieldPath: (row.field_path as string) ?? undefined,
   };
+}
+
+const KB_DOCUMENT_TYPE_LABELS: Record<string, string> = {
+  certification: "Certification",
+  case_study: "Case study",
+  cv_profile: "CV/profile",
+  capability_statement: "Capability statement",
+  policy_process: "Policy/process",
+  financial_pricing: "Financial/pricing",
+  legal_insurance: "Legal/insurance",
+};
+
+function evidenceSourceLabel(sourceMetadata: Record<string, string>): string {
+  if (sourceMetadata.kb_document_type) {
+    const filename =
+      sourceMetadata.original_filename || sourceMetadata.source_label || "Company KB";
+    const documentType =
+      KB_DOCUMENT_TYPE_LABELS[sourceMetadata.kb_document_type] ??
+      sourceMetadata.kb_document_type;
+    return `${filename} · ${documentType}`;
+  }
+  return sourceMetadata.source_label ?? "Unknown";
 }
 
 // ---------------------------------------------------------------------------
@@ -1396,6 +1869,8 @@ const DECISION_SUMMARY_SELECT = `
     status,
     started_at,
     completed_at,
+    archived_at,
+    archived_reason,
     tenders!inner(title, created_at, documents(id))
   )
 `;
@@ -1436,16 +1911,21 @@ export async function fetchDecisions(): Promise<DecisionRow[]> {
 
 export interface RunDetail {
   id: string;
+  runNumber: number | null;
   tenderName: string;
   tenderId: string;
   company: string;
   status: RunStatus;
+  isStale: boolean;
+  isArchived: boolean;
+  staleAgeMinutes: number | null;
   stage: string;
   startedAt: string;
   completedAt: string | null;
   durationSec: number | null;
   decision: Verdict | null;
   confidence: number | null; // 0–100
+  documents: RunDetailDocument[];
   evidence: Evidence[];
   round1: AgentMotion[];
   round2: AgentMotion[];
@@ -1461,9 +1941,9 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
   const { data: runRow, error: runErr } = await client
     .from("agent_runs")
     .select(
-      `id, status, started_at, completed_at, metadata, tender_id, company_id,
+      `id, status, created_at, started_at, completed_at, archived_at, archived_reason, metadata, tender_id, company_id,
        tenders!inner(title),
-       bid_decisions(verdict, confidence, final_decision)`,
+       bid_decisions(verdict, confidence, final_decision, metadata)`,
     )
     .eq("id", runId)
     .single();
@@ -1480,10 +1960,12 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
 
   const tenderId = run.tender_id as string;
   const companyId = run.company_id as string;
+  const createdAt = run.created_at as string | null;
   const startedAt = run.started_at as string | null;
   const completedAt = run.completed_at as string | null;
+  const archivedAt = run.archived_at as string | null;
 
-  const [outputsRes, docsRes] = await Promise.all([
+  const [outputsRes, docsRes, runNumbersRes] = await Promise.all([
     client
       .from("agent_outputs")
       .select("agent_role, round_name, output_type, validated_payload")
@@ -1491,13 +1973,34 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
       .order("created_at"),
     client
       .from("documents")
-      .select("id")
+      .select("id, original_filename, parse_status, metadata, storage_path")
       .eq("tender_id", tenderId)
       .eq("tenant_key", "demo"),
+    client
+      .from("agent_runs")
+      .select("id, tender_id, started_at, created_at")
+      .eq("tenant_key", "demo")
+      .eq("tender_id", tenderId),
   ]);
 
   if (outputsRes.error)
     throw new Error(`fetchRunDetail (outputs): ${outputsRes.error.message}`);
+  if (runNumbersRes.error)
+    throw new Error(`fetchRunDetail (run numbers): ${runNumbersRes.error.message}`);
+
+  const runNumbers = buildRunNumberMap(
+    ((runNumbersRes.data ?? []) as Array<{
+      id: string;
+      tender_id: string;
+      started_at: string | null;
+      created_at: string | null;
+    }>).map((row) => ({
+      id: row.id,
+      tenderId: row.tender_id,
+      startedAt: row.started_at,
+      createdAt: row.created_at,
+    })),
+  );
 
   const outputs = (outputsRes.data ?? []) as Array<{
     agent_role: string;
@@ -1505,6 +2008,22 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
     output_type: string;
     validated_payload: Record<string, unknown>;
   }>;
+
+  const documents = ((docsRes.data ?? []) as Array<{
+    id: string;
+    original_filename: string;
+    parse_status: ProcurementDocumentRow["parseStatus"];
+    metadata: unknown;
+    storage_path: string | null;
+  }>).map((document) => ({
+    originalFilename: document.original_filename,
+    parseStatus: document.parse_status,
+    parseNote: metadataParseNote(document.metadata),
+    publicUrl:
+      typeof document.storage_path === "string" && document.storage_path.length > 0
+        ? publicUrlForStoragePath(document.storage_path)
+        : undefined,
+  }));
 
   const docIds = ((docsRes.data ?? []) as Array<{ id: string }>).map(
     (d) => d.id,
@@ -1528,14 +2047,20 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
     evidenceRows = (evData ?? []) as Record<string, unknown>[];
   }
 
-  // Build UUID → evidence_key map for judge output evidence_ids
+  const snapshotEvidenceRows = decisionEvidenceSnapshotRows(bd);
+  const displayEvidenceRows = mergeEvidenceRows(evidenceRows, snapshotEvidenceRows);
+
+  // Build UUID → evidence_key map for judge output evidence_ids, including
+  // decision snapshots for hard-deleted company KB source documents.
   const evidenceIdToKey = new Map<string, string>(
-    evidenceRows.map((r) => [r.id as string, r.evidence_key as string]),
+    displayEvidenceRows.flatMap((r) =>
+      r.id && r.evidence_key ? [[String(r.id), String(r.evidence_key)]] : [],
+    ),
   );
 
   const referencedByMap = buildReferencedByMap(outputs);
 
-  const evidence: Evidence[] = evidenceRows.map((r) =>
+  const evidence: Evidence[] = displayEvidenceRows.map((r) =>
     mapEvidenceRow(r, referencedByMap.get(r.evidence_key as string) ?? []),
   );
 
@@ -1567,18 +2092,27 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
   const judge = fd ? mapFinalDecision(fd, evidenceIdToKey) : null;
 
   const status = run.status as RunStatus;
-  const step = resolveMetadataCurrentStep(run.metadata);
-  const stage =
-    step != null ? stageDisplayName(step) : dashboardStageLabel(status, run.metadata);
+  const lifecycle = runLifecycleForDisplay({
+    status,
+    startedAt,
+    createdAt,
+    completedAt,
+    archivedAt,
+    metadata: run.metadata,
+  });
 
   return {
     id: runId,
+    runNumber: runNumbers.get(runId) ?? null,
     tenderName: (tender?.title as string) ?? "Unknown",
     tenderId,
     company: "Demo company",
     status,
-    stage,
-    startedAt: startedAt ?? (run.created_at as string) ?? "",
+    isStale: lifecycle.isStale,
+    isArchived: lifecycle.isArchived,
+    staleAgeMinutes: lifecycle.staleAgeMinutes,
+    stage: lifecycle.stage,
+    startedAt: startedAt ?? createdAt ?? "",
     completedAt,
     durationSec:
       startedAt && completedAt
@@ -1600,11 +2134,48 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
             ((bd as Record<string, unknown>).confidence as number) * 100,
           )
         : null,
+    documents,
     evidence,
     round1,
     round2,
     judge,
   };
+}
+
+function decisionEvidenceSnapshotRows(
+  decisionRow: Record<string, unknown> | null | undefined,
+): Record<string, unknown>[] {
+  const metadata = decisionRow?.metadata;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return [];
+  }
+  const snapshot = (metadata as Record<string, unknown>).evidence_snapshot;
+  if (!Array.isArray(snapshot)) return [];
+  return snapshot.filter(
+    (row): row is Record<string, unknown> =>
+      Boolean(row && typeof row === "object" && !Array.isArray(row)),
+  );
+}
+
+function mergeEvidenceRows(
+  liveRows: Record<string, unknown>[],
+  snapshotRows: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  const seenIds = new Set(liveRows.map((row) => row.id).filter(Boolean).map(String));
+  const seenKeys = new Set(
+    liveRows.map((row) => row.evidence_key).filter(Boolean).map(String),
+  );
+  const merged = [...liveRows];
+  for (const snapshotRow of snapshotRows) {
+    const id = snapshotRow.id == null ? null : String(snapshotRow.id);
+    const key =
+      snapshotRow.evidence_key == null ? null : String(snapshotRow.evidence_key);
+    if ((id && seenIds.has(id)) || (key && seenKeys.has(key))) continue;
+    merged.push(snapshotRow);
+    if (id) seenIds.add(id);
+    if (key) seenKeys.add(key);
+  }
+  return merged;
 }
 
 // ---------------------------------------------------------------------------
@@ -1728,6 +2299,8 @@ const BID_SELECT = `
     status,
     started_at,
     completed_at,
+    archived_at,
+    archived_reason,
     bid_decisions(created_at, verdict, confidence, final_decision)
   )
 `;
@@ -1883,18 +2456,130 @@ export async function deleteBid(id: string): Promise<void> {
 const AGENT_API_URL =
   (import.meta.env.VITE_AGENT_API_URL as string | undefined) ?? "http://localhost:8000";
 
-export async function deleteAgentRun(runId: string): Promise<void> {
+export type CompanyKbDocumentType =
+  | "certification"
+  | "case_study"
+  | "cv_profile"
+  | "capability_statement"
+  | "policy_process"
+  | "financial_pricing"
+  | "legal_insurance";
+
+export interface CompanyKbUploadItem {
+  file: File;
+  kbDocumentType: CompanyKbDocumentType;
+}
+
+export interface CompanyKbDocument {
+  document_id: string;
+  company_id: string;
+  original_filename: string;
+  storage_path: string;
+  content_type: string;
+  parse_status: "pending" | "parsing" | "parsed" | "parser_failed";
+  kb_document_type: CompanyKbDocumentType;
+  extraction_status: "pending" | "parsing" | "extracted" | "fallback" | "failed";
+  evidence_count: number;
+  warnings: string[];
+}
+
+export interface CompanyKbEvidenceItem {
+  evidence_key: string;
+  excerpt: string;
+  normalized_meaning?: string;
+  category: string;
+  confidence: number;
+  source_metadata?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CompanyKbDocumentsResponse {
+  documents: CompanyKbDocument[];
+}
+
+export interface CompanyKbEvidenceResponse {
+  evidence: CompanyKbEvidenceItem[];
+}
+
+export async function uploadCompanyKbDocuments(
+  items: CompanyKbUploadItem[],
+): Promise<CompanyKbDocumentsResponse> {
   if (isMockMode()) {
     throw new Error(MOCK_MODE_WRITE_MESSAGE);
   }
+  const token = await requireAccessToken();
+  const form = new FormData();
+  for (const item of items) {
+    form.append("files", item.file);
+    form.append("kb_document_types", item.kbDocumentType);
+  }
+  const res = await fetch(`${AGENT_API_URL}/api/company/kb/documents`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  return parseAgentResponse<CompanyKbDocumentsResponse>(res);
+}
 
-  const client = requireSupabase();
-  const { error } = await client
-    .from("agent_runs")
-    .delete()
-    .eq("id", runId)
-    .eq("tenant_key", "demo");
-  if (error) throw new Error(`deleteAgentRun: ${error.message}`);
+export async function fetchCompanyKbDocuments(): Promise<CompanyKbDocumentsResponse> {
+  if (isMockMode()) {
+    return { documents: [] };
+  }
+  const token = await requireAccessToken();
+  const res = await fetch(`${AGENT_API_URL}/api/company/kb/documents`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parseAgentResponse<CompanyKbDocumentsResponse>(res);
+}
+
+export async function fetchCompanyKbEvidence(
+  documentId: string,
+): Promise<CompanyKbEvidenceResponse> {
+  if (isMockMode()) {
+    return { evidence: [] };
+  }
+  const token = await requireAccessToken();
+  const res = await fetch(
+    `${AGENT_API_URL}/api/company/kb/documents/${documentId}/evidence`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  return parseAgentResponse<CompanyKbEvidenceResponse>(res);
+}
+
+export async function deleteCompanyKbDocument(documentId: string): Promise<void> {
+  if (isMockMode()) {
+    throw new Error(MOCK_MODE_WRITE_MESSAGE);
+  }
+  const token = await requireAccessToken();
+  const res = await fetch(
+    `${AGENT_API_URL}/api/company/kb/documents/${documentId}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  await parseAgentResponse<{ deleted: boolean }>(res);
+}
+
+export async function archiveAgentRun(
+  runId: string,
+  reason = "operator archived run",
+): Promise<void> {
+  if (isMockMode()) {
+    archiveMockAgentRun(runId);
+    return;
+  }
+
+  const token = await requireAccessToken();
+  const res = await fetch(`${AGENT_API_URL}/api/runs/${encodeURIComponent(runId)}/archive`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
+  }
 }
 
 export async function startAgentRun(tenderId: string): Promise<string> {
@@ -1902,9 +2587,10 @@ export async function startAgentRun(tenderId: string): Promise<string> {
     throw new Error(MOCK_MODE_WRITE_MESSAGE);
   }
 
+  const token = await requireAccessToken();
   const res = await fetch(`${AGENT_API_URL}/api/runs/start`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ tender_id: tenderId }),
   });
   if (!res.ok) {
@@ -1913,4 +2599,59 @@ export async function startAgentRun(tenderId: string): Promise<string> {
   }
   const data = (await res.json()) as { run_id: string };
   return data.run_id;
+}
+
+export async function fetchLatestBidDraft(runId: string): Promise<BidResponseDraft | null> {
+  if (isMockMode()) {
+    const generatedDraft = generatedMockBidDrafts.get(runId);
+    if (generatedDraft) return generatedDraft;
+    return mockBidDrafts.find((draft) => draft.runId === runId) ?? null;
+  }
+
+  const token = await requireAccessToken();
+  const res = await fetch(
+    `${AGENT_API_URL}/api/bid-drafts/latest?run_id=${encodeURIComponent(runId)}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (res.status === 404) return null;
+  const payload = await parseAgentResponse<RawBidResponseDraft>(res);
+  return mapBidDraftPayload(payload, publicUrlForStoragePath);
+}
+
+export async function generateBidDraft(
+  runId: string,
+  bidId?: string,
+): Promise<BidResponseDraft> {
+  if (isMockMode()) {
+    const draft =
+      mockBidDrafts.find((item) => item.runId === runId) ?? {
+        ...mockBidDrafts[0],
+        runId,
+        bidId,
+      };
+    generatedMockBidDrafts.set(runId, draft);
+    return draft;
+  }
+
+  const token = await requireAccessToken();
+  const res = await fetch(`${AGENT_API_URL}/api/bid-drafts/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ run_id: runId, bid_id: bidId ?? null }),
+  });
+  const payload = await parseAgentResponse<RawBidResponseDraft>(res);
+  return mapBidDraftPayload(payload, publicUrlForStoragePath);
+}
+
+async function parseAgentResponse<T>(res: Response): Promise<T> {
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
+  }
+  return (await res.json()) as T;
+}
+
+function publicUrlForStoragePath(storagePath: string): string | undefined {
+  if (!supabase) return undefined;
+  return supabase.storage.from(BUCKET_NAME).getPublicUrl(storagePath).data.publicUrl;
 }

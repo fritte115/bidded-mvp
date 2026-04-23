@@ -131,7 +131,7 @@ def _sorted_company_items(
 
 
 def _document_citation_hint(item: EvidenceItemState) -> str:
-    """Short provenance for UI when multiple tender PDFs are on the board."""
+    """Short provenance for UI when multiple tender documents are on the board."""
     meta = item.source_metadata or {}
     label = meta.get("source_label") or meta.get("filename") or meta.get("title")
     if isinstance(label, str) and label.strip():
@@ -365,7 +365,7 @@ class EvidenceLockedRound1Model:
                 AgentRole.COMPLIANCE_OFFICER: (
                     "Potential gap: map each shall/must line in the cited tender "
                     "excerpts to a named exhibit; trace formal gates across all "
-                    "uploaded procurement PDFs."
+                    "uploaded procurement documents."
                 ),
                 AgentRole.WIN_STRATEGIST: (
                     "Potential gap: tie win themes and price story to evaluation "
@@ -378,9 +378,9 @@ class EvidenceLockedRound1Model:
                     "capacity evidence covers every cited schedule risk."
                 ),
                 AgentRole.RED_TEAM: (
-                    "Potential gap: stress-test residual exposure where tender PDFs "
-                    "disagree or where company proof is thin for any cited "
-                    "obligation."
+                    "Potential gap: stress-test residual exposure where tender "
+                    "documents disagree or where company proof is thin for any "
+                    "cited obligation."
                 ),
             }
             potential_blockers.append(
@@ -424,7 +424,7 @@ class EvidenceLockedRound1Model:
         }
         missing_r1: dict[AgentRole, list[str]] = {
             AgentRole.COMPLIANCE_OFFICER: [
-                "Confirm every mandatory upload referenced across tender PDFs is "
+                "Confirm every mandatory upload referenced across tender documents is "
                 "listed with the correct file name in the submission pack."
             ],
             AgentRole.WIN_STRATEGIST: [
@@ -453,7 +453,7 @@ class EvidenceLockedRound1Model:
                 "excerpts."
             ],
             AgentRole.RED_TEAM: [
-                "Identify single points of failure where multiple PDFs impose "
+                "Identify single points of failure where multiple documents impose "
                 "overlapping obligations."
             ],
         }
@@ -519,8 +519,9 @@ class EvidenceLockedRound1Model:
         if role is AgentRole.COMPLIANCE_OFFICER:
             return BidVerdict.NO_BID if formal_blockers else BidVerdict.CONDITIONAL_BID
         if role is AgentRole.WIN_STRATEGIST:
-            # Strong "bid" only when multiple tender PDFs are represented on the board
-            # and company_profile evidence exists — otherwise stay conditional.
+            # Strong "bid" only when multiple tender documents are represented
+            # on the board and company_profile evidence exists; otherwise stay
+            # conditional.
             if n_company >= 1 and n_tender >= 2:
                 return BidVerdict.BID
             return BidVerdict.CONDITIONAL_BID
