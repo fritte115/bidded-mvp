@@ -95,7 +95,7 @@ def _company_kb_sql() -> str:
     )
 
     assert [path.name for path in migration_files] == [
-        "20260423120000_company_knowledge_base.sql"
+        "20260423121000_company_knowledge_base.sql"
     ]
     return migration_files[0].read_text()
 

@@ -48,8 +48,8 @@ export function TopBar() {
         <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
         <div className="h-4 w-px bg-border" />
         <Link to="/" className="flex items-center gap-2">
-          <img src={biddedMark} alt="Bidded" className="h-6 w-auto" />
-          <span className="text-base font-semibold tracking-tight text-foreground">Bidded</span>
+          <img src={biddedMark} alt="Bidded" className="h-6 w-6 shrink-0 object-contain" />
+          <span className="text-base font-semibold text-foreground">Bidded</span>
         </Link>
         <div className="h-4 w-px bg-border" />
         <span className="text-sm text-muted-foreground">{title}</span>
