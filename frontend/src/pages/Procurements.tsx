@@ -22,7 +22,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { StatusBadge } from "@/components/StatusBadge";
 import { VerdictBadge } from "@/components/VerdictBadge";
 import { formatRelativeTime, runDisplayId } from "@/data/mock";
 import { usePermissions } from "@/lib/auth";
@@ -57,10 +56,61 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { cn } from "@/lib/utils";
 
 type RunFilter = "all" | "not_run" | "running" | "done";
 const DELETE_BLOCKED_REASON =
   "This procurement has run history. Bidded preserves linked run audit rows, so it cannot be hard-deleted.";
+const DOCUMENT_STATUS_ORDER = ["parsed", "parsing", "pending", "parser_failed"] as const;
+const RUN_STATUS_LABELS = {
+  pending: "Pending",
+  running: "Running",
+  succeeded: "Succeeded",
+  failed: "Failed",
+  needs_human_review: "Review",
+} as const;
+const RUN_STATUS_DOT_CLASSES = {
+  pending: "bg-muted-foreground",
+  running: "bg-info",
+  succeeded: "bg-success",
+  failed: "bg-danger",
+  needs_human_review: "bg-warning",
+} as const;
+
+function RunStatusDot({
+  status,
+  isStale = false,
+}: {
+  status: keyof typeof RUN_STATUS_LABELS;
+  isStale?: boolean;
+}) {
+  const toneStatus = isStale ? "failed" : status;
+  const label = isStale ? "Stale" : RUN_STATUS_LABELS[status];
+
+  return (
+    <span
+      className="inline-flex h-8 w-8 items-center justify-center"
+      role="img"
+      aria-label={label}
+      title={label}
+    >
+      {status === "running" && !isStale ? (
+        <span className="relative flex h-2.5 w-2.5">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-info opacity-50" />
+          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-info" />
+        </span>
+      ) : (
+        <span
+          className={cn(
+            "inline-flex h-2.5 w-2.5 rounded-full",
+            RUN_STATUS_DOT_CLASSES[toneStatus],
+          )}
+        />
+      )}
+      <span className="sr-only">{label}</span>
+    </span>
+  );
+}
 
 export default function Procurements() {
   const navigate = useNavigate();
@@ -286,7 +336,7 @@ export default function Procurements() {
                     <TableHead>Procurement</TableHead>
                     <TableHead>Documents</TableHead>
                     <TableHead className="whitespace-nowrap">Latest run</TableHead>
-                    <TableHead>Status</TableHead>
+                    <TableHead className="w-14 text-center">Status</TableHead>
                     <TableHead>Stage</TableHead>
                     <TableHead>Decision</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -302,6 +352,18 @@ export default function Procurements() {
                       run?.status === "succeeded" ||
                       run?.status === "failed" ||
                       run?.status === "needs_human_review";
+                    const documentStatusSummary = DOCUMENT_STATUS_ORDER.map((status) => ({
+                      status,
+                      count: t.documents.filter((document) => document.parseStatus === status).length,
+                      notes: t.documents
+                        .filter(
+                          (document) =>
+                            document.parseStatus === status &&
+                            typeof document.parseNote === "string" &&
+                            document.parseNote.length > 0,
+                        )
+                        .map((document) => document.parseNote as string),
+                    })).filter((item) => item.count > 0);
                     return (
                       <TableRow key={t.id} data-state={checked ? "selected" : undefined}>
                         <TableCell>
@@ -313,38 +375,34 @@ export default function Procurements() {
                         </TableCell>
                         <TableCell className="font-medium">{t.name}</TableCell>
                         <TableCell className="align-top">
-                          <div className="max-w-[240px] space-y-1.5">
+                          <div className="max-w-[240px] space-y-2">
                             <span className="inline-flex items-center gap-1.5 rounded-sm bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
                               <Files className="h-3 w-3" />
                               {t.documentCount} {t.documentCount === 1 ? "PDF" : "PDFs"}
                             </span>
-                            {t.documents.length > 0 && (
-                              <ul className="space-y-1">
-                                {t.documents.map((d) => (
-                                  <li
-                                    key={d.originalFilename}
-                                    className="flex flex-wrap items-center gap-1.5 text-[11px] leading-tight"
-                                  >
-                                    <span className="min-w-0 truncate text-muted-foreground" title={d.originalFilename}>
-                                      {d.originalFilename}
+                            {documentStatusSummary.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5">
+                                {documentStatusSummary.map(({ status, count, notes }) =>
+                                  notes.length > 0 ? (
+                                    <Tooltip key={status}>
+                                      <TooltipTrigger asChild>
+                                        <span className="inline-flex cursor-help items-center gap-1">
+                                          <ParseStatusBadge status={status} />
+                                          <span className="text-xs text-muted-foreground">{count}</span>
+                                        </span>
+                                      </TooltipTrigger>
+                                      <TooltipContent className="max-w-xs text-xs">
+                                        {notes.join("\n")}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  ) : (
+                                    <span key={status} className="inline-flex items-center gap-1">
+                                      <ParseStatusBadge status={status} />
+                                      <span className="text-xs text-muted-foreground">{count}</span>
                                     </span>
-                                    {d.parseNote ? (
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <span className="inline-flex cursor-help">
-                                            <ParseStatusBadge status={d.parseStatus} />
-                                          </span>
-                                        </TooltipTrigger>
-                                        <TooltipContent className="max-w-xs text-xs">
-                                          {d.parseNote}
-                                        </TooltipContent>
-                                      </Tooltip>
-                                    ) : (
-                                      <ParseStatusBadge status={d.parseStatus} />
-                                    )}
-                                  </li>
-                                ))}
-                              </ul>
+                                  ),
+                                )}
+                              </div>
                             )}
                           </div>
                         </TableCell>
@@ -355,7 +413,7 @@ export default function Procurements() {
                               className="group inline-flex flex-col leading-tight"
                             >
                               <span className="font-medium text-foreground group-hover:text-primary group-hover:underline">
-                                {runDisplayId(run.id)}
+                                {runDisplayId(run)}
                               </span>
                               <span className="text-xs text-muted-foreground">
                                 {formatRelativeTime(run.startedAt)}
@@ -365,13 +423,11 @@ export default function Procurements() {
                             <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="text-center">
                           {run ? (
-                            <StatusBadge status={run.status} isStale={run.isStale} />
+                            <RunStatusDot status={run.status} isStale={run.isStale} />
                           ) : (
-                            <span className="inline-flex items-center rounded-sm border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                              Not run
-                            </span>
+                            <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">

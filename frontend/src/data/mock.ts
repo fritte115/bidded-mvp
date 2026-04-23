@@ -105,6 +105,7 @@ export type Tender = Procurement;
 export interface Run {
   id: string;
   tenderId: string;
+  runNumber?: number | null;
   tenderName: string;
   company: string;
   startedAt: string;
@@ -774,16 +775,67 @@ export function findRun(id: string) {
   return runs.find((r) => r.id === id);
 }
 
-/** Friendly run label, e.g. "Run 1". Stable for a given run id. */
-export function runDisplayId(run: Pick<Run, "id"> | string) {
-  const id = typeof run === "string" ? run : run.id;
-  const knownIndex = runs.findIndex((r) => r.id === id);
-  if (knownIndex >= 0) return `Run ${knownIndex + 1}`;
+export interface RunSequenceRow {
+  id: string;
+  tenderId: string;
+  startedAt?: string | null;
+  createdAt?: string | null;
+}
 
-  // Fall back to a small stable number for live ids that are not in mock data.
-  let sum = 0;
-  for (let i = 0; i < id.length; i++) sum = (sum + id.charCodeAt(i) * (i + 1)) % 99;
-  return `Run ${sum + 1}`;
+type RunLabelTarget = {
+  id: string;
+  runNumber?: number | null;
+};
+
+function runSequenceTimeMs(run: RunSequenceRow) {
+  const value = run.startedAt ?? run.createdAt ?? null;
+  if (!value) return 0;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+export function buildRunNumberMap(runsToNumber: RunSequenceRow[]) {
+  const grouped = new Map<string, RunSequenceRow[]>();
+  for (const run of runsToNumber) {
+    const bucket = grouped.get(run.tenderId) ?? [];
+    bucket.push(run);
+    grouped.set(run.tenderId, bucket);
+  }
+
+  const runNumbers = new Map<string, number>();
+  for (const group of grouped.values()) {
+    group
+      .slice()
+      .sort((left, right) => {
+        const timeDiff = runSequenceTimeMs(left) - runSequenceTimeMs(right);
+        if (timeDiff !== 0) return timeDiff;
+        return left.id.localeCompare(right.id);
+      })
+      .forEach((run, index) => {
+        runNumbers.set(run.id, index + 1);
+      });
+  }
+
+  return runNumbers;
+}
+
+/** Friendly run label, e.g. "Run 1". Uses a real per-procurement run order when known. */
+export function runDisplayId(run: RunLabelTarget | string) {
+  if (typeof run !== "string" && typeof run.runNumber === "number" && run.runNumber > 0) {
+    return `Run ${run.runNumber}`;
+  }
+
+  const id = typeof run === "string" ? run : run.id;
+  const mockRunNumber = buildRunNumberMap(
+    runs.map((mockRun) => ({
+      id: mockRun.id,
+      tenderId: mockRun.tenderId,
+      startedAt: mockRun.startedAt,
+      createdAt: mockRun.startedAt,
+    })),
+  ).get(id);
+
+  return typeof mockRunNumber === "number" ? `Run ${mockRunNumber}` : "Run";
 }
 
 /** Latest run for a procurement, by startedAt (desc). */

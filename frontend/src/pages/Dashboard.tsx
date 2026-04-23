@@ -201,7 +201,7 @@ export default function Dashboard() {
                           className={isArchiving ? "opacity-40 transition-opacity duration-300" : ""}
                         >
                           <TableCell className="text-sm font-medium">
-                            {runDisplayId(r.id)}
+                            {runDisplayId(r)}
                           </TableCell>
                           <TableCell>
                             <Link

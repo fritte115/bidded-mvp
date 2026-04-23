@@ -20,6 +20,7 @@ vi.mock("@/lib/auth", () => ({
 
 const run: RunDetailModel = {
   id: "run-123",
+  runNumber: 2,
   tenderId: "tender-123",
   tenderName: "City CRM Procurement",
   company: "Acme IT Consulting AB",
@@ -38,11 +39,13 @@ const run: RunDetailModel = {
       originalFilename: "city-crm-main.pdf",
       parseStatus: "parsed",
       parseNote: null,
+      publicUrl: "https://example.supabase.co/storage/v1/object/public/public-procurements/city-crm-main.pdf",
     },
     {
       originalFilename: "city-crm-appendix.pdf",
       parseStatus: "parsed",
       parseNote: null,
+      publicUrl: "https://example.supabase.co/storage/v1/object/public/public-procurements/city-crm-appendix.pdf",
     },
   ],
   evidence: [],
@@ -96,8 +99,18 @@ describe("RunDetail", () => {
       "/runs/run-123/evidence",
     );
     expect(screen.getByText("Submitted files")).toBeInTheDocument();
-    expect(screen.getByText("city-crm-main.pdf")).toBeInTheDocument();
-    expect(screen.getByText("city-crm-appendix.pdf")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open city-crm-main.pdf" })).toHaveAttribute(
+      "href",
+      "https://example.supabase.co/storage/v1/object/public/public-procurements/city-crm-main.pdf",
+    );
+    expect(screen.getByRole("link", { name: "Download city-crm-main.pdf" })).toHaveAttribute(
+      "href",
+      "https://example.supabase.co/storage/v1/object/public/public-procurements/city-crm-main.pdf",
+    );
+    expect(screen.getByRole("link", { name: "Open city-crm-appendix.pdf" })).toHaveAttribute(
+      "href",
+      "https://example.supabase.co/storage/v1/object/public/public-procurements/city-crm-appendix.pdf",
+    );
     expect(screen.getByRole("button", { name: /Re-run/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Export/i })).toBeInTheDocument();
   });

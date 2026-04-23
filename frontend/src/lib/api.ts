@@ -11,6 +11,7 @@
  */
 
 import {
+  buildRunNumberMap,
   company as mockCompany,
   bidDrafts as mockBidDrafts,
   bids as mockBids,
@@ -254,13 +255,26 @@ function mockDashboardStats(): DashboardStats {
   };
 }
 
+function mockRunNumberMap() {
+  return buildRunNumberMap(
+    mockRuns.map((run) => ({
+      id: run.id,
+      tenderId: run.tenderId,
+      startedAt: run.startedAt,
+      createdAt: run.startedAt,
+    })),
+  );
+}
+
 function mockActiveRuns(): ActiveRun[] {
+  const runNumbers = mockRunNumberMap();
   return visibleMockRuns()
     .filter((run) => run.status === "running" || run.status === "pending")
     .map((run) => {
       const lifecycle = mockLifecycle(run);
       return {
         id: run.id,
+        runNumber: runNumbers.get(run.id) ?? null,
         tenderName: run.tenderName,
         status: run.status,
         stage: lifecycle.stage,
@@ -281,6 +295,7 @@ function mockActiveRuns(): ActiveRun[] {
 function mockProcurementLatestRun(
   procurementId: string,
 ): ProcurementLatestRun | null {
+  const runNumbers = mockRunNumberMap();
   const latestRun = visibleMockRuns()
     .filter((run) => run.tenderId === procurementId)
     .sort(
@@ -292,6 +307,7 @@ function mockProcurementLatestRun(
 
   return {
     id: latestRun.id,
+    runNumber: runNumbers.get(latestRun.id) ?? null,
     status: latestRun.status,
     startedAt: latestRun.startedAt,
     stage: lifecycle.stage,
@@ -398,6 +414,7 @@ function mockDecisionRows(): DecisionRow[] {
 }
 
 function mockRunDetail(runId: string): RunDetail | null {
+  const runNumbers = mockRunNumberMap();
   const run = visibleMockRuns().find((row) => row.id === runId);
   if (!run) return null;
   const lifecycle = mockLifecycle(run);
@@ -407,16 +424,19 @@ function mockRunDetail(runId: string): RunDetail | null {
       originalFilename: doc.filename,
       parseStatus: doc.parseStatus,
       parseNote: null,
+      publicUrl: undefined,
     })) ??
     procurement?.documents.map((filename) => ({
       originalFilename: filename,
       parseStatus: mockParseStatus(procurement),
       parseNote: null,
+      publicUrl: undefined,
     })) ??
     [];
 
   return {
     id: run.id,
+    runNumber: runNumbers.get(run.id) ?? null,
     tenderName: run.tenderName,
     tenderId: run.tenderId,
     company: run.company,
@@ -1054,6 +1074,7 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
 // Lightweight run shape for the Dashboard active-analyses table
 export interface ActiveRun {
   id: string;
+  runNumber: number | null;
   tenderName: string;
   status: RunStatus;
   isStale: boolean;
@@ -1124,7 +1145,7 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
 
   const { data, error } = await client
     .from("agent_runs")
-    .select("id, status, started_at, created_at, completed_at, archived_at, metadata, tenders(title)")
+    .select("id, tender_id, status, started_at, created_at, completed_at, archived_at, metadata, tenders(title)")
     .eq("tenant_key", "demo")
     .is("archived_at", null)
     .or(
@@ -1135,7 +1156,43 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
 
   if (error) throw new Error(`fetchActiveRuns: ${error.message}`);
 
-  return (data ?? []).map((r: Record<string, unknown>) => {
+  const rows = (data ?? []) as Record<string, unknown>[];
+  const tenderIds = Array.from(
+    new Set(
+      rows
+        .map((row) => row.tender_id)
+        .filter((value): value is string => typeof value === "string" && value.length > 0),
+    ),
+  );
+
+  let runNumbers = new Map<string, number>();
+  if (tenderIds.length > 0) {
+    const { data: sequenceRows, error: sequenceErr } = await client
+      .from("agent_runs")
+      .select("id, tender_id, started_at, created_at")
+      .eq("tenant_key", "demo")
+      .in("tender_id", tenderIds);
+
+    if (sequenceErr) {
+      throw new Error(`fetchActiveRuns (run numbers): ${sequenceErr.message}`);
+    }
+
+    runNumbers = buildRunNumberMap(
+      ((sequenceRows ?? []) as Array<{
+        id: string;
+        tender_id: string;
+        started_at: string | null;
+        created_at: string | null;
+      }>).map((row) => ({
+        id: row.id,
+        tenderId: row.tender_id,
+        startedAt: row.started_at,
+        createdAt: row.created_at,
+      })),
+    );
+  }
+
+  return rows.map((r: Record<string, unknown>) => {
     const tender = r.tenders as { title: string } | null;
     const startedAt = r.started_at as string | null;
     const createdAt = r.created_at as string | null;
@@ -1158,6 +1215,7 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
     });
     return {
       id: r.id as string,
+      runNumber: runNumbers.get(r.id as string) ?? null,
       tenderName: tender?.title ?? "Unknown procurement",
       status,
       isStale: lifecycle.isStale,
@@ -1178,6 +1236,7 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
 // Minimal run info embedded in each procurement row
 export interface ProcurementLatestRun {
   id: string;
+  runNumber: number | null;
   status: RunStatus;
   isStale: boolean;
   isArchived: boolean;
@@ -1194,6 +1253,10 @@ export interface ProcurementDocumentRow {
   parseStatus: "pending" | "parsing" | "parsed" | "parser_failed";
   /** From `metadata` when workers store an error string; DB has no dedicated column yet */
   parseNote: string | null;
+}
+
+export interface RunDetailDocument extends ProcurementDocumentRow {
+  publicUrl?: string;
 }
 
 export interface ProcurementRow {
@@ -1255,6 +1318,7 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
   if (error) throw new Error(`fetchProcurements: ${error.message}`);
 
   return (data ?? []).map((t: Record<string, unknown>) => {
+    const tenderId = t.id as string;
     const docs =
       (t.documents as Array<{
         original_filename: string;
@@ -1273,6 +1337,14 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
         bid_decisions: { verdict: string }[] | { verdict: string } | null;
       }>
     ) ?? [];
+    const runNumbers = buildRunNumberMap(
+      runs.map((run) => ({
+        id: run.id,
+        tenderId,
+        startedAt: run.started_at,
+        createdAt: run.created_at,
+      })),
+    );
 
     // Sort runs by created_at desc, pick latest
     const latestRun = runs.filter((run) => !run.archived_at).sort(
@@ -1303,6 +1375,7 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
       });
       latestRunPayload = {
         id: latestRun.id,
+        runNumber: runNumbers.get(latestRun.id) ?? null,
         status,
         isStale: lifecycle.isStale,
         isArchived: lifecycle.isArchived,
@@ -1315,7 +1388,7 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
     }
 
     return {
-      id: t.id as string,
+      id: tenderId,
       name: t.title as string,
       uploadedAt: t.created_at as string,
       documentFilenames: docs.map((d) => d.original_filename),
@@ -1693,6 +1766,7 @@ export async function fetchDecisions(): Promise<DecisionRow[]> {
 
 export interface RunDetail {
   id: string;
+  runNumber: number | null;
   tenderName: string;
   tenderId: string;
   company: string;
@@ -1706,7 +1780,7 @@ export interface RunDetail {
   durationSec: number | null;
   decision: Verdict | null;
   confidence: number | null; // 0–100
-  documents: ProcurementDocumentRow[];
+  documents: RunDetailDocument[];
   evidence: Evidence[];
   round1: AgentMotion[];
   round2: AgentMotion[];
@@ -1746,7 +1820,7 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
   const completedAt = run.completed_at as string | null;
   const archivedAt = run.archived_at as string | null;
 
-  const [outputsRes, docsRes] = await Promise.all([
+  const [outputsRes, docsRes, runNumbersRes] = await Promise.all([
     client
       .from("agent_outputs")
       .select("agent_role, round_name, output_type, validated_payload")
@@ -1754,13 +1828,34 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
       .order("created_at"),
     client
       .from("documents")
-      .select("id, original_filename, parse_status, metadata")
+      .select("id, original_filename, parse_status, metadata, storage_path")
       .eq("tender_id", tenderId)
       .eq("tenant_key", "demo"),
+    client
+      .from("agent_runs")
+      .select("id, tender_id, started_at, created_at")
+      .eq("tenant_key", "demo")
+      .eq("tender_id", tenderId),
   ]);
 
   if (outputsRes.error)
     throw new Error(`fetchRunDetail (outputs): ${outputsRes.error.message}`);
+  if (runNumbersRes.error)
+    throw new Error(`fetchRunDetail (run numbers): ${runNumbersRes.error.message}`);
+
+  const runNumbers = buildRunNumberMap(
+    ((runNumbersRes.data ?? []) as Array<{
+      id: string;
+      tender_id: string;
+      started_at: string | null;
+      created_at: string | null;
+    }>).map((row) => ({
+      id: row.id,
+      tenderId: row.tender_id,
+      startedAt: row.started_at,
+      createdAt: row.created_at,
+    })),
+  );
 
   const outputs = (outputsRes.data ?? []) as Array<{
     agent_role: string;
@@ -1774,10 +1869,15 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
     original_filename: string;
     parse_status: ProcurementDocumentRow["parseStatus"];
     metadata: unknown;
+    storage_path: string | null;
   }>).map((document) => ({
     originalFilename: document.original_filename,
     parseStatus: document.parse_status,
     parseNote: metadataParseNote(document.metadata),
+    publicUrl:
+      typeof document.storage_path === "string" && document.storage_path.length > 0
+        ? publicUrlForStoragePath(document.storage_path)
+        : undefined,
   }));
 
   const docIds = ((docsRes.data ?? []) as Array<{ id: string }>).map(
@@ -1858,6 +1958,7 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
 
   return {
     id: runId,
+    runNumber: runNumbers.get(runId) ?? null,
     tenderName: (tender?.title as string) ?? "Unknown",
     tenderId,
     company: "Demo company",
