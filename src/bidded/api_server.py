@@ -646,7 +646,9 @@ def delete_run(
     try:
         client.table("agent_runs").delete().eq("id", run_id).execute()
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=422, detail=f"Failed to delete run: {exc}") from exc
+        raise HTTPException(
+            status_code=422, detail=f"Failed to delete run: {exc}"
+        ) from exc
     return {"deleted": True}
 
 

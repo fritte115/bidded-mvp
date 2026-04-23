@@ -41,13 +41,17 @@ class QueryBuilder {
     return this;
   }
 
-  order(column: string, options?: unknown): Promise<QueryResponse> {
+  order(column: string, options?: unknown): QueryBuilder {
     this.calls.push({
       table: this.table,
       action: this.action,
       filters: { ...this.filters },
       order: [column, options],
     });
+    return this;
+  }
+
+  range(_from: number, _to: number): Promise<QueryResponse> {
     return Promise.resolve(this.resolve());
   }
 

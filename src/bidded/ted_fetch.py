@@ -60,7 +60,8 @@ def fetch_swedish_notices(
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
         raise TedFetchError(
-            f"TED API HTTP error: {exc.response.status_code} — {exc.response.text[:200]}"
+            f"TED API HTTP error: {exc.response.status_code} "
+            f"— {exc.response.text[:200]}"
         ) from exc
     except httpx.RequestError as exc:
         raise TedFetchError(f"TED API request failed: {exc}") from exc
@@ -118,7 +119,9 @@ def _find_all_text(root: ET.Element, xpath: str) -> list[str]:
     return [t for el in root.findall(xpath, _NS) if (t := _text(el))]
 
 
-def _find_first_lang(root: ET.Element, xpath: str, preferred: tuple[str, ...] = ("SWE", "ENG")) -> str:
+def _find_first_lang(
+    root: ET.Element, xpath: str, preferred: tuple[str, ...] = ("SWE", "ENG")
+) -> str:
     """Find a multilingual element preferring Swedish then English then any."""
     elements = root.findall(xpath, _NS)
     by_lang: dict[str, str] = {}
@@ -157,12 +160,16 @@ def parse_notice_xml(xml_text: str) -> dict[str, Any]:
 
     # --- Requirements: selection criteria ---
     requirements: list[str] = []
-    for criterion in root.findall(".//cac:TenderingTerms/cac:TendererQualificationRequest", _NS):
+    xpath_qual = ".//cac:TenderingTerms/cac:TendererQualificationRequest"
+    for criterion in root.findall(xpath_qual, _NS):
         desc = _find_first_lang(criterion, ".//cbc:Description")
         if desc:
             requirements.append(desc)
     # Also grab any financial/technical standing descriptions
-    for criterion in root.findall(".//cac:TenderingTerms/cac:RequiredFinancialGuarantee/cac:Description", _NS):
+    xpath_guarantee = (
+        ".//cac:TenderingTerms/cac:RequiredFinancialGuarantee/cac:Description"
+    )
+    for criterion in root.findall(xpath_guarantee, _NS):
         t = _text(criterion)
         if t:
             requirements.append(t)
@@ -172,12 +179,15 @@ def parse_notice_xml(xml_text: str) -> dict[str, Any]:
     # --- Award criteria ---
     award_criteria: list[dict[str, Any]] = []
     for criterion in root.findall(".//cac:AwardingTerms/cac:AwardingCriterion", _NS):
-        name = _find_first_lang(criterion, "cbc:Description") or _find_text(criterion, "cbc:AwardingCriterionTypeCode")
+        name = _find_first_lang(criterion, "cbc:Description") or _find_text(
+            criterion, "cbc:AwardingCriterionTypeCode"
+        )
         weight_el = criterion.find("cbc:WeightNumeric", _NS)
         weight = 0
         if weight_el is not None and weight_el.text:
             try:
-                weight = int(float(weight_el.text) * 100) if float(weight_el.text) <= 1 else int(float(weight_el.text))
+                v = float(weight_el.text)
+                weight = int(v * 100) if v <= 1 else int(v)
             except (ValueError, TypeError):
                 pass
         if name:
@@ -186,7 +196,9 @@ def parse_notice_xml(xml_text: str) -> dict[str, Any]:
         result["evaluationCriteria"] = award_criteria
 
     # --- Contract duration ---
-    duration_el = root.find(".//cac:ProcurementProject/cac:PlannedPeriod/cbc:DurationMeasure", _NS)
+    duration_el = root.find(
+        ".//cac:ProcurementProject/cac:PlannedPeriod/cbc:DurationMeasure", _NS
+    )
     if duration_el is not None and duration_el.text:
         try:
             unit = duration_el.get("unitCode", "MON").upper()
@@ -209,9 +221,12 @@ def parse_notice_xml(xml_text: str) -> dict[str, Any]:
     # --- Submission languages ---
     langs = _find_all_text(root, ".//cac:TenderingTerms/cac:Language/cbc:ID")
     if langs:
-        _lang_map = {"SWE": "Swedish", "ENG": "English", "FIN": "Finnish", "NOR": "Norwegian", "DEU": "German", "FRA": "French"}
+        _lang_map = {
+            "SWE": "Swedish", "ENG": "English", "FIN": "Finnish",
+            "NOR": "Norwegian", "DEU": "German", "FRA": "French",
+        }
         result["submissionLanguage"] = _lang_map.get(langs[0].upper(), langs[0])
-        result["languages"] = [_lang_map.get(l.upper(), l) for l in langs]
+        result["languages"] = [_lang_map.get(lang.upper(), lang) for lang in langs]
 
     # --- Lots ---
     lot_count = len(root.findall(".//cac:ProcurementProjectLot", _NS))
@@ -224,7 +239,12 @@ def parse_notice_xml(xml_text: str) -> dict[str, Any]:
 
     # --- Certifications / selection criteria text ---
     certs: list[str] = []
-    for sc in root.findall(".//cac:TenderingTerms/cac:TendererQualificationRequest/cac:SpecificTendererRequirement", _NS):
+    xpath_cert = (
+        ".//cac:TenderingTerms"
+        "/cac:TendererQualificationRequest"
+        "/cac:SpecificTendererRequirement"
+    )
+    for sc in root.findall(xpath_cert, _NS):
         desc = _find_first_lang(sc, "cbc:Description")
         if desc and len(desc) < 200:
             certs.append(desc)
@@ -298,7 +318,7 @@ def _parse_ted_date(s: str | None) -> str | None:
 
 
 def _extract_search_field_text(value: Any) -> str:
-    """Extract plain text from TED search result field values (may be nested lists/dicts)."""
+    """Extract plain text from TED search result field values."""
     if isinstance(value, str):
         return value.strip()
     if isinstance(value, list) and value:
@@ -350,8 +370,13 @@ def map_notice_to_explore_shape(notice: dict[str, Any]) -> dict[str, Any]:
     buyer = _first_str(notice.get("buyer-name")) or "Unknown Authority"
     country_list = _all_strings(notice.get("buyer-country"))
     raw_country = country_list[0] if country_list else "SWE"
-    _ALPHA3_TO_2 = {"SWE": "SE", "NOR": "NO", "DNK": "DK", "FIN": "FI", "DEU": "DE", "FRA": "FR", "GBR": "GB"}
-    country = _ALPHA3_TO_2.get(raw_country, raw_country[:2] if len(raw_country) >= 2 else "SE")
+    _ALPHA3_TO_2 = {
+        "SWE": "SE", "NOR": "NO", "DNK": "DK", "FIN": "FI",
+        "DEU": "DE", "FRA": "FR", "GBR": "GB",
+    }
+    country = _ALPHA3_TO_2.get(
+        raw_country, raw_country[:2] if len(raw_country) >= 2 else "SE"
+    )
 
     nuts_list = _all_strings(notice.get("buyer-country-sub"))
     nuts = nuts_list[0] if nuts_list else ""
@@ -382,9 +407,12 @@ def map_notice_to_explore_shape(notice: dict[str, Any]) -> dict[str, Any]:
     submission_language = None
     languages: list[str] = []
     if lang_raw:
-        _lang_map = {"SWE": "Swedish", "ENG": "English", "FIN": "Finnish", "NOR": "Norwegian"}
+        _lang_map = {
+            "SWE": "Swedish", "ENG": "English",
+            "FIN": "Finnish", "NOR": "Norwegian",
+        }
         raw_langs = _extract_all_from_field(lang_raw)
-        languages = [_lang_map.get(l.upper(), l) for l in raw_langs]
+        languages = [_lang_map.get(lang.upper(), lang) for lang in raw_langs]
         submission_language = languages[0] if languages else None
 
     result: dict[str, Any] = {

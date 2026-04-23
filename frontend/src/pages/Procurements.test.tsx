@@ -12,6 +12,9 @@ vi.mock("@/lib/api", () => ({
   deleteProcurement: vi.fn(),
   fetchProcurements: vi.fn(),
   startAgentRun: vi.fn(),
+  fetchArchivedRuns: vi.fn().mockResolvedValue([]),
+  deleteAgentRun: vi.fn(),
+  archiveAgentRun: vi.fn(),
 }));
 
 vi.mock("@/lib/auth", () => ({
