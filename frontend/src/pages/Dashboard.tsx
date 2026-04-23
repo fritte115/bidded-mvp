@@ -16,7 +16,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatDate, formatDuration } from "@/data/mock";
+import {
+  formatDate,
+  formatDuration,
+  humanizeVerdictText,
+  runDisplayId,
+} from "@/data/mock";
 import {
   fetchDashboardStats,
   fetchActiveRuns,
@@ -35,10 +40,6 @@ import {
   Trash2,
   Target,
 } from "lucide-react";
-
-function shortRunId(id: string): string {
-  return `RUN-${id.replace(/-/g, "").slice(0, 4).toUpperCase()}`;
-}
 
 export default function Dashboard() {
   const queryClient = useQueryClient();
@@ -187,7 +188,7 @@ export default function Dashboard() {
                           className={isDeleting ? "opacity-40 transition-opacity duration-300" : ""}
                         >
                           <TableCell className="text-sm font-medium">
-                            {shortRunId(r.id)}
+                            {runDisplayId(r.id)}
                           </TableCell>
                           <TableCell>
                             <Link
@@ -269,7 +270,9 @@ export default function Dashboard() {
                     <VerdictBadge verdict={r.verdict} />
                   </div>
                   <ConfidenceBar value={r.confidence} className="mb-3" />
-                  <p className="line-clamp-2 text-xs text-muted-foreground">{r.citedMemo}</p>
+                  <p className="line-clamp-2 text-xs text-muted-foreground">
+                    {humanizeVerdictText(r.citedMemo)}
+                  </p>
                   <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
                     <span>{formatDate(r.completedAt ?? r.startedAt)}</span>
                     <span className="font-mono">{r.confidence}% confidence</span>

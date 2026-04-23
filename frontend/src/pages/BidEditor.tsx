@@ -27,7 +27,13 @@ import {
 } from "@/lib/api";
 import { usePermissions } from "@/lib/auth";
 import { decisionToEstimateInput } from "@/lib/bidIntegrationMapping";
-import { bidStatusLabel, bidStatusOrder, type BidStatus, type DecisionSummary } from "@/data/mock";
+import {
+  bidStatusLabel,
+  bidStatusOrder,
+  verdictLabel,
+  type BidStatus,
+  type DecisionSummary,
+} from "@/data/mock";
 import { estimateBid, formatSEK, type BidEstimate } from "@/lib/bidEstimator";
 import {
   ArrowLeft,
@@ -376,7 +382,7 @@ export default function BidEditor() {
                       Agent decision
                     </p>
                     <p className="text-sm font-medium">
-                      {selectedDecision?.verdict.replace(/_/g, " ") ?? "—"}
+                      {selectedDecision ? verdictLabel[selectedDecision.verdict] : "—"}
                     </p>
                   </div>
                   <div>
@@ -393,7 +399,7 @@ export default function BidEditor() {
 
               {selectedDecision && !selectedDecision.isDraftable && (
                 <div className="rounded-md border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
-                  This decision is NO BID, so this draft will be saved without an agent-run link.
+                  This decision is No bid, so this draft will be saved without a decision link.
                 </div>
               )}
 
