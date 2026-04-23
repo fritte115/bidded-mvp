@@ -3,18 +3,27 @@ from __future__ import annotations
 import hashlib
 import re
 import threading
-from typing import Any
+from typing import Annotated, Any
+from uuid import UUID
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from bidded.auth import AuthenticatedUser, authenticate_supabase_jwt
 from bidded.config import load_settings
 from bidded.documents import (
+    CompanyKbDocumentType,
+    CompanyKbError,
+    CompanyKbUploadFile,
     PdfIngestionError,
+    delete_company_kb_document,
     ensure_tender_evidence_items_for_document,
+    ingest_company_kb_document,
     ingest_tender_pdf_document,
+    list_company_kb_documents,
+    list_company_kb_evidence,
+    register_company_kb_documents,
 )
 from bidded.evidence.company_profile import upsert_company_profile_evidence
 from bidded.llm.factory import resolve_graph_handlers
@@ -103,6 +112,186 @@ def resync_company_evidence(
     return {
         "evidence_count": result.evidence_count,
         "rows_returned": result.rows_returned,
+    }
+
+
+@app.post("/api/company/kb/documents")
+async def upload_company_kb_documents(
+    files: Annotated[list[UploadFile], File()],
+    kb_document_types: Annotated[list[str], Form()],
+    company_id: Annotated[str | None, Form()] = None,
+    user: AuthenticatedUser = AUTHENTICATED_USER,
+) -> dict[str, Any]:
+    settings = load_settings()
+    client = _service_role_client(settings)
+    resolved_company_id = company_id or _demo_company_id(client)
+    require_company_admin(client, user, resolved_company_id)
+    if len(files) != len(kb_document_types):
+        raise HTTPException(
+            status_code=422,
+            detail="One kb_document_type is required for each uploaded file.",
+        )
+
+    upload_files: list[CompanyKbUploadFile] = []
+    for upload, raw_type in zip(files, kb_document_types, strict=True):
+        try:
+            kb_document_type = CompanyKbDocumentType(raw_type)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unsupported company KB document type: {raw_type}",
+            ) from exc
+        upload_files.append(
+            CompanyKbUploadFile(
+                filename=upload.filename or "document",
+                content=await upload.read(),
+                content_type=upload.content_type or "application/octet-stream",
+                kb_document_type=kb_document_type,
+            )
+        )
+
+    bucket = _company_kb_bucket(settings)
+    try:
+        registered = register_company_kb_documents(
+            client,
+            company_id=resolved_company_id,
+            bucket_name=bucket,
+            files=upload_files,
+        )
+    except CompanyKbError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    for document in registered:
+
+        def _ingest(document_id: UUID = document.document_id) -> None:
+            try:
+                ingest_company_kb_document(
+                    client,
+                    document_id=document_id,
+                    bucket_name=bucket,
+                )
+            except CompanyKbError as exc:
+                print(f"[company-kb] document {document_id} failed: {exc}")
+
+        threading.Thread(target=_ingest, daemon=True).start()
+
+    return {
+        "documents": [
+            {
+                "company_id": str(item.company_id),
+                "document_id": str(item.document_id),
+                "storage_path": item.storage_path,
+                "checksum_sha256": item.checksum_sha256,
+                "content_type": item.content_type,
+                "original_filename": item.original_filename,
+                "kb_document_type": item.kb_document_type.value,
+                "parse_status": "pending",
+                "extraction_status": "pending",
+                "evidence_count": 0,
+                "warnings": [],
+            }
+            for item in registered
+        ]
+    }
+
+
+@app.get("/api/company/kb/documents")
+def get_company_kb_documents(
+    company_id: str | None = None,
+    user: AuthenticatedUser = AUTHENTICATED_USER,
+) -> dict[str, Any]:
+    settings = load_settings()
+    client = _service_role_client(settings)
+    resolved_company_id = company_id or _demo_company_id(client)
+    require_company_member(client, user, resolved_company_id)
+    documents = list_company_kb_documents(client, company_id=resolved_company_id)
+    return {
+        "documents": [
+            {
+                "document_id": str(item.document_id),
+                "company_id": str(item.company_id),
+                "original_filename": item.original_filename,
+                "storage_path": item.storage_path,
+                "content_type": item.content_type,
+                "parse_status": item.parse_status,
+                "kb_document_type": item.kb_document_type.value,
+                "extraction_status": item.extraction_status,
+                "evidence_count": item.evidence_count,
+                "warnings": list(item.warnings),
+            }
+            for item in documents
+        ]
+    }
+
+
+@app.get("/api/company/kb/documents/{document_id}/evidence")
+def get_company_kb_document_evidence(
+    document_id: str,
+    company_id: str | None = None,
+    user: AuthenticatedUser = AUTHENTICATED_USER,
+) -> dict[str, Any]:
+    settings = load_settings()
+    client = _service_role_client(settings)
+    resolved_company_id = company_id or _demo_company_id(client)
+    require_company_member(client, user, resolved_company_id)
+    evidence = list_company_kb_evidence(
+        client,
+        company_id=resolved_company_id,
+        document_id=document_id,
+    )
+    return {"evidence": evidence}
+
+
+@app.delete("/api/company/kb/documents/{document_id}")
+def delete_company_kb_document_endpoint(
+    document_id: str,
+    company_id: str | None = None,
+    user: AuthenticatedUser = AUTHENTICATED_USER,
+) -> dict[str, bool]:
+    settings = load_settings()
+    client = _service_role_client(settings)
+    resolved_company_id = company_id or _demo_company_id(client)
+    require_company_admin(client, user, resolved_company_id)
+    try:
+        delete_company_kb_document(
+            client,
+            company_id=resolved_company_id,
+            document_id=document_id,
+            bucket_name=_company_kb_bucket(settings),
+        )
+    except CompanyKbError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"deleted": True}
+
+
+@app.put("/api/company/profile")
+def update_company_profile_endpoint(
+    profile_update: dict[str, Any],
+    company_id: str | None = None,
+    user: AuthenticatedUser = AUTHENTICATED_USER,
+) -> dict[str, Any]:
+    settings = load_settings()
+    client = _service_role_client(settings)
+    resolved_company_id = company_id or str(
+        profile_update.get("company_id") or _demo_company_id(client)
+    )
+    require_company_admin(client, user, resolved_company_id)
+    try:
+        company_profile = update_company_profile_row(
+            client,
+            company_id=resolved_company_id,
+            profile_update=profile_update,
+        )
+        evidence_result = upsert_company_profile_evidence(
+            client,
+            company_id=UUID(resolved_company_id),
+            company_profile=company_profile,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "company_id": resolved_company_id,
+        "evidence_count": evidence_result.evidence_count,
     }
 
 
@@ -331,6 +520,75 @@ def require_company_admin(
     return organization_id
 
 
+def require_company_member(
+    client: Any,
+    user: AuthenticatedUser,
+    company_id: str,
+) -> str:
+    organization_id = _organization_id_for_row(client, "companies", company_id)
+    _require_org_role(
+        client,
+        user,
+        organization_id,
+        allowed_roles={"admin", "user"},
+        action="view company knowledge base",
+    )
+    return organization_id
+
+
+def update_company_profile_row(
+    client: Any,
+    *,
+    company_id: str,
+    profile_update: dict[str, Any],
+) -> dict[str, Any]:
+    allowed = {
+        "name",
+        "profile_label",
+        "organization_number",
+        "headquarters_country",
+        "employee_count",
+        "annual_revenue_sek",
+        "capabilities",
+        "certifications",
+        "reference_projects",
+        "financial_assumptions",
+        "profile_details",
+        "metadata",
+    }
+    payload = {
+        key: value
+        for key, value in profile_update.items()
+        if key in allowed and value is not None
+    }
+    if not payload:
+        raise ValueError("No supported company profile fields supplied.")
+
+    updated_rows = _response_rows(
+        client.table("companies")
+        .update(payload)
+        .eq("tenant_key", "demo")
+        .eq("id", str(company_id))
+        .execute()
+    )
+    updated_id = updated_rows[0].get("id") if updated_rows else company_id
+    full_rows = _response_rows(
+        client.table("companies")
+        .select(
+            "id,tenant_key,name,profile_label,organization_number,"
+            "headquarters_country,employee_count,annual_revenue_sek,"
+            "capabilities,certifications,reference_projects,"
+            "financial_assumptions,profile_details,metadata"
+        )
+        .eq("tenant_key", "demo")
+        .eq("id", str(updated_id))
+        .execute()
+    )
+    if not full_rows:
+        raise RuntimeError(f"Demo company does not exist: {company_id}")
+    return dict(full_rows[0])
+
+
 def _organization_id_for_row(client: Any, table_name: str, row_id: str) -> str:
     response = (
         client.table(table_name)
@@ -510,3 +768,39 @@ def _collect_pdfs_in_folder(
 def _slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return re.sub(r"-{2,}", "-", slug)
+
+
+def _service_role_client(settings: Any) -> Any:
+    if not settings.supabase_url or not settings.supabase_service_role_key:
+        raise HTTPException(
+            status_code=400, detail="Supabase service settings missing."
+        )
+    from supabase import create_client  # noqa: PLC0415
+
+    return create_client(settings.supabase_url, settings.supabase_service_role_key)
+
+
+def _demo_company_id(client: Any) -> str:
+    company_resp = (
+        client.table("companies")
+        .select("id")
+        .eq("tenant_key", "demo")
+        .limit(1)
+        .execute()
+    )
+    if not company_resp.data:
+        raise RuntimeError(
+            "Demo company not seeded. Run: .venv/bin/bidded seed-demo-company"
+        )
+    return str(company_resp.data[0]["id"])
+
+
+def _company_kb_bucket(settings: Any) -> str:
+    return str(
+        getattr(settings, "company_kb_storage_bucket", None) or "company-knowledge"
+    )
+
+
+def _response_rows(response: Any) -> list[dict[str, Any]]:
+    data = getattr(response, "data", None)
+    return [dict(row) for row in data or [] if isinstance(row, dict)]

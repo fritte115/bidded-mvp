@@ -661,6 +661,7 @@ def persist_final_decision(
         ],
         "metadata": {
             "source_agent_outputs": _source_agent_output_refs(state.agent_outputs),
+            "evidence_snapshot": _evidence_snapshot(state),
         },
     }
     response = client.table("bid_decisions").insert(payload).execute()
@@ -1079,6 +1080,36 @@ def _final_decision_payload(state: BidRunState) -> dict[str, Any]:
     if state.final_decision is None:
         raise JudgeDecisionPersistenceError("Cannot persist a missing Judge decision.")
     return state.final_decision.model_dump(mode="json")
+
+
+def _evidence_snapshot(state: BidRunState) -> list[dict[str, Any]]:
+    if state.final_decision is None:
+        return []
+    cited_ids = set(state.final_decision.evidence_ids)
+    snapshot: list[dict[str, Any]] = []
+    for item in state.evidence_board:
+        if item.evidence_id is None or item.evidence_id not in cited_ids:
+            continue
+        snapshot.append(
+            {
+                "evidence_id": str(item.evidence_id),
+                "evidence_key": item.evidence_key,
+                "source_type": item.source_type.value,
+                "excerpt": item.excerpt,
+                "normalized_meaning": item.normalized_meaning,
+                "category": item.category,
+                "confidence": item.confidence,
+                "source_metadata": dict(item.source_metadata),
+                "metadata": dict(item.metadata),
+                "document_id": str(item.document_id) if item.document_id else None,
+                "chunk_id": str(item.chunk_id) if item.chunk_id else None,
+                "page_start": item.page_start,
+                "page_end": item.page_end,
+                "company_id": str(item.company_id) if item.company_id else None,
+                "field_path": item.field_path,
+            }
+        )
+    return snapshot
 
 
 def _source_agent_output_refs(

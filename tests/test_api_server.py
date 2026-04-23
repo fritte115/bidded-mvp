@@ -3,11 +3,17 @@ from __future__ import annotations
 import sys
 from types import SimpleNamespace
 from typing import Any
+from uuid import UUID
 
 from fastapi.testclient import TestClient
 
 from bidded import api_server
 from bidded.auth import AuthenticatedUser
+from bidded.documents.company_kb import (
+    CompanyKbDocumentSummary,
+    CompanyKbDocumentType,
+    CompanyKbRegistrationResult,
+)
 
 RUN_ID = "11111111-1111-4111-8111-111111111111"
 COMPANY_ID = "22222222-2222-4222-8222-222222222222"
@@ -249,6 +255,251 @@ def test_archive_run_endpoint_uses_service_role_archive_control(
         "run_id": RUN_ID,
         "reason": "clear stale run",
     }
+
+
+def test_upload_company_kb_documents_registers_files_and_starts_ingestion(
+    monkeypatch: Any,
+) -> None:
+    client = FakeSupabaseClient()
+    settings = SimpleNamespace(
+        supabase_url="https://example.supabase.co",
+        supabase_service_role_key="service-role",
+        company_kb_storage_bucket="company-knowledge",
+    )
+    captured: dict[str, Any] = {"ingested": []}
+
+    monkeypatch.setattr(api_server, "load_settings", lambda: settings)
+    monkeypatch.setitem(
+        sys.modules,
+        "supabase",
+        SimpleNamespace(create_client=lambda _url, _key: client),
+    )
+    monkeypatch.setattr(api_server.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(
+        api_server,
+        "require_company_admin",
+        lambda *_args, **_kwargs: ORG_ID,
+    )
+
+    def record_register(
+        supabase_client: object,
+        **kwargs: Any,
+    ) -> list[CompanyKbRegistrationResult]:
+        captured["register_client"] = supabase_client
+        captured["register_kwargs"] = kwargs
+        return [
+            CompanyKbRegistrationResult(
+                company_id=UUID(COMPANY_ID),
+                document_id=UUID(DOCUMENT_ID_1),
+                storage_path="demo/company-knowledge/doc.txt",
+                checksum_sha256="a" * 64,
+                content_type="text/plain",
+                original_filename="iso.txt",
+                kb_document_type=CompanyKbDocumentType.CERTIFICATION,
+            )
+        ]
+
+    def record_ingest(
+        supabase_client: object,
+        **kwargs: Any,
+    ) -> None:
+        captured["ingested"].append((supabase_client, kwargs))
+
+    monkeypatch.setattr(api_server, "register_company_kb_documents", record_register)
+    monkeypatch.setattr(api_server, "ingest_company_kb_document", record_ingest)
+    api_server.app.dependency_overrides[api_server.require_authenticated_user] = (
+        lambda: AuthenticatedUser(user_id=SUPERADMIN_ID, email="ops@bidded.se")
+    )
+    try:
+        response = TestClient(api_server.app).post(
+            "/api/company/kb/documents",
+            data={"kb_document_types": "certification"},
+            files={"files": ("iso.txt", b"ISO 27001", "text/plain")},
+        )
+    finally:
+        api_server.app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    document = response.json()["documents"][0]
+    assert document["document_id"] == DOCUMENT_ID_1
+    assert document["parse_status"] == "pending"
+    assert document["extraction_status"] == "pending"
+    assert document["evidence_count"] == 0
+    assert captured["register_client"] is client
+    assert captured["register_kwargs"]["company_id"] == COMPANY_ID
+    assert captured["register_kwargs"]["bucket_name"] == "company-knowledge"
+    [upload_file] = captured["register_kwargs"]["files"]
+    assert upload_file.filename == "iso.txt"
+    assert upload_file.content == b"ISO 27001"
+    assert upload_file.kb_document_type is CompanyKbDocumentType.CERTIFICATION
+    assert captured["ingested"] == [
+        (
+            client,
+            {
+                "document_id": UUID(DOCUMENT_ID_1),
+                "bucket_name": "company-knowledge",
+            },
+        )
+    ]
+
+
+def test_company_kb_list_evidence_and_delete_endpoints_call_backend(
+    monkeypatch: Any,
+) -> None:
+    client = FakeSupabaseClient()
+    settings = SimpleNamespace(
+        supabase_url="https://example.supabase.co",
+        supabase_service_role_key="service-role",
+        company_kb_storage_bucket="company-knowledge",
+    )
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(api_server, "load_settings", lambda: settings)
+    monkeypatch.setitem(
+        sys.modules,
+        "supabase",
+        SimpleNamespace(create_client=lambda _url, _key: client),
+    )
+    monkeypatch.setattr(
+        api_server,
+        "require_company_member",
+        lambda *_args, **_kwargs: ORG_ID,
+    )
+    monkeypatch.setattr(
+        api_server,
+        "require_company_admin",
+        lambda *_args, **_kwargs: ORG_ID,
+    )
+    monkeypatch.setattr(
+        api_server,
+        "list_company_kb_documents",
+        lambda supabase_client, *, company_id: [
+            CompanyKbDocumentSummary(
+                document_id=UUID(DOCUMENT_ID_1),
+                company_id=UUID(company_id),
+                original_filename="case.csv",
+                storage_path="demo/company-knowledge/case.csv",
+                content_type="text/csv",
+                parse_status="parsed",
+                kb_document_type=CompanyKbDocumentType.CASE_STUDY,
+                extraction_status="extracted",
+                evidence_count=2,
+                warnings=(),
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        api_server,
+        "list_company_kb_evidence",
+        lambda supabase_client, *, company_id, document_id: [
+            {
+                "evidence_key": "COMPANY-KB-CASE",
+                "excerpt": "Agency delivery case study.",
+                "category": "reference",
+                "confidence": 0.8,
+            }
+        ],
+    )
+
+    def record_delete(supabase_client: object, **kwargs: Any) -> None:
+        captured["delete"] = (supabase_client, kwargs)
+
+    monkeypatch.setattr(api_server, "delete_company_kb_document", record_delete)
+    api_server.app.dependency_overrides[api_server.require_authenticated_user] = (
+        lambda: AuthenticatedUser(user_id=SUPERADMIN_ID, email="ops@bidded.se")
+    )
+    try:
+        test_client = TestClient(api_server.app)
+        list_response = test_client.get("/api/company/kb/documents")
+        evidence_response = test_client.get(
+            f"/api/company/kb/documents/{DOCUMENT_ID_1}/evidence"
+        )
+        delete_response = test_client.delete(
+            f"/api/company/kb/documents/{DOCUMENT_ID_1}"
+        )
+    finally:
+        api_server.app.dependency_overrides.clear()
+
+    assert list_response.status_code == 200
+    assert list_response.json()["documents"][0]["evidence_count"] == 2
+    assert evidence_response.status_code == 200
+    assert evidence_response.json()["evidence"][0]["evidence_key"] == (
+        "COMPANY-KB-CASE"
+    )
+    assert delete_response.status_code == 200
+    assert captured["delete"] == (
+        client,
+        {
+            "company_id": COMPANY_ID,
+            "document_id": DOCUMENT_ID_1,
+            "bucket_name": "company-knowledge",
+        },
+    )
+
+
+def test_update_company_profile_endpoint_regenerates_company_evidence(
+    monkeypatch: Any,
+) -> None:
+    client = FakeSupabaseClient()
+    settings = SimpleNamespace(
+        supabase_url="https://example.supabase.co",
+        supabase_service_role_key="service-role",
+    )
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(api_server, "load_settings", lambda: settings)
+    monkeypatch.setitem(
+        sys.modules,
+        "supabase",
+        SimpleNamespace(create_client=lambda _url, _key: client),
+    )
+    monkeypatch.setattr(
+        api_server,
+        "require_company_admin",
+        lambda *_args, **_kwargs: ORG_ID,
+    )
+
+    def record_update(
+        supabase_client: object,
+        *,
+        company_id: str,
+        profile_update: dict[str, Any],
+    ) -> dict[str, Any]:
+        captured["update"] = (supabase_client, company_id, profile_update)
+        return {"id": company_id, "tenant_key": "demo", **profile_update}
+
+    def record_evidence(
+        supabase_client: object,
+        *,
+        company_id: UUID,
+        company_profile: dict[str, Any],
+    ) -> SimpleNamespace:
+        captured["evidence"] = (supabase_client, company_id, company_profile)
+        return SimpleNamespace(evidence_count=3)
+
+    monkeypatch.setattr(api_server, "update_company_profile_row", record_update)
+    monkeypatch.setattr(api_server, "upsert_company_profile_evidence", record_evidence)
+    custom_company_id = "33333333-3333-4333-8333-333333333333"
+    api_server.app.dependency_overrides[api_server.require_authenticated_user] = (
+        lambda: AuthenticatedUser(user_id=SUPERADMIN_ID, email="ops@bidded.se")
+    )
+    try:
+        response = TestClient(api_server.app).put(
+            f"/api/company/profile?company_id={custom_company_id}",
+            json={"name": "Nordic Digital Delivery AB", "certifications": []},
+        )
+    finally:
+        api_server.app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {"company_id": custom_company_id, "evidence_count": 3}
+    assert captured["update"] == (
+        client,
+        custom_company_id,
+        {"name": "Nordic Digital Delivery AB", "certifications": []},
+    )
+    assert captured["evidence"][0] is client
+    assert captured["evidence"][1] == UUID(custom_company_id)
 
 
 def test_start_run_requires_bearer_token() -> None:

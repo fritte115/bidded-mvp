@@ -87,6 +87,19 @@ def _auth_rbac_sql() -> str:
     return migration_files[0].read_text()
 
 
+def _company_kb_sql() -> str:
+    migration_files = sorted(
+        (PROJECT_ROOT / "supabase" / "migrations").glob(
+            "*_company_knowledge_base.sql"
+        )
+    )
+
+    assert [path.name for path in migration_files] == [
+        "20260423120000_company_knowledge_base.sql"
+    ]
+    return migration_files[0].read_text()
+
+
 def _table_body(sql: str, table_name: str) -> str:
     match = re.search(
         rf"create table if not exists public\.{table_name}\s*\((?P<body>.*?)\);",
@@ -490,6 +503,26 @@ def test_pgvector_search_migration_adds_index_and_rpc_contract() -> None:
     ) in sql
     assert "dc.embedding <=> query_embedding" in sql
     assert "least(greatest(match_count, 1), 50)" in sql
+
+
+def test_company_kb_migration_adds_private_bucket_and_relaxes_provenance() -> None:
+    sql = re.sub(r"\s+", " ", _company_kb_sql().lower())
+
+    assert "insert into storage.buckets" in sql
+    assert "'company-knowledge'" in sql
+    assert "public = false" in sql
+    assert (
+        "drop constraint if exists evidence_items_company_profile_source_check" in sql
+    )
+    assert "add constraint evidence_items_company_profile_source_check check" in sql
+    assert "source_type <> 'company_profile'" in sql
+    assert "document_id is null" in sql
+    assert "document_id is not null" in sql
+    assert "chunk_id is not null" in sql
+    assert "page_start is not null" in sql
+    assert "page_end is not null" in sql
+    assert "create index if not exists documents_company_profile_idx" in sql
+    assert "create index if not exists evidence_items_company_document_idx" in sql
 
 
 def test_auth_rbac_migration_adds_membership_model_and_helpers() -> None:
