@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import pytest
 from types import SimpleNamespace
 from typing import Any
-from collections.abc import Mapping
+
+import pytest
 
 from bidded.bid_document import BidDocumentError, generate_bid_document
 
@@ -188,7 +188,10 @@ def test_raises_for_no_bid_verdict():
 
 
 def test_raises_for_missing_decision():
-    client = FakeBidDocClient(rows={"bid_decisions": [], "agent_runs": [], "tenders": [], "bids": [], "agent_outputs": [], "companies": []})
+    client = FakeBidDocClient(rows={
+        "bid_decisions": [], "agent_runs": [], "tenders": [],
+        "bids": [], "agent_outputs": [], "companies": [],
+    })
     with pytest.raises(BidDocumentError, match="No persisted decision"):
         generate_bid_document(client, run_id=RUN_ID)
 

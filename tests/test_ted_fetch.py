@@ -21,7 +21,10 @@ from bidded.ted_fetch import (
 _SAMPLE_NOTICE = {
     "publication-number": "000001-2026",
     "notice-identifier": "abc-123",
-    "notice-title": {"swe": "IT-konsulttjänster ramavtal", "eng": "IT Consulting Framework Agreement"},
+    "notice-title": {
+        "swe": "IT-konsulttjänster ramavtal",
+        "eng": "IT Consulting Framework Agreement",
+    },
     "buyer-name": {"swe": ["Skatteverket"]},
     "buyer-country": ["SWE"],
     "buyer-country-sub": ["SE110"],
@@ -51,7 +54,10 @@ def _mock_response(status: int, body: dict[str, Any]) -> MagicMock:
 
 
 def test_fetch_returns_notices_on_200():
-    with patch("httpx.post", return_value=_mock_response(200, {"notices": [_SAMPLE_NOTICE]})):
+    with patch(
+        "httpx.post",
+        return_value=_mock_response(200, {"notices": [_SAMPLE_NOTICE]}),
+    ):
         result = fetch_swedish_notices()
     assert len(result) == 1
     assert result[0]["publication-number"] == "000001-2026"
@@ -228,7 +234,9 @@ def test_upsert_updates_existing_notice():
 
 def test_upsert_skips_notice_without_pub_number():
     client = FakeTedClient()
-    no_pub_notice = {k: v for k, v in _SAMPLE_NOTICE.items() if k != "publication-number"}
+    no_pub_notice = {
+        k: v for k, v in _SAMPLE_NOTICE.items() if k != "publication-number"
+    }
     ids = upsert_notices_to_supabase(client, [no_pub_notice])
     assert ids == []
     assert len(client.rows["tenders"]) == 0
