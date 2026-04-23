@@ -134,11 +134,83 @@ ensure_editable_install() {
 
 
 ensure_env_file() {
-  if [ -f "${WORKTREE_ROOT}/.env" ] || [ ! -f "${WORKTREE_ROOT}/.env.example" ]; then
+  if [ ! -f "${WORKTREE_ROOT}/.env.example" ]; then
     return 0
   fi
 
-  cp "${WORKTREE_ROOT}/.env.example" "${WORKTREE_ROOT}/.env"
+  if backend_env_has_live_credentials "${WORKTREE_ROOT}/.env"; then
+    return 0
+  fi
+
+  if [ -n "${ENV_SOURCE:-}" ]; then
+    copy_backend_env_if_valid "${ENV_SOURCE}" && return 0
+    echo "Warning: ENV_SOURCE did not contain backend Supabase credentials: ${ENV_SOURCE}" >&2
+  fi
+
+  copy_backend_env_from_worktrees && return 0
+
+  if [ ! -f "${WORKTREE_ROOT}/.env" ]; then
+    cp "${WORKTREE_ROOT}/.env.example" "${WORKTREE_ROOT}/.env"
+  fi
+}
+
+
+backend_env_has_live_credentials() {
+  local env_path="$1"
+
+  [ -f "${env_path}" ] || return 1
+
+  awk -F= '
+    /^[[:space:]]*(#|$)/ { next }
+    $1 == "SUPABASE_URL" {
+      url=$2
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", url)
+    }
+    $1 == "SUPABASE_SERVICE_ROLE_KEY" {
+      service_role=$2
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", service_role)
+    }
+    END {
+      if (url != "" && service_role != "") {
+        exit 0
+      }
+      exit 1
+    }
+  ' "${env_path}"
+}
+
+
+copy_backend_env_if_valid() {
+  local source_path="$1"
+
+  if [ "${source_path}" = "${WORKTREE_ROOT}/.env" ]; then
+    return 1
+  fi
+
+  if backend_env_has_live_credentials "${source_path}"; then
+    cp "${source_path}" "${WORKTREE_ROOT}/.env"
+    echo "Wrote .env from backend credentials in ${source_path}"
+    return 0
+  fi
+
+  return 1
+}
+
+
+copy_backend_env_from_worktrees() {
+  local worktree_path
+  local source_path
+
+  if ! command -v git >/dev/null 2>&1; then
+    return 1
+  fi
+
+  while IFS= read -r worktree_path; do
+    source_path="${worktree_path}/.env"
+    copy_backend_env_if_valid "${source_path}" && return 0
+  done < <(git -C "${WORKTREE_ROOT}" worktree list --porcelain 2>/dev/null | awk '/^worktree / { sub(/^worktree /, ""); print }')
+
+  return 1
 }
 
 
@@ -149,11 +221,11 @@ frontend_env_has_live_supabase() {
 
   awk -F= '
     /^[[:space:]]*(#|$)/ { next }
-    $1 == "VITE_SUPABASE_URL" {
+    $1 == "VITE_SUPABASE_URL" || $1 == "SUPABASE_URL" || $1 == "NEXT_PUBLIC_SUPABASE_URL" {
       url=$2
       gsub(/^[[:space:]]+|[[:space:]]+$/, "", url)
     }
-    $1 == "VITE_SUPABASE_ANON_KEY" {
+    $1 == "VITE_SUPABASE_ANON_KEY" || $1 == "SUPABASE_ANON_KEY" || $1 == "NEXT_PUBLIC_SUPABASE_ANON_KEY" || $1 == "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY" {
       anon=$2
       gsub(/^[[:space:]]+|[[:space:]]+$/, "", anon)
     }
@@ -176,7 +248,7 @@ copy_frontend_env_if_valid() {
 
   if frontend_env_has_live_supabase "${source_path}"; then
     write_frontend_env_from_source "${source_path}"
-    echo "Created frontend/.env from Vite credentials in ${source_path}"
+    echo "Wrote frontend/.env from public Supabase credentials in ${source_path}"
     return 0
   fi
 
@@ -200,14 +272,44 @@ extract_env_value() {
 }
 
 
+extract_first_env_value() {
+  local env_path="$1"
+  shift
+
+  local key
+  local value
+
+  for key in "$@"; do
+    value="$(extract_env_value "${env_path}" "${key}")"
+    if [ -n "${value}" ]; then
+      printf '%s\n' "${value}"
+      return 0
+    fi
+  done
+}
+
+
 write_frontend_env_from_source() {
   local source_path="$1"
   local vite_supabase_url
   local vite_supabase_anon_key
   local vite_agent_api_url
 
-  vite_supabase_url="$(extract_env_value "${source_path}" "VITE_SUPABASE_URL")"
-  vite_supabase_anon_key="$(extract_env_value "${source_path}" "VITE_SUPABASE_ANON_KEY")"
+  vite_supabase_url="$(
+    extract_first_env_value \
+      "${source_path}" \
+      "VITE_SUPABASE_URL" \
+      "SUPABASE_URL" \
+      "NEXT_PUBLIC_SUPABASE_URL"
+  )"
+  vite_supabase_anon_key="$(
+    extract_first_env_value \
+      "${source_path}" \
+      "VITE_SUPABASE_ANON_KEY" \
+      "SUPABASE_ANON_KEY" \
+      "NEXT_PUBLIC_SUPABASE_ANON_KEY" \
+      "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
+  )"
   vite_agent_api_url="$(extract_env_value "${source_path}" "VITE_AGENT_API_URL")"
   vite_agent_api_url="${vite_agent_api_url:-http://localhost:8000}"
 
@@ -229,8 +331,9 @@ copy_frontend_env_from_worktrees() {
   fi
 
   while IFS= read -r worktree_path; do
-    source_path="${worktree_path}/frontend/.env"
-    copy_frontend_env_if_valid "${source_path}" && return 0
+    for source_path in "${worktree_path}/frontend/.env" "${worktree_path}/.env"; do
+      copy_frontend_env_if_valid "${source_path}" && return 0
+    done
   done < <(git -C "${WORKTREE_ROOT}" worktree list --porcelain 2>/dev/null | awk '/^worktree / { sub(/^worktree /, ""); print }')
 
   return 1
@@ -238,18 +341,26 @@ copy_frontend_env_from_worktrees() {
 
 
 ensure_frontend_env_file() {
-  if [ -f "${FRONTEND_DIR}/.env" ] || [ ! -f "${FRONTEND_DIR}/.env.example" ]; then
+  if [ ! -f "${FRONTEND_DIR}/.env.example" ]; then
+    return 0
+  fi
+
+  if frontend_env_has_live_supabase "${FRONTEND_DIR}/.env"; then
     return 0
   fi
 
   if [ -n "${FRONTEND_ENV_SOURCE:-}" ]; then
     copy_frontend_env_if_valid "${FRONTEND_ENV_SOURCE}" && return 0
-    echo "Warning: FRONTEND_ENV_SOURCE did not contain live Supabase Vite credentials: ${FRONTEND_ENV_SOURCE}" >&2
+    echo "Warning: FRONTEND_ENV_SOURCE did not contain public Supabase frontend credentials: ${FRONTEND_ENV_SOURCE}" >&2
   fi
+
+  copy_frontend_env_if_valid "${WORKTREE_ROOT}/.env" && return 0
 
   copy_frontend_env_from_worktrees && return 0
 
-  cp "${FRONTEND_DIR}/.env.example" "${FRONTEND_DIR}/.env"
+  if [ ! -f "${FRONTEND_DIR}/.env" ]; then
+    cp "${FRONTEND_DIR}/.env.example" "${FRONTEND_DIR}/.env"
+  fi
 }
 
 

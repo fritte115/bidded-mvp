@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import re
 import threading
+import zipfile
+from io import BytesIO
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -18,6 +20,8 @@ from bidded.company.website_import import (
 )
 from bidded.config import load_settings
 from bidded.documents import (
+    DOCX_CONTENT_TYPE,
+    PDF_CONTENT_TYPE,
     CompanyKbDocumentType,
     CompanyKbError,
     CompanyKbUploadFile,
@@ -25,7 +29,7 @@ from bidded.documents import (
     delete_company_kb_document,
     ensure_tender_evidence_items_for_document,
     ingest_company_kb_document,
-    ingest_tender_pdf_document,
+    ingest_tender_document,
     list_company_kb_documents,
     list_company_kb_evidence,
     register_company_kb_documents,
@@ -371,7 +375,7 @@ def start_run(
     doc_rows: list[dict[str, Any]] = list(docs_resp.data or [])
 
     if not doc_rows:
-        # Auto-discover and register ALL PDFs from Supabase Storage
+        # Auto-discover and register all supported documents from Supabase Storage
         registered_ids = _auto_register_from_storage(
             client, req.tender_id, company_id, settings
         )
@@ -380,7 +384,7 @@ def start_run(
                 status_code=400,
                 detail=(
                     "No documents found for this tender. "
-                    "Ensure the PDFs are in Supabase Storage under "
+                    "Ensure the PDF or DOCX files are in Supabase Storage under "
                     "demo/procurements/<tender-name>/."
                 ),
             )
@@ -404,7 +408,7 @@ def start_run(
         # `pending`, `parsing`, and `parser_failed` all fall through to a
         # parse attempt. For `parser_failed` this is a retry.
         try:
-            ingest_tender_pdf_document(
+            ingest_tender_document(
                 client, document_id=row["id"], bucket_name=bucket
             )
         except PdfIngestionError as exc:
@@ -423,9 +427,10 @@ def start_run(
         raise HTTPException(
             status_code=422,
             detail=(
-                "No parseable documents in this tender — all PDFs failed to "
-                "parse (likely image-only or scanned). v1 only supports text "
-                "PDFs; re-upload text-layer versions and try again."
+                "No parseable documents in this tender — all documents failed to "
+                "parse (likely image-only/scanned PDFs or DOCX conversion "
+                "failures). v1 supports text PDFs and DOCX; re-upload "
+                "text-layer versions and try again."
             ),
         )
 
@@ -742,7 +747,7 @@ def _auto_register_from_storage(
     company_id: str,
     settings: Any,
 ) -> list[str]:
-    """Discover and register all Storage PDFs for this tender. Returns document IDs."""
+    """Discover and register supported Storage documents for this tender."""
     tender_resp = (
         client.table("tenders").select("title").eq("id", tender_id).single().execute()
     )
@@ -753,13 +758,13 @@ def _auto_register_from_storage(
     bucket: str = (
         getattr(settings, "supabase_storage_bucket", None) or "public-procurements"
     )
-    pdf_hits = _find_all_pdfs_in_storage(client, bucket, title)
-    if not pdf_hits:
+    document_hits = _find_all_supported_documents_in_storage(client, bucket, title)
+    if not document_hits:
         return []
 
     registered: list[str] = []
-    for storage_path, pdf_bytes in pdf_hits:
-        checksum = hashlib.sha256(pdf_bytes).hexdigest()
+    for storage_path, document_bytes, content_type in document_hits:
+        checksum = hashlib.sha256(document_bytes).hexdigest()
         original_filename = storage_path.rsplit("/", 1)[-1]
         doc_resp = (
             client.table("documents")
@@ -770,7 +775,7 @@ def _auto_register_from_storage(
                     "company_id": None,
                     "storage_path": storage_path,
                     "checksum_sha256": checksum,
-                    "content_type": "application/pdf",
+                    "content_type": content_type,
                     "document_role": "tender_document",
                     "parse_status": "pending",
                     "original_filename": original_filename,
@@ -792,10 +797,10 @@ def _auto_register_from_storage(
     return registered
 
 
-def _find_all_pdfs_in_storage(
+def _find_all_supported_documents_in_storage(
     client: Any, bucket: str, title: str
-) -> list[tuple[str, bytes]]:
-    """Return (storage_path, pdf_bytes) for every PDF under the tender's folder."""
+) -> list[tuple[str, bytes, str]]:
+    """Return supported procurement documents under the tender's folder."""
     title_slug = _slugify(title)
 
     # Try canonical paths first
@@ -803,7 +808,7 @@ def _find_all_pdfs_in_storage(
         f"demo/procurements/{title_slug}",
         f"demo/procurements/{title}",
     ]:
-        hits = _collect_pdfs_in_folder(client, bucket, folder)
+        hits = _collect_supported_documents_in_folder(client, bucket, folder)
         if hits:
             return hits
 
@@ -818,7 +823,7 @@ def _find_all_pdfs_in_storage(
         if not folder_name:
             continue
         if _slugify(folder_name) == title_slug or title_slug in _slugify(folder_name):
-            hits = _collect_pdfs_in_folder(
+            hits = _collect_supported_documents_in_folder(
                 client, bucket, f"demo/procurements/{folder_name}"
             )
             if hits:
@@ -827,29 +832,53 @@ def _find_all_pdfs_in_storage(
     return []
 
 
-def _collect_pdfs_in_folder(
+def _collect_supported_documents_in_folder(
     client: Any, bucket: str, folder: str
-) -> list[tuple[str, bytes]]:
-    """Download all valid PDFs in a storage folder. Returns list of (path, bytes)."""
+) -> list[tuple[str, bytes, str]]:
+    """Download all valid PDF/DOCX files in a storage folder."""
     try:
         objects = client.storage.from_(bucket).list(folder)
     except Exception:  # noqa: BLE001
         return []
 
-    results: list[tuple[str, bytes]] = []
+    results: list[tuple[str, bytes, str]] = []
     for obj in objects or []:
         name: str = obj.get("name", "")
-        if not name.lower().endswith(".pdf"):
+        content_type = _content_type_for_supported_document_name(name)
+        if content_type is None:
             continue
         full_path = f"{folder}/{name}"
         try:
-            pdf_bytes = client.storage.from_(bucket).download(full_path)
+            document_bytes = client.storage.from_(bucket).download(full_path)
         except Exception:  # noqa: BLE001
             continue
-        if isinstance(pdf_bytes, bytes) and pdf_bytes.startswith(b"%PDF-"):
-            results.append((full_path, pdf_bytes))
+        if _is_valid_supported_document_bytes(document_bytes, content_type):
+            results.append((full_path, document_bytes, content_type))
 
     return results
+
+
+def _content_type_for_supported_document_name(name: str) -> str | None:
+    lowered = name.lower()
+    if lowered.endswith(".pdf"):
+        return PDF_CONTENT_TYPE
+    if lowered.endswith(".docx"):
+        return DOCX_CONTENT_TYPE
+    return None
+
+
+def _is_valid_supported_document_bytes(value: object, content_type: str) -> bool:
+    if not isinstance(value, bytes):
+        return False
+    if content_type == PDF_CONTENT_TYPE:
+        return value.startswith(b"%PDF-")
+    if content_type == DOCX_CONTENT_TYPE:
+        try:
+            with zipfile.ZipFile(BytesIO(value)) as archive:
+                return "word/document.xml" in archive.namelist()
+        except zipfile.BadZipFile:
+            return False
+    return False
 
 
 def _slugify(value: str) -> str:

@@ -29,13 +29,17 @@ import { CitationSourceSheet } from "@/components/CitationSourceSheet";
 import { AgentMotionCard } from "@/components/AgentMotionCard";
 import { JudgeVerdictSummary } from "@/components/JudgeVerdictSummary";
 import { PipelineStep, type StepState } from "@/components/PipelineStep";
+import { ParseStatusBadge } from "@/components/ParseStatusBadge";
 import { archiveAgentRun, fetchRunDetail } from "@/lib/api";
 import { usePermissions } from "@/lib/auth";
-import { humanizeVerdictText, runDisplayId, type EvidenceCategory } from "@/data/mock";
+import { isDuplicateJudgeDisagreement } from "@/lib/judgeMemo";
+import { renderFormattedText } from "@/lib/richText";
+import { runDisplayId, type EvidenceCategory } from "@/data/mock";
 import {
   Archive,
   ArrowLeft,
   Download,
+  ExternalLink,
   RefreshCw,
   ChevronDown,
   FileSearch,
@@ -66,6 +70,27 @@ const severityToneMap = {
   Medium: "bg-warning/10 text-warning border-warning/30",
   High: "bg-danger/10 text-danger border-danger/30",
 } as const;
+
+function DocumentParseIndicator({
+  status,
+}: {
+  status: "pending" | "parsing" | "parsed" | "parser_failed";
+}) {
+  if (status === "parsed") {
+    return (
+      <span
+        className="inline-flex items-center justify-center rounded-full bg-success/10 p-1 text-success"
+        role="img"
+        aria-label="Parsed"
+        title="Parsed"
+      >
+        <CheckCircle2 className="h-4 w-4" />
+      </span>
+    );
+  }
+
+  return <ParseStatusBadge status={status} />;
+}
 
 export default function RunDetail() {
   const { id = "" } = useParams();
@@ -160,6 +185,9 @@ export default function RunDetail() {
     cat,
     items: run.evidence.filter((e) => e.category === cat),
   }));
+  const showJudgeDisagreement =
+    !!run.judge?.disagreement &&
+    !isDuplicateJudgeDisagreement(run.judge.disagreement, run.judge.citedMemo);
 
   async function handleArchiveRun() {
     if (!permissions.canDeleteRuns) return;
@@ -270,6 +298,50 @@ export default function RunDetail() {
         </Card>
       )}
 
+      {run.documents.length > 0 && (
+        <section className="mb-4 space-y-3">
+          <p className="text-sm font-medium text-foreground">Submitted files</p>
+          <ul className="space-y-2">
+            {run.documents.map((document) => (
+              <li
+                key={document.originalFilename}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  {document.publicUrl ? (
+                    <a
+                      href={document.publicUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex min-w-0 items-center gap-1 text-sm text-foreground hover:text-primary hover:underline"
+                      aria-label={`Open ${document.originalFilename}`}
+                    >
+                      <span className="truncate">{document.originalFilename}</span>
+                      <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                    </a>
+                  ) : (
+                    <span className="text-sm text-foreground">
+                      {document.originalFilename}
+                    </span>
+                  )}
+                  {document.publicUrl && (
+                    <a
+                      href={document.publicUrl}
+                      download={document.originalFilename}
+                      className="inline-flex items-center justify-center rounded-sm p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      aria-label={`Download ${document.originalFilename}`}
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                    </a>
+                  )}
+                </div>
+                <DocumentParseIndicator status={document.parseStatus} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <div className="min-w-0">
         <PipelineStep index={1} title="Evidence Scout" state={stepStates[1]}>
             <Card>
@@ -365,12 +437,12 @@ export default function RunDetail() {
                     onCitationClick={handleCitationClick}
                   />
 
-                  {run.judge.disagreement && (
+                  {showJudgeDisagreement && (
                     <div className="rounded-md border border-warning/30 bg-warning/5 p-3 text-sm">
                       <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-warning">
                         Disagreement
                       </p>
-                      {humanizeVerdictText(run.judge.disagreement)}
+                      {renderFormattedText(run.judge.disagreement)}
                     </div>
                   )}
 
@@ -422,7 +494,7 @@ export default function RunDetail() {
                           className="flex items-start gap-2 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-sm"
                         >
                           <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-danger" />
-                          {humanizeVerdictText(b)}
+                          {renderFormattedText(b)}
                         </li>
                       ))}
                     </ul>
@@ -438,7 +510,7 @@ export default function RunDetail() {
                           className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-sm"
                         >
                           <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-warning" />
-                          {humanizeVerdictText(b)}
+                          {renderFormattedText(b)}
                         </li>
                       ))}
                     </ul>
@@ -476,13 +548,13 @@ export default function RunDetail() {
 
                   <CollapsibleSection title="Missing Information">
                     <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                      {run.judge.missingInfo.map((m, i) => <li key={i}>{humanizeVerdictText(m)}</li>)}
+                      {run.judge.missingInfo.map((m, i) => <li key={i}>{renderFormattedText(m)}</li>)}
                     </ul>
                   </CollapsibleSection>
 
                   <CollapsibleSection title="Recommended Actions" defaultOpen>
                     <ol className="list-decimal space-y-1.5 pl-5 text-sm">
-                      {run.judge.recommendedActions.map((a, i) => <li key={i}>{humanizeVerdictText(a)}</li>)}
+                      {run.judge.recommendedActions.map((a, i) => <li key={i}>{renderFormattedText(a)}</li>)}
                     </ol>
                   </CollapsibleSection>
 

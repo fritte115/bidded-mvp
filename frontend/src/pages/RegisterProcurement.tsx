@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { ArrowLeft, UploadCloud, FileText, X, Loader2 } from "lucide-react";
-import { registerProcurement } from "@/lib/api";
+import { isSupportedProcurementDocument, registerProcurement } from "@/lib/api";
 
 export default function RegisterProcurement() {
   const navigate = useNavigate();
@@ -23,7 +23,7 @@ export default function RegisterProcurement() {
 
   function handleFiles(incoming: FileList | null) {
     if (!incoming) return;
-    const next = Array.from(incoming).filter((f) => f.type === "application/pdf");
+    const next = Array.from(incoming).filter(isSupportedProcurementDocument);
     setFiles((prev) => {
       const existingNames = new Set(prev.map((f) => f.name));
       return [...prev, ...next.filter((f) => !existingNames.has(f.name))];
@@ -42,7 +42,7 @@ export default function RegisterProcurement() {
       await queryClient.invalidateQueries({ queryKey: ["procurements"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
       toast.success("Procurement registered", {
-        description: `${files.length} PDF${files.length === 1 ? "" : "s"} uploaded and indexed.`,
+        description: `${files.length} document${files.length === 1 ? "" : "s"} uploaded and indexed.`,
       });
       navigate("/procurements");
     } catch (err) {
@@ -60,7 +60,7 @@ export default function RegisterProcurement() {
     <>
       <PageHeader
         title="Register New Procurement"
-        description="Create a procurement case and attach one or more Swedish procurement PDFs."
+        description="Create a procurement case and attach one or more Swedish procurement documents."
         actions={
           <Button asChild variant="outline">
             <Link to="/procurements">
@@ -108,7 +108,7 @@ export default function RegisterProcurement() {
           </div>
 
           <div className="space-y-2">
-            <Label>Upload PDFs</Label>
+            <Label>Upload documents</Label>
             <label
               className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-secondary/40 px-6 py-12 text-center hover:border-primary/40"
               onDragOver={(e) => e.preventDefault()}
@@ -118,13 +118,13 @@ export default function RegisterProcurement() {
               }}
             >
               <UploadCloud className="mb-3 h-8 w-8 text-muted-foreground" />
-              <p className="text-sm font-medium text-foreground">Drop PDFs here or click to upload</p>
+              <p className="text-sm font-medium text-foreground">Drop PDF or DOCX files here</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Attach multiple files · text-based PDFs only · max 50 MB each
+                Attach multiple files · text PDFs or DOCX · max 50 MB each
               </p>
               <input
                 type="file"
-                accept="application/pdf"
+                accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.docx"
                 multiple
                 className="sr-only"
                 onChange={(e) => handleFiles(e.target.files)}

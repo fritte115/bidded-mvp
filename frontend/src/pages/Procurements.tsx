@@ -6,7 +6,6 @@ import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -22,12 +21,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { StatusBadge } from "@/components/StatusBadge";
 import { VerdictBadge } from "@/components/VerdictBadge";
 import { formatRelativeTime, runDisplayId } from "@/data/mock";
 import { usePermissions } from "@/lib/auth";
 import { fetchProcurements, deleteProcurement, startAgentRun } from "@/lib/api";
-import { ParseStatusBadge } from "@/components/ParseStatusBadge";
 import {
   Tooltip,
   TooltipContent,
@@ -57,8 +54,69 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { cn } from "@/lib/utils";
 
 type RunFilter = "all" | "not_run" | "running" | "done";
+const DELETE_BLOCKED_REASON =
+  "This procurement has run history. Bidded preserves linked run audit rows, so it cannot be hard-deleted.";
+const RUN_STATUS_LABELS = {
+  pending: "Pending",
+  running: "Running",
+  succeeded: "Succeeded",
+  failed: "Failed",
+  needs_human_review: "Review",
+} as const;
+const RUN_STATUS_DOT_CLASSES = {
+  pending: "bg-muted-foreground",
+  running: "bg-info",
+  succeeded: "bg-success",
+  failed: "bg-danger",
+  needs_human_review: "bg-warning",
+} as const;
+
+function RunStatusDot({
+  status,
+  isStale = false,
+  selected = false,
+}: {
+  status?: keyof typeof RUN_STATUS_LABELS;
+  isStale?: boolean;
+  selected?: boolean;
+}) {
+  const toneStatus = status ? (isStale ? "failed" : status) : null;
+  const label = status ? (isStale ? "Stale" : RUN_STATUS_LABELS[status]) : "Not run";
+
+  return (
+    <span
+      className={cn(
+        "inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors",
+        selected && "bg-primary/5 ring-1 ring-primary/30",
+      )}
+      role="img"
+      aria-label={label}
+      title={label}
+    >
+      {status === "running" && !isStale ? (
+        <span className="relative flex h-2.5 w-2.5">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-info opacity-50" />
+          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-info" />
+        </span>
+      ) : toneStatus ? (
+        <span
+          className={cn(
+            "inline-flex h-2.5 w-2.5 rounded-full",
+            RUN_STATUS_DOT_CLASSES[toneStatus],
+          )}
+        />
+      ) : (
+        <span
+          className="inline-flex h-2.5 w-2.5 rounded-full border border-muted-foreground/35"
+        />
+      )}
+      <span className="sr-only">{label}</span>
+    </span>
+  );
+}
 
 export default function Procurements() {
   const navigate = useNavigate();
@@ -114,19 +172,6 @@ export default function Procurements() {
     () => rows.filter(({ run }) => !run).map(({ procurement }) => procurement.id),
     [rows],
   );
-
-  const allSelected = filtered.length > 0 && filtered.every(({ procurement: p }) => selectedIds.includes(p.id));
-  const someSelected = filtered.some(({ procurement: p }) => selectedIds.includes(p.id)) && !allSelected;
-
-  const toggleAll = () => {
-    if (allSelected) {
-      setSelectedIds((prev) => prev.filter((id) => !filtered.some(({ procurement: p }) => p.id === id)));
-    } else {
-      setSelectedIds((prev) =>
-        Array.from(new Set([...prev, ...filtered.map(({ procurement: p }) => p.id)])),
-      );
-    }
-  };
 
   const toggleOne = (id: string) => {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -274,17 +319,10 @@ export default function Procurements() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-10">
-                      <Checkbox
-                        checked={allSelected ? true : someSelected ? "indeterminate" : false}
-                        onCheckedChange={toggleAll}
-                        aria-label="Select all"
-                      />
-                    </TableHead>
+                    <TableHead className="w-10" />
                     <TableHead>Procurement</TableHead>
                     <TableHead>Documents</TableHead>
                     <TableHead className="whitespace-nowrap">Latest run</TableHead>
-                    <TableHead>Status</TableHead>
                     <TableHead>Stage</TableHead>
                     <TableHead>Decision</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -303,47 +341,28 @@ export default function Procurements() {
                     return (
                       <TableRow key={t.id} data-state={checked ? "selected" : undefined}>
                         <TableCell>
-                          <Checkbox
-                            checked={checked}
-                            onCheckedChange={() => toggleOne(t.id)}
-                            aria-label={`Select ${t.name}`}
-                          />
+                          <button
+                            type="button"
+                            className="inline-flex rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                            onClick={() => toggleOne(t.id)}
+                            aria-label={`${checked ? "Deselect" : "Select"} ${t.name} for compare`}
+                          >
+                            <RunStatusDot
+                              status={run?.status}
+                              isStale={run?.isStale}
+                              selected={checked}
+                            />
+                          </button>
                         </TableCell>
-                        <TableCell className="font-medium">{t.name}</TableCell>
+                        <TableCell className="font-medium">
+                          <span className="truncate">{t.name}</span>
+                        </TableCell>
                         <TableCell className="align-top">
-                          <div className="max-w-[240px] space-y-1.5">
+                          <div className="max-w-[240px]">
                             <span className="inline-flex items-center gap-1.5 rounded-sm bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
                               <Files className="h-3 w-3" />
-                              {t.documentCount} {t.documentCount === 1 ? "PDF" : "PDFs"}
+                              {t.documentCount} {t.documentCount === 1 ? "document" : "documents"}
                             </span>
-                            {t.documents.length > 0 && (
-                              <ul className="space-y-1">
-                                {t.documents.map((d) => (
-                                  <li
-                                    key={d.originalFilename}
-                                    className="flex flex-wrap items-center gap-1.5 text-[11px] leading-tight"
-                                  >
-                                    <span className="min-w-0 truncate text-muted-foreground" title={d.originalFilename}>
-                                      {d.originalFilename}
-                                    </span>
-                                    {d.parseNote ? (
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <span className="inline-flex cursor-help">
-                                            <ParseStatusBadge status={d.parseStatus} />
-                                          </span>
-                                        </TooltipTrigger>
-                                        <TooltipContent className="max-w-xs text-xs">
-                                          {d.parseNote}
-                                        </TooltipContent>
-                                      </Tooltip>
-                                    ) : (
-                                      <ParseStatusBadge status={d.parseStatus} />
-                                    )}
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
                           </div>
                         </TableCell>
                         <TableCell className="text-sm">
@@ -353,27 +372,18 @@ export default function Procurements() {
                               className="group inline-flex flex-col leading-tight"
                             >
                               <span className="font-medium text-foreground group-hover:text-primary group-hover:underline">
-                                {runDisplayId(run.id)}
+                                {runDisplayId(run)}
                               </span>
                               <span className="text-xs text-muted-foreground">
                                 {formatRelativeTime(run.startedAt)}
                               </span>
                             </Link>
                           ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {run ? (
-                            <StatusBadge status={run.status} isStale={run.isStale} />
-                          ) : (
-                            <span className="inline-flex items-center rounded-sm border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                              Not run
-                            </span>
+                            <span />
                           )}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
-                          {run ? run.stage : "—"}
+                          {run ? run.stage : null}
                         </TableCell>
                         <TableCell>
                           {run?.needsJudgeReview ? (
@@ -383,7 +393,7 @@ export default function Procurements() {
                           ) : run?.decision ? (
                             <VerdictBadge verdict={run.decision} />
                           ) : (
-                            <span className="text-muted-foreground">—</span>
+                            null
                           )}
                         </TableCell>
                         <TableCell className="text-right">
@@ -429,19 +439,40 @@ export default function Procurements() {
                               </>
                             )}
                             {permissions.canDeleteProcurements && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 text-muted-foreground hover:text-destructive"
-                                disabled={deletingId === t.id}
-                                onClick={() => setPendingDelete({ id: t.id, name: t.name })}
-                              >
-                                {deletingId === t.id ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <Trash2 className="h-3 w-3" />
-                                )}
-                              </Button>
+                              t.hasRunHistory ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="inline-flex" tabIndex={0}>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 text-muted-foreground hover:text-destructive"
+                                        disabled
+                                        aria-label="Delete unavailable"
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                      </Button>
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="max-w-xs text-xs">
+                                    {DELETE_BLOCKED_REASON}
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 text-muted-foreground hover:text-destructive"
+                                  disabled={deletingId === t.id}
+                                  onClick={() => setPendingDelete({ id: t.id, name: t.name })}
+                                >
+                                  {deletingId === t.id ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-3 w-3" />
+                                  )}
+                                </Button>
+                              )
                             )}
                           </div>
                         </TableCell>
