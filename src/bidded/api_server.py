@@ -5,10 +5,11 @@ import re
 import threading
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from bidded.auth import AuthenticatedUser, authenticate_supabase_jwt
 from bidded.config import load_settings
 from bidded.documents import (
     PdfIngestionError,
@@ -38,13 +39,27 @@ class StartRunRequest(BaseModel):
     tender_id: str
 
 
+DEMO_ORGANIZATION_ID = "00000000-0000-4000-8000-000000000001"
+
+
+def require_authenticated_user(
+    authorization: str | None = Header(default=None),
+) -> AuthenticatedUser:
+    return authenticate_supabase_jwt(authorization)
+
+
+AUTHENTICATED_USER = Depends(require_authenticated_user)
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
 @app.post("/api/company/resync-evidence")
-def resync_company_evidence() -> dict[str, Any]:
+def resync_company_evidence(
+    user: AuthenticatedUser = AUTHENTICATED_USER,
+) -> dict[str, Any]:
     """Re-materialize `company_profile` evidence_items from the current
     `companies` row.
 
@@ -53,8 +68,9 @@ def resync_company_evidence() -> dict[str, Any]:
     upsert can bypass RLS on `evidence_items`.
     """
     settings = load_settings()
-    from supabase import create_client  # noqa: PLC0415
     from uuid import UUID  # noqa: PLC0415
+
+    from supabase import create_client  # noqa: PLC0415
 
     client = create_client(settings.supabase_url, settings.supabase_service_role_key)
 
@@ -72,6 +88,7 @@ def resync_company_evidence() -> dict[str, Any]:
         )
     row = company_resp.data[0]
     company_id = UUID(str(row["id"]))
+    require_company_admin(client, user, str(company_id))
 
     result = upsert_company_profile_evidence(
         client,
@@ -85,11 +102,15 @@ def resync_company_evidence() -> dict[str, Any]:
 
 
 @app.post("/api/runs/start")
-def start_run(req: StartRunRequest) -> dict[str, str]:
+def start_run(
+    req: StartRunRequest,
+    user: AuthenticatedUser = AUTHENTICATED_USER,
+) -> dict[str, str]:
     settings = load_settings()
     from supabase import create_client  # noqa: PLC0415
 
     client = create_client(settings.supabase_url, settings.supabase_service_role_key)
+    require_tender_member(client, user, req.tender_id)
 
     # Resolve demo company
     company_resp = (
@@ -227,6 +248,93 @@ def start_run(req: StartRunRequest) -> dict[str, str]:
     threading.Thread(target=_run_worker, daemon=True).start()
 
     return {"run_id": run_id}
+
+
+def require_tender_member(
+    client: Any,
+    user: AuthenticatedUser,
+    tender_id: str,
+) -> str:
+    organization_id = _organization_id_for_row(client, "tenders", tender_id)
+    _require_org_role(
+        client,
+        user,
+        organization_id,
+        allowed_roles={"admin", "user"},
+        action="start runs for this procurement",
+    )
+    return organization_id
+
+
+def require_company_admin(
+    client: Any,
+    user: AuthenticatedUser,
+    company_id: str,
+) -> str:
+    organization_id = _organization_id_for_row(client, "companies", company_id)
+    _require_org_role(
+        client,
+        user,
+        organization_id,
+        allowed_roles={"admin"},
+        action="resync company evidence",
+    )
+    return organization_id
+
+
+def _organization_id_for_row(client: Any, table_name: str, row_id: str) -> str:
+    response = (
+        client.table(table_name)
+        .select("id,organization_id")
+        .eq("id", row_id)
+        .limit(1)
+        .execute()
+    )
+    rows = list(getattr(response, "data", None) or [])
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"{table_name} row not found.")
+    return str(rows[0].get("organization_id") or DEMO_ORGANIZATION_ID)
+
+
+def _require_org_role(
+    client: Any,
+    user: AuthenticatedUser,
+    organization_id: str,
+    *,
+    allowed_roles: set[str],
+    action: str,
+) -> None:
+    if _user_is_superadmin(client, user.user_id):
+        return
+
+    response = (
+        client.table("organization_memberships")
+        .select("role,status")
+        .eq("organization_id", organization_id)
+        .eq("user_id", user.user_id)
+        .eq("status", "active")
+        .limit(1)
+        .execute()
+    )
+    rows = list(getattr(response, "data", None) or [])
+    role = str(rows[0].get("role")) if rows else ""
+    if role not in allowed_roles:
+        raise HTTPException(
+            status_code=403,
+            detail=f"You do not have permission to {action}.",
+        )
+
+
+def _user_is_superadmin(client: Any, user_id: str) -> bool:
+    response = (
+        client.table("profiles")
+        .select("global_role")
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    rows = list(getattr(response, "data", None) or [])
+    return bool(rows and rows[0].get("global_role") == "superadmin")
 
 
 # ---------------------------------------------------------------------------

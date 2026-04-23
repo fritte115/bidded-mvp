@@ -25,6 +25,7 @@ import {
   updateBid,
   fetchCompany,
 } from "@/lib/api";
+import { usePermissions } from "@/lib/auth";
 import { decisionToEstimateInput } from "@/lib/bidIntegrationMapping";
 import { bidStatusLabel, bidStatusOrder, type BidStatus, type DecisionSummary } from "@/data/mock";
 import { estimateBid, formatSEK, type BidEstimate } from "@/lib/bidEstimator";
@@ -33,6 +34,7 @@ import {
   BookOpen,
   Calendar,
   FileQuestion,
+  LockKeyhole,
   Sparkles,
   Target,
   TrendingUp,
@@ -111,6 +113,7 @@ export default function BidEditor() {
   const { bidId } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const permissions = usePermissions();
   const isEditMode = Boolean(bidId);
   const requestedRunId = params.get("run");
 
@@ -275,6 +278,28 @@ export default function BidEditor() {
   const daysToDeadline = deadline
     ? Math.round((deadline.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
     : null;
+
+  if (!permissions.canManageBids) {
+    return (
+      <>
+        <PageHeader
+          title={isEditMode ? "Edit Bid" : "New Bid"}
+          actions={
+            <Button asChild variant="outline">
+              <Link to="/bids">
+                <ArrowLeft className="h-4 w-4" /> Back to Bids
+              </Link>
+            </Button>
+          }
+        />
+        <EmptyState
+          icon={LockKeyhole}
+          title="Admin access required"
+          description="Bid pricing, margins, and pipeline changes are limited to admins."
+        />
+      </>
+    );
+  }
 
   return (
     <>

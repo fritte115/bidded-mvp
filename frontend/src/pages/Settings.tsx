@@ -1,4 +1,5 @@
 import { PageHeader } from "@/components/PageHeader";
+import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -22,6 +23,7 @@ import {
   Shield,
 } from "lucide-react";
 import biddedLogo from "@/assets/bidded-logo.png";
+import { usePermissions } from "@/lib/auth";
 
 type Member = {
   name: string;
@@ -71,6 +73,21 @@ function StatPill({ value, label }: { value: string; label: string }) {
 }
 
 export default function Settings() {
+  const permissions = usePermissions();
+
+  if (!permissions.canManageTeam) {
+    return (
+      <>
+        <PageHeader title="Settings" />
+        <EmptyState
+          icon={Shield}
+          title="Admin access required"
+          description="Workspace, billing, integrations, and team access are limited to admins."
+        />
+      </>
+    );
+  }
+
   return (
     <>
       <PageHeader title="Settings" description="Configure workspace, team, integrations, models, and billing." />
