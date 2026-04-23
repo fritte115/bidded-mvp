@@ -1,4 +1,5 @@
 import { Link, useParams } from "react-router-dom";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -6,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { VerdictBadge } from "@/components/VerdictBadge";
 import { ConfidenceBar } from "@/components/ConfidenceBar";
 import { EvidenceBadge } from "@/components/EvidenceBadge";
+import { CitationSourceSheet } from "@/components/CitationSourceSheet";
 import { JudgeMemo } from "@/components/JudgeVerdictSummary";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -29,12 +31,24 @@ const sevTone = {
 
 export default function DecisionDetail() {
   const { id = "" } = useParams();
+  const [selectedCitationId, setSelectedCitationId] = useState<string | null>(null);
 
   const { data: run, isLoading } = useQuery({
     queryKey: ["run-detail", id],
     queryFn: () => fetchRunDetail(id),
     enabled: !!id,
   });
+
+  const evidenceById = useMemo(
+    () => new Map((run?.evidence ?? []).map((evidence) => [evidence.id, evidence])),
+    [run?.evidence],
+  );
+  const selectedEvidence = selectedCitationId
+    ? (evidenceById.get(selectedCitationId) ?? null)
+    : null;
+  const handleCitationClick = (citationId: string) => {
+    setSelectedCitationId(citationId);
+  };
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading decision…</p>;
@@ -81,7 +95,11 @@ export default function DecisionDetail() {
         <Card className="lg:col-span-2">
           <CardContent className="space-y-4 p-5">
             <Section title="Judge Memo">
-              <JudgeMemo memo={j.citedMemo} verdict={j.verdict} />
+              <JudgeMemo
+                memo={j.citedMemo}
+                verdict={j.verdict}
+                onCitationClick={handleCitationClick}
+              />
             </Section>
             <Section title="Disagreement">
               <p className="text-sm text-muted-foreground">{j.disagreement}</p>
@@ -109,7 +127,13 @@ export default function DecisionDetail() {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
-                          {r.evidence.map((e) => <EvidenceBadge key={e} id={e} />)}
+                          {r.evidence.map((e) => (
+                            <EvidenceBadge
+                              key={e}
+                              id={e}
+                              onClick={() => handleCitationClick(e)}
+                            />
+                          ))}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -221,12 +245,27 @@ export default function DecisionDetail() {
                 Cited Evidence
               </h4>
               <div className="flex flex-wrap gap-1.5">
-                {j.evidenceIds.map((e) => <EvidenceBadge key={e} id={e} />)}
+                {j.evidenceIds.map((e) => (
+                  <EvidenceBadge
+                    key={e}
+                    id={e}
+                    onClick={() => handleCitationClick(e)}
+                  />
+                ))}
               </div>
             </CardContent>
           </Card>
         </div>
       </div>
+      <CitationSourceSheet
+        open={selectedCitationId !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedCitationId(null);
+        }}
+        citationId={selectedCitationId}
+        evidence={selectedEvidence}
+        evidenceBoardHref={`/runs/${run.id}/evidence`}
+      />
     </>
   );
 }

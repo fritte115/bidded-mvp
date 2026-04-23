@@ -1,11 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import RunDetail from "@/pages/RunDetail";
 import { fetchRunDetail } from "@/lib/api";
-import type { Run } from "@/data/mock";
+import type { Evidence, Run } from "@/data/mock";
 
 vi.mock("@/lib/api", () => ({
   fetchRunDetail: vi.fn(),
@@ -27,6 +27,17 @@ const run: Run = {
   round1: [],
   round2: [],
   judge: undefined,
+};
+
+const evidenceItem: Evidence = {
+  id: "EVD-001",
+  key: "TENDER.MANDATORY.ISO27001",
+  category: "Mandatory Requirements",
+  excerpt: "ISO certificate must be attached.",
+  source: "police-modernisation.pdf",
+  page: 11,
+  referencedBy: ["Compliance Officer"],
+  kind: "tender_document",
 };
 
 function renderRunDetail() {
@@ -62,5 +73,82 @@ describe("RunDetail", () => {
     );
     expect(screen.getByRole("button", { name: /Re-run/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Export/i })).toBeInTheDocument();
+  });
+
+  it("opens cited evidence in a source sidebar", async () => {
+    vi.mocked(fetchRunDetail).mockResolvedValue({
+      ...run,
+      evidence: [evidenceItem],
+      judge: {
+        verdict: "BID",
+        confidence: 82,
+        voteSummary: { BID: 4, NO_BID: 0, CONDITIONAL_BID: 0 },
+        disagreement: "",
+        citedMemo: "Bid because EVD-001 is satisfied.",
+        complianceMatrix: [
+          {
+            requirement: "ISO 27001 certificate",
+            status: "Met",
+            evidence: ["EVD-001"],
+          },
+        ],
+        complianceBlockers: [],
+        potentialBlockers: [],
+        riskRegister: [],
+        missingInfo: [],
+        recommendedActions: [],
+        evidenceIds: ["EVD-404"],
+      },
+    });
+
+    renderRunDetail();
+
+    const citationButtons = await screen.findAllByRole("button", {
+      name: "Open source for EVD-001",
+    });
+    fireEvent.click(citationButtons[0]);
+
+    const sidebar = await screen.findByRole("dialog", { name: "Citation source" });
+    expect(within(sidebar).getByText(/ISO certificate must be attached/)).toBeInTheDocument();
+    expect(within(sidebar).getByText("police-modernisation.pdf")).toBeInTheDocument();
+    expect(within(sidebar).getByText("Page 11")).toBeInTheDocument();
+    expect(within(sidebar).getByRole("link", { name: "Open Evidence Board" })).toHaveAttribute(
+      "href",
+      "/runs/run-123/evidence",
+    );
+  });
+
+  it("shows an explicit missing-source state for citations outside the evidence board", async () => {
+    vi.mocked(fetchRunDetail).mockResolvedValue({
+      ...run,
+      evidence: [evidenceItem],
+      judge: {
+        verdict: "BID",
+        confidence: 82,
+        voteSummary: { BID: 4, NO_BID: 0, CONDITIONAL_BID: 0 },
+        disagreement: "",
+        citedMemo: "Bid.",
+        complianceMatrix: [],
+        complianceBlockers: [],
+        potentialBlockers: [],
+        riskRegister: [],
+        missingInfo: [],
+        recommendedActions: [],
+        evidenceIds: ["EVD-404"],
+      },
+    });
+
+    renderRunDetail();
+
+    fireEvent.click(await screen.findByText("Cited Evidence"));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open source for EVD-404" }),
+    );
+
+    const sidebar = await screen.findByRole("dialog", { name: "Citation source" });
+    expect(
+      within(sidebar).getByText("Source not found in this run's evidence board."),
+    ).toBeInTheDocument();
+    expect(within(sidebar).getByText("EVD-404")).toBeInTheDocument();
   });
 });
