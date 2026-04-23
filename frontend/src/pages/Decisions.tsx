@@ -79,7 +79,7 @@ export default function Decisions() {
                 </div>
                 <ConfidenceBar value={r.confidence} />
                 <p className="line-clamp-2 text-sm text-muted-foreground">
-                  {humanizeVerdictText(r.citedMemo)}
+                  {humanizeVerdictText(r.topReason)}
                 </p>
                 <div className="flex items-center justify-between border-t border-border pt-3">
                   <span className="text-xs text-muted-foreground">

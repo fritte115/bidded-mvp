@@ -25,7 +25,7 @@ const agentMeta: Record<
 > = {
   "Compliance Officer": { icon: ShieldCheck, tint: "text-info" },
   "Win Strategist": { icon: Trophy, tint: "text-success" },
-  "Delivery/CFO": { icon: Wallet, tint: "text-warning" },
+  "Delivery CFO": { icon: Wallet, tint: "text-warning" },
   "Red Team": { icon: Flame, tint: "text-danger" },
 };
 

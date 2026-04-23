@@ -247,22 +247,6 @@ export default function DecisionDetail() {
             </Card>
           )}
 
-          <Card>
-            <CardContent className="space-y-2 p-5">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Cited Evidence
-              </h4>
-              <div className="flex flex-wrap gap-1.5">
-                {j.evidenceIds.map((e) => (
-                  <EvidenceBadge
-                    key={e}
-                    id={e}
-                    onClick={() => handleCitationClick(e)}
-                  />
-                ))}
-              </div>
-            </CardContent>
-          </Card>
         </div>
       </div>
       <CitationSourceSheet
