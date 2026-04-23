@@ -87,6 +87,17 @@ function requireSupabase() {
   return supabase;
 }
 
+async function requireAccessToken(): Promise<string> {
+  const client = requireSupabase();
+  const { data, error } = await client.auth.getSession();
+  if (error) throw new Error(`getSession: ${error.message}`);
+  const token = data.session?.access_token;
+  if (!token) {
+    throw new Error("You must be signed in to call the Bidded agent API.");
+  }
+  return token;
+}
+
 function mockParseStatus(procurement: Procurement): ProcurementDocumentRow["parseStatus"] {
   if (procurement.status === "done") return "parsed";
   if (procurement.status === "processing") return "parsing";
@@ -801,8 +812,10 @@ export async function resyncCompanyEvidence(): Promise<{
   evidence_count: number;
   rows_returned: number;
 }> {
+  const token = await requireAccessToken();
   const res = await fetch(`${AGENT_API_URL}/api/company/resync-evidence`, {
     method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) {
     throw new Error(`resyncCompanyEvidence: ${res.status} ${res.statusText}`);
@@ -1885,9 +1898,10 @@ export async function startAgentRun(tenderId: string): Promise<string> {
     throw new Error(MOCK_MODE_WRITE_MESSAGE);
   }
 
+  const token = await requireAccessToken();
   const res = await fetch(`${AGENT_API_URL}/api/runs/start`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ tender_id: tenderId }),
   });
   if (!res.ok) {

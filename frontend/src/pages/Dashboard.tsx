@@ -23,6 +23,7 @@ import {
   fetchDecisions,
   deleteAgentRun,
 } from "@/lib/api";
+import { usePermissions } from "@/lib/auth";
 import {
   FileText,
   Files,
@@ -41,6 +42,7 @@ function shortRunId(id: string): string {
 
 export default function Dashboard() {
   const queryClient = useQueryClient();
+  const permissions = usePermissions();
 
   const { data: stats } = useQuery({
     queryKey: ["dashboard-stats"],
@@ -71,6 +73,7 @@ export default function Dashboard() {
   const recentDecisions = decisions.slice(0, 3);
 
   async function handleDelete(id: string) {
+    if (!permissions.canDeleteRuns) return;
     setDeleting((prev) => new Set(prev).add(id));
     try {
       await deleteAgentRun(id);
@@ -211,7 +214,7 @@ export default function Dashboard() {
                               <Button asChild variant="ghost" size="sm" className="h-8">
                                 <Link to={`/runs/${r.id}`}>View</Link>
                               </Button>
-                              {isTerminal && (
+                              {permissions.canDeleteRuns && isTerminal && (
                                 <Button
                                   variant="ghost"
                                   size="sm"

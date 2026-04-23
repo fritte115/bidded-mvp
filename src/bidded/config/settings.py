@@ -32,6 +32,7 @@ class BiddedSettings(BaseSettings):
     openai_api_key: str | None = None
     supabase_url: str | None = None
     supabase_service_role_key: str | None = None
+    supabase_jwt_secret: str | None = None
     supabase_storage_bucket: str = "public-procurements"
     embedding_provider: str = DEFAULT_LIVE_EMBEDDING_PROVIDER
     embedding_model: str = DEFAULT_LIVE_EMBEDDING_MODEL
