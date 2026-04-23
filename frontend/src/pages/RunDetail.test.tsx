@@ -111,6 +111,8 @@ describe("RunDetail", () => {
       "href",
       "https://example.supabase.co/storage/v1/object/public/public-procurements/city-crm-appendix.pdf",
     );
+    expect(screen.getAllByLabelText("Parsed")).toHaveLength(2);
+    expect(screen.queryByText("Parsed")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Re-run/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Export/i })).toBeInTheDocument();
   });

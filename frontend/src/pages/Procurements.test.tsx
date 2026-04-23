@@ -94,6 +94,7 @@ describe("Procurements", () => {
     expect(await screen.findByText("Run 2")).toBeInTheDocument();
     expect(screen.getByText("Run 3")).toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Status" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Parsed")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Succeeded").querySelector(".bg-success")).not.toBeNull();
     expect(screen.getByLabelText("Failed").querySelector(".bg-danger")).not.toBeNull();
     expect(screen.getByText("Healthcare Platform").closest("td")).toContainElement(

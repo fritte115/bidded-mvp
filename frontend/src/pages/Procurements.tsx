@@ -26,7 +26,6 @@ import { VerdictBadge } from "@/components/VerdictBadge";
 import { formatRelativeTime, runDisplayId } from "@/data/mock";
 import { usePermissions } from "@/lib/auth";
 import { fetchProcurements, deleteProcurement, startAgentRun } from "@/lib/api";
-import { ParseStatusBadge } from "@/components/ParseStatusBadge";
 import {
   Tooltip,
   TooltipContent,
@@ -61,7 +60,6 @@ import { cn } from "@/lib/utils";
 type RunFilter = "all" | "not_run" | "running" | "done";
 const DELETE_BLOCKED_REASON =
   "This procurement has run history. Bidded preserves linked run audit rows, so it cannot be hard-deleted.";
-const DOCUMENT_STATUS_ORDER = ["parsed", "parsing", "pending", "parser_failed"] as const;
 const RUN_STATUS_LABELS = {
   pending: "Pending",
   running: "Running",
@@ -351,18 +349,6 @@ export default function Procurements() {
                       run?.status === "succeeded" ||
                       run?.status === "failed" ||
                       run?.status === "needs_human_review";
-                    const documentStatusSummary = DOCUMENT_STATUS_ORDER.map((status) => ({
-                      status,
-                      count: t.documents.filter((document) => document.parseStatus === status).length,
-                      notes: t.documents
-                        .filter(
-                          (document) =>
-                            document.parseStatus === status &&
-                            typeof document.parseNote === "string" &&
-                            document.parseNote.length > 0,
-                        )
-                        .map((document) => document.parseNote as string),
-                    })).filter((item) => item.count > 0);
                     return (
                       <TableRow key={t.id} data-state={checked ? "selected" : undefined}>
                         <TableCell>
@@ -381,35 +367,11 @@ export default function Procurements() {
                           </div>
                         </TableCell>
                         <TableCell className="align-top">
-                          <div className="max-w-[240px] space-y-2">
+                          <div className="max-w-[240px]">
                             <span className="inline-flex items-center gap-1.5 rounded-sm bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
                               <Files className="h-3 w-3" />
                               {t.documentCount} {t.documentCount === 1 ? "PDF" : "PDFs"}
                             </span>
-                            {documentStatusSummary.length > 0 && (
-                              <div className="flex flex-wrap gap-1.5">
-                                {documentStatusSummary.map(({ status, count, notes }) =>
-                                  notes.length > 0 ? (
-                                    <Tooltip key={status}>
-                                      <TooltipTrigger asChild>
-                                        <span className="inline-flex cursor-help items-center gap-1">
-                                          <ParseStatusBadge status={status} />
-                                          <span className="text-xs text-muted-foreground">{count}</span>
-                                        </span>
-                                      </TooltipTrigger>
-                                      <TooltipContent className="max-w-xs text-xs">
-                                        {notes.join("\n")}
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  ) : (
-                                    <span key={status} className="inline-flex items-center gap-1">
-                                      <ParseStatusBadge status={status} />
-                                      <span className="text-xs text-muted-foreground">{count}</span>
-                                    </span>
-                                  ),
-                                )}
-                              </div>
-                            )}
                           </div>
                         </TableCell>
                         <TableCell className="text-sm">

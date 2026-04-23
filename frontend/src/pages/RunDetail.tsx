@@ -69,6 +69,27 @@ const severityToneMap = {
   High: "bg-danger/10 text-danger border-danger/30",
 } as const;
 
+function DocumentParseIndicator({
+  status,
+}: {
+  status: "pending" | "parsing" | "parsed" | "parser_failed";
+}) {
+  if (status === "parsed") {
+    return (
+      <span
+        className="inline-flex items-center justify-center rounded-full bg-success/10 p-1 text-success"
+        role="img"
+        aria-label="Parsed"
+        title="Parsed"
+      >
+        <CheckCircle2 className="h-4 w-4" />
+      </span>
+    );
+  }
+
+  return <ParseStatusBadge status={status} />;
+}
+
 export default function RunDetail() {
   const { id = "" } = useParams();
   const [selectedCitationId, setSelectedCitationId] = useState<string | null>(null);
@@ -315,7 +336,7 @@ export default function RunDetail() {
                       </a>
                     )}
                   </div>
-                  <ParseStatusBadge status={document.parseStatus} />
+                  <DocumentParseIndicator status={document.parseStatus} />
                 </li>
               ))}
             </ul>
