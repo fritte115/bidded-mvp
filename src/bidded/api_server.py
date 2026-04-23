@@ -10,9 +10,14 @@ from uuid import UUID
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from bidded.auth import AuthenticatedUser, authenticate_supabase_jwt
+from bidded.company.website_import import (
+    WebsiteImportError,
+    import_company_website,
+    resolve_website_profile_extractor,
+)
 from bidded.config import load_settings
 from bidded.documents import (
     DOCX_CONTENT_TYPE,
@@ -56,6 +61,11 @@ class StartRunRequest(BaseModel):
     tender_id: str
 
 
+class CompanyWebsiteImportRequest(BaseModel):
+    url: str
+    max_pages: int = Field(default=5, ge=1, le=5)
+
+
 class ArchiveRunRequest(BaseModel):
     reason: str = "operator archived run"
 
@@ -80,6 +90,22 @@ AUTHENTICATED_USER = Depends(require_authenticated_user)
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/api/company/import-website")
+def import_company_website_route(
+    req: CompanyWebsiteImportRequest,
+    user: AuthenticatedUser = AUTHENTICATED_USER,
+) -> dict[str, Any]:
+    settings = load_settings()
+    try:
+        return import_company_website(
+            url=req.url,
+            max_pages=req.max_pages,
+            extractor=resolve_website_profile_extractor(settings),
+        )
+    except WebsiteImportError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/api/company/resync-evidence")
