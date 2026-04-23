@@ -6,7 +6,6 @@ import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -78,16 +77,21 @@ const RUN_STATUS_DOT_CLASSES = {
 function RunStatusDot({
   status,
   isStale = false,
+  selected = false,
 }: {
-  status: keyof typeof RUN_STATUS_LABELS;
+  status?: keyof typeof RUN_STATUS_LABELS;
   isStale?: boolean;
+  selected?: boolean;
 }) {
-  const toneStatus = isStale ? "failed" : status;
-  const label = isStale ? "Stale" : RUN_STATUS_LABELS[status];
+  const toneStatus = status ? (isStale ? "failed" : status) : null;
+  const label = status ? (isStale ? "Stale" : RUN_STATUS_LABELS[status]) : "Not run";
 
   return (
     <span
-      className="inline-flex h-8 w-8 items-center justify-center"
+      className={cn(
+        "inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors",
+        selected && "bg-primary/5 ring-1 ring-primary/30",
+      )}
       role="img"
       aria-label={label}
       title={label}
@@ -97,12 +101,16 @@ function RunStatusDot({
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-info opacity-50" />
           <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-info" />
         </span>
-      ) : (
+      ) : toneStatus ? (
         <span
           className={cn(
             "inline-flex h-2.5 w-2.5 rounded-full",
             RUN_STATUS_DOT_CLASSES[toneStatus],
           )}
+        />
+      ) : (
+        <span
+          className="inline-flex h-2.5 w-2.5 rounded-full border border-muted-foreground/35"
         />
       )}
       <span className="sr-only">{label}</span>
@@ -164,19 +172,6 @@ export default function Procurements() {
     () => rows.filter(({ run }) => !run).map(({ procurement }) => procurement.id),
     [rows],
   );
-
-  const allSelected = filtered.length > 0 && filtered.every(({ procurement: p }) => selectedIds.includes(p.id));
-  const someSelected = filtered.some(({ procurement: p }) => selectedIds.includes(p.id)) && !allSelected;
-
-  const toggleAll = () => {
-    if (allSelected) {
-      setSelectedIds((prev) => prev.filter((id) => !filtered.some(({ procurement: p }) => p.id === id)));
-    } else {
-      setSelectedIds((prev) =>
-        Array.from(new Set([...prev, ...filtered.map(({ procurement: p }) => p.id)])),
-      );
-    }
-  };
 
   const toggleOne = (id: string) => {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -324,13 +319,7 @@ export default function Procurements() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-10">
-                      <Checkbox
-                        checked={allSelected ? true : someSelected ? "indeterminate" : false}
-                        onCheckedChange={toggleAll}
-                        aria-label="Select all"
-                      />
-                    </TableHead>
+                    <TableHead className="w-10" />
                     <TableHead>Procurement</TableHead>
                     <TableHead>Documents</TableHead>
                     <TableHead className="whitespace-nowrap">Latest run</TableHead>
@@ -352,19 +341,21 @@ export default function Procurements() {
                     return (
                       <TableRow key={t.id} data-state={checked ? "selected" : undefined}>
                         <TableCell>
-                          <Checkbox
-                            checked={checked}
-                            onCheckedChange={() => toggleOne(t.id)}
-                            aria-label={`Select ${t.name}`}
-                          />
+                          <button
+                            type="button"
+                            className="inline-flex rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                            onClick={() => toggleOne(t.id)}
+                            aria-label={`${checked ? "Deselect" : "Select"} ${t.name} for compare`}
+                          >
+                            <RunStatusDot
+                              status={run?.status}
+                              isStale={run?.isStale}
+                              selected={checked}
+                            />
+                          </button>
                         </TableCell>
                         <TableCell className="font-medium">
-                          <div className="flex items-center gap-2">
-                            <span className="truncate">{t.name}</span>
-                            {run && (
-                              <RunStatusDot status={run.status} isStale={run.isStale} />
-                            )}
-                          </div>
+                          <span className="truncate">{t.name}</span>
                         </TableCell>
                         <TableCell className="align-top">
                           <div className="max-w-[240px]">
@@ -388,11 +379,11 @@ export default function Procurements() {
                               </span>
                             </Link>
                           ) : (
-                            <span className="text-muted-foreground">—</span>
+                            <span />
                           )}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
-                          {run ? run.stage : "—"}
+                          {run ? run.stage : null}
                         </TableCell>
                         <TableCell>
                           {run?.needsJudgeReview ? (
@@ -402,7 +393,7 @@ export default function Procurements() {
                           ) : run?.decision ? (
                             <VerdictBadge verdict={run.decision} />
                           ) : (
-                            <span className="text-muted-foreground">—</span>
+                            null
                           )}
                         </TableCell>
                         <TableCell className="text-right">

@@ -65,6 +65,16 @@ const rows: ProcurementRow[] = [
     },
     hasRunHistory: true,
   },
+  {
+    id: "tender-3",
+    name: "School ERP",
+    uploadedAt: "2026-04-23T07:00:00Z",
+    documentFilenames: ["school.pdf"],
+    documents: [{ originalFilename: "school.pdf", parseStatus: "parsed", parseNote: null }],
+    documentCount: 1,
+    latestRun: null,
+    hasRunHistory: false,
+  },
 ];
 
 function renderProcurements() {
@@ -94,11 +104,11 @@ describe("Procurements", () => {
     expect(await screen.findByText("Run 2")).toBeInTheDocument();
     expect(screen.getByText("Run 3")).toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Status" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.queryByText("Parsed")).not.toBeInTheDocument();
+    expect(screen.queryByText("—")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Succeeded").querySelector(".bg-success")).not.toBeNull();
     expect(screen.getByLabelText("Failed").querySelector(".bg-danger")).not.toBeNull();
-    expect(screen.getByText("Healthcare Platform").closest("td")).toContainElement(
-      screen.getByLabelText("Succeeded"),
-    );
+    expect(screen.getByLabelText("Not run")).toBeInTheDocument();
   });
 });
