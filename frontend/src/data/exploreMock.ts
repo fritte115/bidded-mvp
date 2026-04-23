@@ -158,7 +158,7 @@ export const externalTenders: ExternalTender[] = [
       "Minimum 50 MEUR turnover in last 3 years",
       "Three references for public-sector hosting >10 MEUR",
     ],
-    sourceUrl: "https://ted.europa.eu/en/notice/182488-2025",
+    sourceUrl: "https://ted.europa.eu/en/notice/182488-2025/html",
     attachments: [
       { filename: "tender-notice.pdf", sizeKB: 412 },
       { filename: "annex-1-technical-spec.pdf", sizeKB: 1280 },
@@ -187,7 +187,7 @@ export const externalTenders: ExternalTender[] = [
       "Two references with Swedish authorities",
       "Swedish-speaking architect available on-site Stockholm",
     ],
-    sourceUrl: "https://ted.europa.eu/en/notice/195234-2025",
+    sourceUrl: "https://ted.europa.eu/en/notice/195234-2025/html",
     attachments: [
       { filename: "förfrågningsunderlag.pdf", sizeKB: 624 },
       { filename: "bilaga-1-säkerhetskrav.pdf", sizeKB: 312 },
@@ -371,7 +371,7 @@ export const externalTenders: ExternalTender[] = [
       "ISO 27001 and demonstrable NIS2 advisory experience",
       "Five references on national-level cybersecurity advisory",
     ],
-    sourceUrl: "https://ted.europa.eu/en/notice/201567-2025",
+    sourceUrl: "https://ted.europa.eu/en/notice/201567-2025/html",
     attachments: [
       { filename: "tender-spec-en.pdf", sizeKB: 720 },
       { filename: "annex-pricing.xlsx", sizeKB: 88 },
@@ -473,7 +473,7 @@ export const externalTenders: ExternalTender[] = [
       "EU AI Act high-risk validation experience",
       "Two references in financial supervision",
     ],
-    sourceUrl: "https://ted.europa.eu/en/notice/215891-2025",
+    sourceUrl: "https://ted.europa.eu/en/notice/215891-2025/html",
     attachments: [
       { filename: "tor.pdf", sizeKB: 220 },
       { filename: "annex-methodology.pdf", sizeKB: 440 },
