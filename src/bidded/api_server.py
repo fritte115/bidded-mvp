@@ -53,8 +53,9 @@ def resync_company_evidence() -> dict[str, Any]:
     upsert can bypass RLS on `evidence_items`.
     """
     settings = load_settings()
-    from supabase import create_client  # noqa: PLC0415
     from uuid import UUID  # noqa: PLC0415
+
+    from supabase import create_client  # noqa: PLC0415
 
     client = create_client(settings.supabase_url, settings.supabase_service_role_key)
 

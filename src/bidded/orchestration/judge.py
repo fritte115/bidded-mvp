@@ -19,6 +19,7 @@ from bidded.orchestration.contract_clause_audit import (
     ContractClauseCoverageWarning,
     audit_contract_clause_coverage,
 )
+from bidded.orchestration.decision_evidence_audit import audit_decision_evidence
 from bidded.orchestration.evidence_recall import (
     EvidenceRecallWarning,
     audit_evidence_recall,
@@ -650,6 +651,10 @@ def persist_final_decision(
         raise JudgeDecisionPersistenceError("Cannot persist a missing Judge decision.")
 
     final_payload = _final_decision_payload(state)
+    decision_evidence_audit = audit_decision_evidence(
+        state,
+        final_decision=final_payload,
+    )
     payload = {
         "tenant_key": tenant_key,
         "agent_run_id": str(state.run_id),
@@ -661,6 +666,9 @@ def persist_final_decision(
         ],
         "metadata": {
             "source_agent_outputs": _source_agent_output_refs(state.agent_outputs),
+            "decision_evidence_audit": decision_evidence_audit.model_dump(
+                mode="json"
+            ),
         },
     }
     response = client.table("bid_decisions").insert(payload).execute()

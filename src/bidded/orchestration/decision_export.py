@@ -177,6 +177,7 @@ def _bundle_payload(
     evidence_rows: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     final_decision = _mapping(decision_row.get("final_decision"))
+    decision_metadata = _mapping(decision_row.get("metadata"))
     evidence_by_id = {str(row.get("id")): row for row in evidence_rows}
     evidence_by_key = {
         str(row.get("evidence_key")): row
@@ -225,6 +226,9 @@ def _bundle_payload(
                 str(item)
                 for item in _sequence(final_decision.get("recommended_actions"))
             ],
+            "decision_evidence_audit": dict(
+                _mapping(decision_metadata.get("decision_evidence_audit"))
+            ),
         },
         "agent_outputs": [
             _agent_output_export(row, evidence_by_id=evidence_by_id)
@@ -369,6 +373,11 @@ def _render_markdown(payload: Mapping[str, Any]) -> str:
             _sequence(decision.get("recommended_actions")),
         )
     )
+    lines.extend(
+        _markdown_decision_evidence_audit_section(
+            _mapping(decision.get("decision_evidence_audit"))
+        )
+    )
     lines.extend(_markdown_evidence_section(_sequence(payload.get("evidence"))))
     return "\n".join(lines).rstrip() + "\n"
 
@@ -406,6 +415,41 @@ def _markdown_string_section(title: str, items: Sequence[Any]) -> list[str]:
     if not items:
         return [*lines, "- None", ""]
     lines.extend(f"- {item}" for item in items)
+    lines.append("")
+    return lines
+
+
+def _markdown_decision_evidence_audit_section(
+    audit: Mapping[str, Any],
+) -> list[str]:
+    lines = ["## Decision Evidence Audit"]
+    if not audit:
+        return [*lines, "- None", ""]
+
+    lines.extend(
+        [
+            f"- Gate verdict: {audit.get('gate_verdict')}",
+            f"- Structural score: {audit.get('structural_score')}",
+            f"- Judge confidence: {audit.get('judge_confidence')}",
+            f"- Unsupported claims: {audit.get('unsupported_claim_count', 0)}",
+            f"- Source unverified: {audit.get('source_unverified_count', 0)}",
+            f"- Source type mismatches: {audit.get('source_type_mismatch_count', 0)}",
+        ]
+    )
+    findings = [
+        _mapping(finding)
+        for finding in _sequence(audit.get("findings"))
+        if _mapping(finding)
+    ]
+    if findings:
+        lines.append("- Findings:")
+        for finding in findings[:8]:
+            message = str(finding.get("message") or "")
+            kind = str(finding.get("kind") or "")
+            evidence_keys = _format_evidence_keys(
+                _sequence(finding.get("evidence_keys"))
+            )
+            lines.append(f"  - {kind}: {message} Evidence: {evidence_keys}")
     lines.append("")
     return lines
 
