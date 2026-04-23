@@ -21,7 +21,10 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 from bidded.agents.schemas import AgentRole
-from bidded.llm.anthropic_client import anthropic_complete_json
+from bidded.llm.anthropic_client import (
+    AnthropicContentBlock,
+    anthropic_complete_json,
+)
 from bidded.orchestration.evidence_scout import EvidenceScoutRequest
 from bidded.orchestration.graph import GraphNodeHandlers, default_graph_node_handlers
 from bidded.orchestration.judge import JudgeDecisionRequest
@@ -45,6 +48,7 @@ _BID_POSITIVE_VERDICTS = frozenset(
         Verdict.CONDITIONAL_BID.value,
     }
 )
+_EPHEMERAL_CACHE_CONTROL = {"type": "ephemeral"}
 
 
 @dataclass(frozen=True)
@@ -167,6 +171,28 @@ def _enum_value(value: Any) -> str:
     return str(raw)
 
 
+def _cached_evidence_user_blocks(
+    *,
+    evidence_board: Sequence[EvidenceItemState],
+    task_payload: dict[str, Any],
+) -> list[AnthropicContentBlock]:
+    return [
+        {
+            "type": "text",
+            "text": json.dumps(
+                {"evidence_catalog": _catalog(evidence_board)},
+                ensure_ascii=False,
+                indent=2,
+            ),
+            "cache_control": dict(_EPHEMERAL_CACHE_CONTROL),
+        },
+        {
+            "type": "text",
+            "text": json.dumps(task_payload, ensure_ascii=False, indent=2),
+        },
+    ]
+
+
 def _catalog(board: Sequence[EvidenceItemState]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for e in board:
@@ -235,9 +261,8 @@ class AnthropicEvidenceScoutModel:
             '{"evidence_key": "td-001", "source_type": "tender_document", '
             '"evidence_id": "<UUID from catalog>"}'
         )
-        system = (
-            _BASE_RULES
-            + " You are the Evidence Scout: extract procurement facts by category. "
+        instructions = (
+            "You are the Evidence Scout: extract procurement facts by category. "
             "Findings must use ScoutCategory values: deadline, shall_requirement, "
             "qualification_criterion, evaluation_criterion, contract_risk, "
             "required_submission_document. "
@@ -250,18 +275,17 @@ class AnthropicEvidenceScoutModel:
             "Return JSON: {agent_role, findings, missing_info, potential_blockers, "
             "validation_errors}."
         )
-        user = json.dumps(
-            {
+        user = _cached_evidence_user_blocks(
+            evidence_board=request.evidence_board,
+            task_payload={
+                "task_instructions": instructions,
                 "retrieved_chunks": _scout_chunks_payload(request),
-                "evidence_catalog": _catalog(request.evidence_board),
             },
-            ensure_ascii=False,
-            indent=2,
         )
         data = anthropic_complete_json(
             api_key=self._api_key,
             model=self._model,
-            system=system,
+            system=_BASE_RULES,
             user=user,
             max_tokens=6_000,
         )
@@ -322,60 +346,55 @@ class AnthropicRound1Model:
             ],
             "missing_info": list(request.scout_output.missing_info),
         }
-        user = json.dumps(
-            {
+        instructions = (
+            spec
+            + " Produce a Round1Motion JSON with these exact keys: "
+            "agent_role (your role string), vote (bid|no_bid|conditional_bid), "
+            "confidence (0.0-1.0), top_findings (array, at least 1 item required), "
+            "role_specific_risks (array, at least 1 item required), "
+            "formal_blockers (array — compliance_officer only, else []), "
+            "potential_blockers (array), assumptions (array of strings), "
+            "missing_info (array of strings), "
+            "potential_evidence_gaps (array of strings), "
+            "recommended_actions (array of strings), validation_errors []. "
+            "Each item in top_findings/role_specific_risks/formal_blockers"
+            "/potential_blockers must be: {claim: string, evidence_refs: [...]}. "
+            "claim must be a non-empty string (never title/detail/description). "
+            "evidence_refs: use evidence_key, source_type, evidence_id "
+            "from catalog. "
+            "HARD RULE — every claim in top_findings, role_specific_risks, "
+            "formal_blockers, and potential_blockers MUST have at least one "
+            "evidence_ref drawn from evidence_catalog. If you cannot cite a "
+            "concrete evidence_ref for an item, do NOT put it in those arrays. "
+            "Instead, put the plain text into potential_evidence_gaps (a list "
+            "of strings) or missing_info. An empty evidence_refs array is "
+            "invalid and the run will fail. "
+            "HARD RULE for formal_blockers — EVERY formal_blocker claim MUST "
+            "cite at least one evidence_ref whose source_type is "
+            "'tender_document' AND whose requirement_type is EXACTLY one of: "
+            "'exclusion_ground' or 'qualification_requirement'. Check the "
+            "`requirement_type` field on each catalog row before citing. If "
+            "NO catalog row has requirement_type='exclusion_ground' or "
+            "'qualification_requirement', you MUST return formal_blockers: [] "
+            "and surface the concern via potential_blockers or missing_info "
+            "instead. A compliance concern grounded in any other "
+            "requirement_type (shall_requirement, submission_document, "
+            "contract_obligation, quality_management, financial_standing, "
+            "legal_or_regulatory_reference) belongs in potential_blockers, "
+            "NOT formal_blockers."
+        )
+        user = _cached_evidence_user_blocks(
+            evidence_board=request.evidence_board,
+            task_payload={
+                "task_instructions": instructions,
                 "your_role": role.value,
                 "scout_summary": scout,
-                "evidence_catalog": _catalog(request.evidence_board),
             },
-            ensure_ascii=False,
-            indent=2,
-        )
-        system = (
-            _BASE_RULES
-            + " "
-            + spec
-            + (
-                " Produce a Round1Motion JSON with these exact keys: "
-                "agent_role (your role string), vote (bid|no_bid|conditional_bid), "
-                "confidence (0.0-1.0), top_findings (array, at least 1 item required), "
-                "role_specific_risks (array, at least 1 item required), "
-                "formal_blockers (array — compliance_officer only, else []), "
-                "potential_blockers (array), assumptions (array of strings), "
-                "missing_info (array of strings), "
-                "potential_evidence_gaps (array of strings), "
-                "recommended_actions (array of strings), validation_errors []. "
-                "Each item in top_findings/role_specific_risks/formal_blockers"
-                "/potential_blockers must be: {claim: string, evidence_refs: [...]}. "
-                "claim must be a non-empty string (never title/detail/description). "
-                "evidence_refs: use evidence_key, source_type, evidence_id "
-                "from catalog. "
-                "HARD RULE — every claim in top_findings, role_specific_risks, "
-                "formal_blockers, and potential_blockers MUST have at least one "
-                "evidence_ref drawn from evidence_catalog. If you cannot cite a "
-                "concrete evidence_ref for an item, do NOT put it in those arrays. "
-                "Instead, put the plain text into potential_evidence_gaps (a list "
-                "of strings) or missing_info. An empty evidence_refs array is "
-                "invalid and the run will fail. "
-                "HARD RULE for formal_blockers — EVERY formal_blocker claim MUST "
-                "cite at least one evidence_ref whose source_type is "
-                "'tender_document' AND whose requirement_type is EXACTLY one of: "
-                "'exclusion_ground' or 'qualification_requirement'. Check the "
-                "`requirement_type` field on each catalog row before citing. If "
-                "NO catalog row has requirement_type='exclusion_ground' or "
-                "'qualification_requirement', you MUST return formal_blockers: [] "
-                "and surface the concern via potential_blockers or missing_info "
-                "instead. A compliance concern grounded in any other "
-                "requirement_type (shall_requirement, submission_document, "
-                "contract_obligation, quality_management, financial_standing, "
-                "legal_or_regulatory_reference) belongs in potential_blockers, "
-                "NOT formal_blockers."
-            )
         )
         data = anthropic_complete_json(
             api_key=self._api_key,
             model=self._router.round_1_model(request),
-            system=system,
+            system=_BASE_RULES,
             user=user,
             max_tokens=8_000,
         )
@@ -427,17 +446,6 @@ class AnthropicRound2Model:
             for p in request.focus_points
         ]
 
-        user = json.dumps(
-            {
-                "your_role": role.value,
-                "all_round_1_motions": motions_payload,
-                "focus_points": focus,
-                "evidence_catalog": _catalog(request.evidence_board),
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-
         red_extra = ""
         if role is AgentRole.RED_TEAM:
             red_extra = (
@@ -446,9 +454,8 @@ class AnthropicRound2Model:
                 "Challenge the strongest bid/conditional arguments."
             )
 
-        system = (
-            _BASE_RULES
-            + " You are writing a focused Round 2 rebuttal after reading ALL "
+        instructions = (
+            "You are writing a focused Round 2 rebuttal after reading ALL "
             "specialists' Round 1 motions above. Reference peers by agent_role. "
             + red_extra
             + " Output Round2Rebuttal JSON with these exact keys: "
@@ -478,10 +485,19 @@ class AnthropicRound2Model:
             "evidence_refs array on any blocker_challenge is invalid and the "
             "run will fail."
         )
+        user = _cached_evidence_user_blocks(
+            evidence_board=request.evidence_board,
+            task_payload={
+                "task_instructions": instructions,
+                "your_role": role.value,
+                "all_round_1_motions": motions_payload,
+                "focus_points": focus,
+            },
+        )
         data = anthropic_complete_json(
             api_key=self._api_key,
             model=self._router.round_2_model(request),
-            system=system,
+            system=_BASE_RULES,
             user=user,
             max_tokens=8_000,
         )
@@ -512,23 +528,8 @@ class AnthropicJudgeModel:
             }
             for r, rb in request.rebuttals.items()
         ]
-        user = json.dumps(
-            {
-                "vote_summary_MUST_MATCH_EXACTLY": vote_json,
-                "formal_compliance_blockers": [
-                    c.model_dump(mode="json")
-                    for c in request.formal_compliance_blockers
-                ],
-                "motions": motions_j,
-                "rebuttals": rebuttals_j,
-                "evidence_catalog": _catalog(request.evidence_board),
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-        system = (
-            _BASE_RULES
-            + " You are the Judge. Synthesize motions and rebuttals into a final "
+        instructions = (
+            "You are the Judge. Synthesize motions and rebuttals into a final "
             "bid/no-bid recommendation. "
             "vote_summary MUST EXACTLY equal vote_summary_MUST_MATCH_EXACTLY "
             "(same bid/no_bid/conditional_bid integer counts). "
@@ -563,10 +564,23 @@ class AnthropicJudgeModel:
             "potential_evidence_gaps or missing_info. An empty evidence_refs "
             "array on any blocker is invalid and the run will fail."
         )
+        user = _cached_evidence_user_blocks(
+            evidence_board=request.evidence_board,
+            task_payload={
+                "task_instructions": instructions,
+                "vote_summary_MUST_MATCH_EXACTLY": vote_json,
+                "formal_compliance_blockers": [
+                    c.model_dump(mode="json")
+                    for c in request.formal_compliance_blockers
+                ],
+                "motions": motions_j,
+                "rebuttals": rebuttals_j,
+            },
+        )
         data = anthropic_complete_json(
             api_key=self._api_key,
             model=self._model,
-            system=system,
+            system=_BASE_RULES,
             user=user,
             max_tokens=8_000,
         )

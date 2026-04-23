@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from uuid import UUID
 
 import pytest
@@ -175,6 +176,80 @@ def test_single_routing_uses_legacy_model_for_dynamic_roles(
         "claude-legacy",
         "claude-legacy",
     ]
+
+
+def test_anthropic_calls_cache_shared_evidence_catalog(
+    anthropic_calls: list[dict[str, object]],
+) -> None:
+    scout = AnthropicEvidenceScoutModel(api_key="sk-ant-test", model="claude-haiku")
+    round_1 = AnthropicRound1Model(
+        api_key="sk-ant-test",
+        fast_model="claude-haiku",
+        reasoning_model="claude-sonnet",
+    )
+
+    scout.extract(_scout_request())
+    round_1.draft_motion(_round_1_request(AgentRole.WIN_STRATEGIST))
+
+    first_payloads = [_cached_context_payload(call) for call in anthropic_calls]
+    assert first_payloads == [
+        {"evidence_catalog": [_expected_catalog_row()]},
+        {"evidence_catalog": [_expected_catalog_row()]},
+    ]
+
+    task_payload = _task_payload(anthropic_calls[1])
+    assert task_payload["your_role"] == AgentRole.WIN_STRATEGIST.value
+    assert "evidence_catalog" not in task_payload
+
+
+def test_judge_uses_cached_evidence_catalog_with_dynamic_task_suffix(
+    anthropic_calls: list[dict[str, object]],
+) -> None:
+    model = AnthropicJudgeModel(api_key="sk-ant-test", model="claude-sonnet")
+
+    model.decide(_judge_request())
+
+    assert _cached_context_payload(anthropic_calls[0]) == {
+        "evidence_catalog": [_expected_catalog_row()],
+    }
+    task_payload = _task_payload(anthropic_calls[0])
+    assert task_payload["vote_summary_MUST_MATCH_EXACTLY"] == {
+        "bid": 0,
+        "no_bid": 0,
+        "conditional_bid": 4,
+    }
+    assert "evidence_catalog" not in task_payload
+
+
+def _cached_context_payload(call: dict[str, object]) -> dict[str, object]:
+    user = call["user"]
+    assert isinstance(user, list)
+    cached_block = user[0]
+    assert cached_block["type"] == "text"
+    assert cached_block["cache_control"] == {"type": "ephemeral"}
+    return json.loads(str(cached_block["text"]))
+
+
+def _task_payload(call: dict[str, object]) -> dict[str, object]:
+    user = call["user"]
+    assert isinstance(user, list)
+    task_block = user[1]
+    assert task_block["type"] == "text"
+    assert "cache_control" not in task_block
+    return json.loads(str(task_block["text"]))
+
+
+def _expected_catalog_row() -> dict[str, object]:
+    return {
+        "evidence_key": "TENDER-REQ-001",
+        "source_type": "tender_document",
+        "evidence_id": str(EVIDENCE_ID),
+        "excerpt": "The supplier must provide ISO 27001 certification.",
+        "normalized_meaning": "ISO 27001 certification is mandatory.",
+        "field_path": None,
+        "category": "shall_requirement",
+        "requirement_type": "shall_requirement",
+    }
 
 
 def _scout_request(
