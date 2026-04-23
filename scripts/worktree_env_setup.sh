@@ -134,11 +134,83 @@ ensure_editable_install() {
 
 
 ensure_env_file() {
-  if [ -f "${WORKTREE_ROOT}/.env" ] || [ ! -f "${WORKTREE_ROOT}/.env.example" ]; then
+  if [ ! -f "${WORKTREE_ROOT}/.env.example" ]; then
     return 0
   fi
 
-  cp "${WORKTREE_ROOT}/.env.example" "${WORKTREE_ROOT}/.env"
+  if backend_env_has_live_credentials "${WORKTREE_ROOT}/.env"; then
+    return 0
+  fi
+
+  if [ -n "${ENV_SOURCE:-}" ]; then
+    copy_backend_env_if_valid "${ENV_SOURCE}" && return 0
+    echo "Warning: ENV_SOURCE did not contain backend Supabase credentials: ${ENV_SOURCE}" >&2
+  fi
+
+  copy_backend_env_from_worktrees && return 0
+
+  if [ ! -f "${WORKTREE_ROOT}/.env" ]; then
+    cp "${WORKTREE_ROOT}/.env.example" "${WORKTREE_ROOT}/.env"
+  fi
+}
+
+
+backend_env_has_live_credentials() {
+  local env_path="$1"
+
+  [ -f "${env_path}" ] || return 1
+
+  awk -F= '
+    /^[[:space:]]*(#|$)/ { next }
+    $1 == "SUPABASE_URL" {
+      url=$2
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", url)
+    }
+    $1 == "SUPABASE_SERVICE_ROLE_KEY" {
+      service_role=$2
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", service_role)
+    }
+    END {
+      if (url != "" && service_role != "") {
+        exit 0
+      }
+      exit 1
+    }
+  ' "${env_path}"
+}
+
+
+copy_backend_env_if_valid() {
+  local source_path="$1"
+
+  if [ "${source_path}" = "${WORKTREE_ROOT}/.env" ]; then
+    return 1
+  fi
+
+  if backend_env_has_live_credentials "${source_path}"; then
+    cp "${source_path}" "${WORKTREE_ROOT}/.env"
+    echo "Wrote .env from backend credentials in ${source_path}"
+    return 0
+  fi
+
+  return 1
+}
+
+
+copy_backend_env_from_worktrees() {
+  local worktree_path
+  local source_path
+
+  if ! command -v git >/dev/null 2>&1; then
+    return 1
+  fi
+
+  while IFS= read -r worktree_path; do
+    source_path="${worktree_path}/.env"
+    copy_backend_env_if_valid "${source_path}" && return 0
+  done < <(git -C "${WORKTREE_ROOT}" worktree list --porcelain 2>/dev/null | awk '/^worktree / { sub(/^worktree /, ""); print }')
+
+  return 1
 }
 
 
