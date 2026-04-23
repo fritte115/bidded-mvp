@@ -15,7 +15,8 @@ import { Input } from "@/components/ui/input";
 import { VerdictBadge } from "@/components/VerdictBadge";
 import { ConfidenceBar } from "@/components/ConfidenceBar";
 import { fetchDecisions } from "@/lib/api";
-import { formatDate, humanizeVerdictText, verdictLabel } from "@/data/mock";
+import { renderFormattedText } from "@/lib/richText";
+import { formatDate, verdictLabel } from "@/data/mock";
 import { ArrowRight } from "lucide-react";
 
 export default function Decisions() {
@@ -79,7 +80,7 @@ export default function Decisions() {
                 </div>
                 <ConfidenceBar value={r.confidence} />
                 <p className="line-clamp-2 text-sm text-muted-foreground">
-                  {humanizeVerdictText(r.citedMemo)}
+                  {renderFormattedText(r.topReason)}
                 </p>
                 <div className="flex items-center justify-between border-t border-border pt-3">
                   <span className="text-xs text-muted-foreground">

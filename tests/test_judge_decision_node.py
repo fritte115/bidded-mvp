@@ -514,6 +514,12 @@ def test_judge_gates_formal_compliance_blockers_to_no_bid_and_persists() -> None
         "round_name": "final_decision",
         "output_type": "decision",
     } in persisted["metadata"]["source_agent_outputs"]
+    audit = persisted["metadata"]["decision_evidence_audit"]
+    assert audit["schema_version"] == "2026-04-23.decision-evidence-audit.v1"
+    assert audit["gate_verdict"] in {"confirmed", "flagged"}
+    assert audit["graph"]["claims"]
+    assert audit["graph"]["evidence"]
+    assert audit["graph"]["edges"]
     snapshot = persisted["metadata"]["evidence_snapshot"]
     company_snapshot = next(
         item for item in snapshot if item["evidence_id"] == str(COMPANY_EVIDENCE_ID)

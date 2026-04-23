@@ -18,10 +18,22 @@ DEMO_TENANT_KEY = "demo"
 DEFAULT_COMPANY_KB_BUCKET = "company-knowledge"
 COMPANY_KB_CHUNKING_STRATEGY = "company_kb_text_unit_char_budget_v1"
 DEFAULT_MAX_CHUNK_CHARS = 1800
+_DRAFT_ATTACHMENT_TYPES = {
+    "certificate",
+    "cv",
+    "reference_case",
+    "policy_document",
+    "pricing_document",
+    "other",
+}
 
 
 class CompanyKbError(RuntimeError):
     """Raised when a company knowledge-base document cannot be handled."""
+
+
+class CompanyKbRegistrationError(CompanyKbError):
+    """Raised when a draft-oriented company KB PDF cannot be registered."""
 
 
 class CompanyKbDocumentType(StrEnum):
@@ -32,6 +44,16 @@ class CompanyKbDocumentType(StrEnum):
     POLICY_PROCESS = "policy_process"
     FINANCIAL_PRICING = "financial_pricing"
     LEGAL_INSURANCE = "legal_insurance"
+
+
+_DOCUMENT_TYPE_BY_DRAFT_ATTACHMENT = {
+    "certificate": CompanyKbDocumentType.CERTIFICATION,
+    "cv": CompanyKbDocumentType.CV_PROFILE,
+    "reference_case": CompanyKbDocumentType.CASE_STUDY,
+    "policy_document": CompanyKbDocumentType.POLICY_PROCESS,
+    "pricing_document": CompanyKbDocumentType.FINANCIAL_PRICING,
+    "other": CompanyKbDocumentType.CAPABILITY_STATEMENT,
+}
 
 
 _ALLOWED_EXTENSIONS: dict[str, str] = {
@@ -119,6 +141,17 @@ class CompanyKbRegistrationResult:
     content_type: str
     original_filename: str
     kb_document_type: CompanyKbDocumentType
+
+
+@dataclass(frozen=True)
+class CompanyKbPdfRegistrationResult:
+    company_id: str
+    document_id: str
+    storage_path: str
+    checksum_sha256: str
+    content_type: str
+    original_filename: str
+    attachment_type: str
 
 
 @dataclass(frozen=True)
@@ -293,6 +326,73 @@ def register_company_kb_documents(
         )
 
     return results
+
+
+def register_company_kb_pdf(
+    client: SupabaseCompanyKbClient,
+    *,
+    pdf_path: Path,
+    bucket_name: str,
+    company_id: UUID | str,
+    source_label: str,
+    attachment_type: str = "other",
+    created_via: str = "bidded_cli",
+) -> CompanyKbPdfRegistrationResult:
+    """Register an approved PDF using the draft attachment vocabulary."""
+
+    normalized_company_id = _normalize_uuid(company_id, "company_id")
+    normalized_attachment_type = _normalize_draft_attachment_type(attachment_type)
+    kb_document_type = _DOCUMENT_TYPE_BY_DRAFT_ATTACHMENT[normalized_attachment_type]
+    path = Path(pdf_path)
+    pdf_bytes = _read_valid_draft_pdf(path)
+    checksum_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
+    storage_path = _draft_storage_path(
+        company_id=normalized_company_id,
+        checksum_sha256=checksum_sha256,
+        original_filename=path.name,
+    )
+    client.storage.from_(bucket_name).upload(
+        storage_path,
+        pdf_bytes,
+        file_options={"content-type": "application/pdf", "upsert": "true"},
+    )
+    response = (
+        client.table("documents")
+        .upsert(
+            {
+                "tenant_key": DEMO_TENANT_KEY,
+                "tender_id": None,
+                "company_id": str(normalized_company_id),
+                "storage_path": storage_path,
+                "checksum_sha256": checksum_sha256,
+                "content_type": "application/pdf",
+                "document_role": "company_profile",
+                "parse_status": "pending",
+                "original_filename": path.name,
+                "metadata": {
+                    "registered_via": created_via,
+                    "source_label": source_label.strip() or path.name,
+                    "kb_document_type": kb_document_type.value,
+                    "kb_attachment_type": normalized_attachment_type,
+                    "approved_for_bid_drafts": True,
+                    "extraction_status": "pending",
+                    "warnings": [],
+                },
+            },
+            on_conflict="storage_path",
+        )
+        .execute()
+    )
+    row = _first_row(response, "documents")
+    return CompanyKbPdfRegistrationResult(
+        company_id=str(normalized_company_id),
+        document_id=str(row["id"]),
+        storage_path=storage_path,
+        checksum_sha256=checksum_sha256,
+        content_type="application/pdf",
+        original_filename=path.name,
+        attachment_type=normalized_attachment_type,
+    )
 
 
 def ingest_company_kb_document(
@@ -1083,6 +1183,42 @@ def _storage_path(
     )
 
 
+def _draft_storage_path(
+    *,
+    company_id: UUID,
+    checksum_sha256: str,
+    original_filename: str,
+) -> str:
+    return (
+        f"demo/company-kb/{company_id}/"
+        f"{checksum_sha256[:12]}-{_safe_filename(original_filename)}"
+    )
+
+
+def _read_valid_draft_pdf(path: Path) -> bytes:
+    if not path.exists():
+        raise CompanyKbRegistrationError(f"PDF file does not exist: {path}")
+    if not path.is_file():
+        raise CompanyKbRegistrationError(f"PDF path is not a file: {path}")
+    if path.suffix.lower() != ".pdf":
+        raise CompanyKbRegistrationError(f"Input file is not a PDF: {path}")
+
+    pdf_bytes = path.read_bytes()
+    if not pdf_bytes.startswith(b"%PDF-"):
+        raise CompanyKbRegistrationError(f"Input file is not a PDF: {path}")
+    return pdf_bytes
+
+
+def _normalize_draft_attachment_type(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in _DRAFT_ATTACHMENT_TYPES:
+        raise CompanyKbRegistrationError(
+            "attachment_type must be one of: "
+            f"{', '.join(sorted(_DRAFT_ATTACHMENT_TYPES))}."
+        )
+    return normalized
+
+
 def _safe_filename(filename: str) -> str:
     path = Path(filename)
     suffix = path.suffix.lower()
@@ -1197,6 +1333,8 @@ __all__ = [
     "CompanyKbError",
     "CompanyKbFactExtractor",
     "CompanyKbIngestionResult",
+    "CompanyKbPdfRegistrationResult",
+    "CompanyKbRegistrationError",
     "CompanyKbRegistrationResult",
     "CompanyKbUploadFile",
     "EvidenceExcerptRef",
@@ -1208,5 +1346,6 @@ __all__ = [
     "ingest_company_kb_document",
     "list_company_kb_documents",
     "list_company_kb_evidence",
+    "register_company_kb_pdf",
     "register_company_kb_documents",
 ]

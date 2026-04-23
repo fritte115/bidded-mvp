@@ -11,15 +11,19 @@
  */
 
 import {
+  buildRunNumberMap,
   company as mockCompany,
+  bidDrafts as mockBidDrafts,
   bids as mockBids,
   procurements as mockProcurements,
   runs as mockRuns,
   type AgentMotion,
   type AgentName,
   type Bid,
+  type BidResponseDraft,
   type BidStatus,
   type Company,
+  type CompanyWebsiteImportRecord,
   type ComplianceMatrixRow,
   type DecisionSummary,
   type Evidence,
@@ -43,6 +47,8 @@ import {
   mapCompareRows,
   mapDecisionRow,
 } from "@/lib/bidIntegrationMapping";
+import { mapBidDraftPayload, type RawBidResponseDraft } from "@/lib/bidDraftMapping";
+import type { ProcurementDocumentRole } from "@/lib/procurementDocumentRoles";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -50,6 +56,7 @@ import {
 
 const MOCK_MODE_WRITE_MESSAGE =
   "Frontend is running in mock mode because the public Supabase env vars are missing. Copy frontend/.env.example to frontend/.env to enable live writes.";
+const generatedMockBidDrafts = new Map<string, BidResponseDraft>();
 
 /** "SE" → "Sweden", fallback to the raw value */
 const COUNTRY_NAMES: Record<string, string> = {
@@ -250,13 +257,26 @@ function mockDashboardStats(): DashboardStats {
   };
 }
 
+function mockRunNumberMap() {
+  return buildRunNumberMap(
+    mockRuns.map((run) => ({
+      id: run.id,
+      tenderId: run.tenderId,
+      startedAt: run.startedAt,
+      createdAt: run.startedAt,
+    })),
+  );
+}
+
 function mockActiveRuns(): ActiveRun[] {
+  const runNumbers = mockRunNumberMap();
   return visibleMockRuns()
     .filter((run) => run.status === "running" || run.status === "pending")
     .map((run) => {
       const lifecycle = mockLifecycle(run);
       return {
         id: run.id,
+        runNumber: runNumbers.get(run.id) ?? null,
         tenderName: run.tenderName,
         status: run.status,
         stage: lifecycle.stage,
@@ -277,6 +297,7 @@ function mockActiveRuns(): ActiveRun[] {
 function mockProcurementLatestRun(
   procurementId: string,
 ): ProcurementLatestRun | null {
+  const runNumbers = mockRunNumberMap();
   const latestRun = visibleMockRuns()
     .filter((run) => run.tenderId === procurementId)
     .sort(
@@ -288,6 +309,7 @@ function mockProcurementLatestRun(
 
   return {
     id: latestRun.id,
+    runNumber: runNumbers.get(latestRun.id) ?? null,
     status: latestRun.status,
     startedAt: latestRun.startedAt,
     stage: lifecycle.stage,
@@ -321,6 +343,7 @@ function mockProcurementRows(): ProcurementRow[] {
       })),
     documentCount: procurement.documents.length,
     latestRun: mockProcurementLatestRun(procurement.id),
+    hasRunHistory: mockRuns.some((run) => run.tenderId === procurement.id),
   }));
 }
 
@@ -393,12 +416,29 @@ function mockDecisionRows(): DecisionRow[] {
 }
 
 function mockRunDetail(runId: string): RunDetail | null {
+  const runNumbers = mockRunNumberMap();
   const run = visibleMockRuns().find((row) => row.id === runId);
   if (!run) return null;
   const lifecycle = mockLifecycle(run);
+  const procurement = mockProcurements.find((row) => row.id === run.tenderId);
+  const documents =
+    procurement?.documentRefs?.map((doc) => ({
+      originalFilename: doc.filename,
+      parseStatus: doc.parseStatus,
+      parseNote: null,
+      publicUrl: undefined,
+    })) ??
+    procurement?.documents.map((filename) => ({
+      originalFilename: filename,
+      parseStatus: mockParseStatus(procurement),
+      parseNote: null,
+      publicUrl: undefined,
+    })) ??
+    [];
 
   return {
     id: run.id,
+    runNumber: runNumbers.get(run.id) ?? null,
     tenderName: run.tenderName,
     tenderId: run.tenderId,
     company: run.company,
@@ -412,6 +452,7 @@ function mockRunDetail(runId: string): RunDetail | null {
     durationSec: run.durationSec ?? null,
     decision: run.decision ?? null,
     confidence: run.confidence ?? null,
+    documents,
     evidence: run.evidence,
     round1: run.round1,
     round2: run.round2,
@@ -445,6 +486,7 @@ function mockBidRows(): Bid[] {
 
 function mockDbCompany(): DbCompany {
   return {
+    id: "demo-company",
     name: mockCompany.name,
     organization_number: mockCompany.orgNumber === "—" ? null : mockCompany.orgNumber,
     headquarters_country: "SE",
@@ -497,6 +539,7 @@ function mockDbCompany(): DbCompany {
  * delivery_capacity, etc.) that the UI doesn't expose for editing but the
  * swarm relies on when materializing `company_profile` evidence items. */
 export interface DbCompany {
+  id?: string;
   name: string;
   organization_number: string | null;
   headquarters_country: string;
@@ -577,6 +620,7 @@ export interface DbCompany {
       win_rate_pct: number;
       avg_contract_msek: number;
     };
+    website_imports?: CompanyWebsiteImportRecord[];
     [key: string]: unknown;
   };
   [key: string]: unknown;
@@ -707,7 +751,102 @@ function mapDbCompany(row: DbCompany): Company {
       securityPosture.length > 0 ? securityPosture : undefined,
     sustainability,
     bidStats,
+    websiteImports: pd.website_imports,
   };
+}
+
+export type CompanyWebsiteProfilePatch = Partial<
+  Pick<
+    Company,
+    | "website"
+    | "email"
+    | "phone"
+    | "description"
+    | "offices"
+    | "industries"
+    | "capabilities"
+    | "certifications"
+    | "references"
+    | "securityPosture"
+    | "sustainability"
+  >
+>;
+
+export interface CompanyWebsiteImportPreview {
+  source_url: string;
+  pages: Array<{ url: string; title?: string | null; text_excerpt?: string }>;
+  profile_patch: CompanyWebsiteProfilePatch;
+  field_sources: Record<
+    string,
+    { page_url: string; excerpt: string; source_label: string }
+  >;
+  warnings: string[];
+}
+
+export function applyCompanyWebsiteImportPreview(
+  company: Company,
+  preview: CompanyWebsiteImportPreview,
+  importedAt = new Date().toISOString(),
+): Company {
+  const patch = preview.profile_patch;
+  const next: Company = {
+    ...company,
+    website: patch.website ?? company.website,
+    email: patch.email ?? company.email,
+    phone: patch.phone ?? company.phone,
+    description: patch.description ?? company.description,
+    offices: patch.offices ?? company.offices,
+    industries: patch.industries ?? company.industries,
+    sustainability: patch.sustainability ?? company.sustainability,
+    websiteImports: [
+      { ...preview, imported_at: importedAt },
+      ...(company.websiteImports ?? []),
+    ].slice(0, 5),
+  };
+
+  if (patch.capabilities) {
+    next.capabilities = mergeUnique(company.capabilities, patch.capabilities);
+  }
+  if (patch.certifications) {
+    next.certifications = mergeByKey(
+      company.certifications,
+      patch.certifications,
+      (cert) => cert.name,
+    );
+  }
+  if (patch.references) {
+    next.references = mergeByKey(
+      company.references,
+      patch.references,
+      (reference) => `${reference.client}-${reference.year}`,
+    );
+  }
+  if (patch.securityPosture) {
+    next.securityPosture = mergeByKey(
+      company.securityPosture ?? [],
+      patch.securityPosture,
+      (item) => item.item,
+    );
+  }
+
+  return next;
+}
+
+function mergeUnique(existing: string[], imported: string[]): string[] {
+  return Array.from(new Set([...existing, ...imported].filter(Boolean)));
+}
+
+function mergeByKey<T>(
+  existing: T[],
+  imported: T[],
+  keyFn: (item: T) => string,
+): T[] {
+  const byKey = new Map(existing.map((item) => [keyFn(item), item]));
+  for (const item of imported) {
+    const key = keyFn(item);
+    if (!byKey.has(key)) byKey.set(key, item);
+  }
+  return Array.from(byKey.values());
 }
 
 /**
@@ -893,6 +1032,9 @@ export function mergeCompanyIntoDb(
       avg_contract_msek: c.bidStats.avgContractMSEK,
     };
   }
+  if (c.websiteImports !== undefined) {
+    pd.website_imports = c.websiteImports;
+  }
 
   return {
     name: c.name,
@@ -978,13 +1120,32 @@ export async function resyncCompanyEvidence(): Promise<{
   return res.json();
 }
 
+export async function importCompanyWebsite(
+  url: string,
+  maxPages = 5,
+): Promise<CompanyWebsiteImportPreview> {
+  const res = await fetch(`${AGENT_API_URL}/api/company/import-website`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url, max_pages: maxPages }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { detail?: string }).detail ??
+        `importCompanyWebsite: ${res.status} ${res.statusText}`,
+    );
+  }
+  return res.json();
+}
+
 // ---------------------------------------------------------------------------
 // Dashboard
 // ---------------------------------------------------------------------------
 
 export interface DashboardStats {
   totalProcurements: number;
-  /** Tender PDF rows in `documents` (tender_document role) */
+  /** Tender document rows in `documents` (tender_document role) */
   totalPdfDocuments: number;
   activeRuns: number;
 }
@@ -1035,6 +1196,7 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
 // Lightweight run shape for the Dashboard active-analyses table
 export interface ActiveRun {
   id: string;
+  runNumber: number | null;
   tenderName: string;
   status: RunStatus;
   isStale: boolean;
@@ -1105,7 +1267,7 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
 
   const { data, error } = await client
     .from("agent_runs")
-    .select("id, status, started_at, created_at, completed_at, archived_at, metadata, tenders(title)")
+    .select("id, tender_id, status, started_at, created_at, completed_at, archived_at, metadata, tenders(title)")
     .eq("tenant_key", "demo")
     .is("archived_at", null)
     .or(
@@ -1116,7 +1278,43 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
 
   if (error) throw new Error(`fetchActiveRuns: ${error.message}`);
 
-  return (data ?? []).map((r: Record<string, unknown>) => {
+  const rows = (data ?? []) as Record<string, unknown>[];
+  const tenderIds = Array.from(
+    new Set(
+      rows
+        .map((row) => row.tender_id)
+        .filter((value): value is string => typeof value === "string" && value.length > 0),
+    ),
+  );
+
+  let runNumbers = new Map<string, number>();
+  if (tenderIds.length > 0) {
+    const { data: sequenceRows, error: sequenceErr } = await client
+      .from("agent_runs")
+      .select("id, tender_id, started_at, created_at")
+      .eq("tenant_key", "demo")
+      .in("tender_id", tenderIds);
+
+    if (sequenceErr) {
+      throw new Error(`fetchActiveRuns (run numbers): ${sequenceErr.message}`);
+    }
+
+    runNumbers = buildRunNumberMap(
+      ((sequenceRows ?? []) as Array<{
+        id: string;
+        tender_id: string;
+        started_at: string | null;
+        created_at: string | null;
+      }>).map((row) => ({
+        id: row.id,
+        tenderId: row.tender_id,
+        startedAt: row.started_at,
+        createdAt: row.created_at,
+      })),
+    );
+  }
+
+  return rows.map((r: Record<string, unknown>) => {
     const tender = r.tenders as { title: string } | null;
     const startedAt = r.started_at as string | null;
     const createdAt = r.created_at as string | null;
@@ -1139,6 +1337,7 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
     });
     return {
       id: r.id as string,
+      runNumber: runNumbers.get(r.id as string) ?? null,
       tenderName: tender?.title ?? "Unknown procurement",
       status,
       isStale: lifecycle.isStale,
@@ -1208,6 +1407,7 @@ export async function fetchArchivedRuns(): Promise<ActiveRun[]> {
 // Minimal run info embedded in each procurement row
 export interface ProcurementLatestRun {
   id: string;
+  runNumber: number | null;
   status: RunStatus;
   isStale: boolean;
   isArchived: boolean;
@@ -1226,6 +1426,10 @@ export interface ProcurementDocumentRow {
   parseNote: string | null;
 }
 
+export interface RunDetailDocument extends ProcurementDocumentRow {
+  publicUrl?: string;
+}
+
 export interface ProcurementRow {
   id: string;
   name: string;
@@ -1234,6 +1438,7 @@ export interface ProcurementRow {
   documents: ProcurementDocumentRow[];
   documentCount: number;
   latestRun: ProcurementLatestRun | null;
+  hasRunHistory: boolean;
 }
 
 function metadataParseNote(metadata: unknown): string | null {
@@ -1287,6 +1492,7 @@ export async function fetchProcurements(page = 0, pageSize = 50): Promise<Procur
   if (error) throw new Error(`fetchProcurements: ${error.message}`);
 
   return (data ?? []).map((t: Record<string, unknown>) => {
+    const tenderId = t.id as string;
     const docs =
       (t.documents as Array<{
         original_filename: string;
@@ -1305,6 +1511,14 @@ export async function fetchProcurements(page = 0, pageSize = 50): Promise<Procur
         bid_decisions: { verdict: string }[] | { verdict: string } | null;
       }>
     ) ?? [];
+    const runNumbers = buildRunNumberMap(
+      runs.map((run) => ({
+        id: run.id,
+        tenderId,
+        startedAt: run.started_at,
+        createdAt: run.created_at,
+      })),
+    );
 
     // Sort runs by created_at desc, pick latest
     const latestRun = runs.filter((run) => !run.archived_at).sort(
@@ -1335,6 +1549,7 @@ export async function fetchProcurements(page = 0, pageSize = 50): Promise<Procur
       });
       latestRunPayload = {
         id: latestRun.id,
+        runNumber: runNumbers.get(latestRun.id) ?? null,
         status,
         isStale: lifecycle.isStale,
         isArchived: lifecycle.isArchived,
@@ -1347,13 +1562,14 @@ export async function fetchProcurements(page = 0, pageSize = 50): Promise<Procur
     }
 
     return {
-      id: t.id as string,
+      id: tenderId,
       name: t.title as string,
       uploadedAt: t.created_at as string,
       documentFilenames: docs.map((d) => d.original_filename),
       documents: documentRows,
       documentCount: docs.length,
       latestRun: latestRunPayload,
+      hasRunHistory: runs.length > 0,
     };
   });
 }
@@ -1374,23 +1590,52 @@ function slugify(value: string): string {
   return slug || "tender";
 }
 
-function safePdfFilename(filename: string): string {
-  const stem = filename.replace(/\.pdf$/i, "");
-  return `${slugify(stem) || "document"}.pdf`;
+export const PDF_CONTENT_TYPE = "application/pdf";
+export const DOCX_CONTENT_TYPE =
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+export function isSupportedProcurementDocument(file: File): boolean {
+  const loweredName = file.name.toLowerCase();
+  return (
+    file.type === PDF_CONTENT_TYPE ||
+    file.type === DOCX_CONTENT_TYPE ||
+    loweredName.endsWith(".pdf") ||
+    loweredName.endsWith(".docx")
+  );
+}
+
+export function contentTypeForProcurementDocument(file: File): string {
+  const loweredName = file.name.toLowerCase();
+  if (file.type === DOCX_CONTENT_TYPE || loweredName.endsWith(".docx")) {
+    return DOCX_CONTENT_TYPE;
+  }
+  return PDF_CONTENT_TYPE;
+}
+
+export function safeDocumentFilename(filename: string): string {
+  const loweredName = filename.toLowerCase();
+  const suffix = loweredName.endsWith(".docx") ? ".docx" : ".pdf";
+  const stem = filename.replace(/\.(pdf|docx)$/i, "");
+  return `${slugify(stem) || "document"}${suffix}`;
 }
 
 function buildStoragePath(title: string, checksumHex: string, originalFilename: string): string {
-  return `demo/procurements/${slugify(title)}/${checksumHex.slice(0, 12)}-${safePdfFilename(originalFilename)}`;
+  return `demo/procurements/${slugify(title)}/${checksumHex.slice(0, 12)}-${safeDocumentFilename(originalFilename)}`;
+}
+
+export interface RegisterProcurementDocumentInput {
+  file: File;
+  procurementDocumentRole: ProcurementDocumentRole | null;
 }
 
 export interface RegisterProcurementInput {
   title: string;
   issuingAuthority: string;
-  files: File[];
+  documents: RegisterProcurementDocumentInput[];
 }
 
 /**
- * Upload PDFs to Supabase Storage and register them as a new tender.
+ * Upload PDFs/DOCX files to Supabase Storage and register them as a new tender.
  * Mirrors tender_registration.py — same storage paths, same upsert keys.
  * Returns the tender UUID.
  */
@@ -1405,6 +1650,20 @@ export async function deleteProcurement(tenderId: string): Promise<void> {
   }
 
   const client = requireSupabase();
+  const { count: runCount, error: runCountErr } = await client
+    .from("agent_runs")
+    .select("id", { head: true, count: "exact" })
+    .eq("tender_id", tenderId)
+    .eq("tenant_key", "demo");
+  if (runCountErr) {
+    throw new Error(`deleteProcurement (count runs): ${runCountErr.message}`);
+  }
+  if ((runCount ?? 0) > 0) {
+    throw new Error(
+      "This procurement cannot be deleted because it has run history. Bidded preserves immutable run audit rows, so procurements with linked runs must remain in place.",
+    );
+  }
+
   const { data: docRows, error: docListErr } = await client
     .from("documents")
     .select("storage_path")
@@ -1463,8 +1722,10 @@ export async function registerProcurement(input: RegisterProcurementInput): Prom
   if (tenderErr) throw new Error(`registerProcurement (tender upsert): ${tenderErr.message}`);
   const tenderId = (tenderRows as Array<{ id: string }>)[0].id;
 
-  // 3. For each PDF: compute SHA-256 → build path → upload → upsert document row
-  for (const file of input.files) {
+  // 3. For each document: compute SHA-256 -> upload -> upsert document row
+  for (const document of input.documents) {
+    const file = document.file;
+    const contentType = contentTypeForProcurementDocument(file);
     const buffer = await file.arrayBuffer();
     const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
     const checksum = Array.from(new Uint8Array(hashBuffer))
@@ -1474,8 +1735,8 @@ export async function registerProcurement(input: RegisterProcurementInput): Prom
 
     const { error: uploadErr } = await client.storage
       .from(BUCKET_NAME)
-      .upload(storagePath, new Blob([buffer], { type: "application/pdf" }), {
-        contentType: "application/pdf",
+      .upload(storagePath, new Blob([buffer], { type: contentType }), {
+        contentType,
         upsert: true,
       });
     if (uploadErr)
@@ -1483,6 +1744,13 @@ export async function registerProcurement(input: RegisterProcurementInput): Prom
         `registerProcurement (storage upload ${file.name}): ${uploadErr.message} [status: ${(uploadErr as { statusCode?: string }).statusCode ?? "?"}]`,
       );
 
+    const metadata: Record<string, string> = {
+      registered_via: "frontend_ui",
+      demo_company_id: companyId,
+    };
+    if (document.procurementDocumentRole) {
+      metadata.procurement_document_role = document.procurementDocumentRole;
+    }
     const { error: docErr } = await client.from("documents").upsert(
       {
         tenant_key: "demo",
@@ -1490,11 +1758,11 @@ export async function registerProcurement(input: RegisterProcurementInput): Prom
         company_id: null,
         storage_path: storagePath,
         checksum_sha256: checksum,
-        content_type: "application/pdf",
+        content_type: contentType,
         document_role: "tender_document",
         parse_status: "pending",
         original_filename: file.name,
-        metadata: { registered_via: "frontend_ui", demo_company_id: companyId },
+        metadata,
       },
       { onConflict: "storage_path" },
     );
@@ -1710,6 +1978,7 @@ export async function fetchDecisions(): Promise<DecisionRow[]> {
 
 export interface RunDetail {
   id: string;
+  runNumber: number | null;
   tenderName: string;
   tenderId: string;
   company: string;
@@ -1723,6 +1992,7 @@ export interface RunDetail {
   durationSec: number | null;
   decision: Verdict | null;
   confidence: number | null; // 0–100
+  documents: RunDetailDocument[];
   evidence: Evidence[];
   round1: AgentMotion[];
   round2: AgentMotion[];
@@ -1762,7 +2032,7 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
   const completedAt = run.completed_at as string | null;
   const archivedAt = run.archived_at as string | null;
 
-  const [outputsRes, docsRes] = await Promise.all([
+  const [outputsRes, docsRes, runNumbersRes] = await Promise.all([
     client
       .from("agent_outputs")
       .select("agent_role, round_name, output_type, validated_payload")
@@ -1770,13 +2040,34 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
       .order("created_at"),
     client
       .from("documents")
-      .select("id")
+      .select("id, original_filename, parse_status, metadata, storage_path")
       .eq("tender_id", tenderId)
       .eq("tenant_key", "demo"),
+    client
+      .from("agent_runs")
+      .select("id, tender_id, started_at, created_at")
+      .eq("tenant_key", "demo")
+      .eq("tender_id", tenderId),
   ]);
 
   if (outputsRes.error)
     throw new Error(`fetchRunDetail (outputs): ${outputsRes.error.message}`);
+  if (runNumbersRes.error)
+    throw new Error(`fetchRunDetail (run numbers): ${runNumbersRes.error.message}`);
+
+  const runNumbers = buildRunNumberMap(
+    ((runNumbersRes.data ?? []) as Array<{
+      id: string;
+      tender_id: string;
+      started_at: string | null;
+      created_at: string | null;
+    }>).map((row) => ({
+      id: row.id,
+      tenderId: row.tender_id,
+      startedAt: row.started_at,
+      createdAt: row.created_at,
+    })),
+  );
 
   const outputs = (outputsRes.data ?? []) as Array<{
     agent_role: string;
@@ -1784,6 +2075,22 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
     output_type: string;
     validated_payload: Record<string, unknown>;
   }>;
+
+  const documents = ((docsRes.data ?? []) as Array<{
+    id: string;
+    original_filename: string;
+    parse_status: ProcurementDocumentRow["parseStatus"];
+    metadata: unknown;
+    storage_path: string | null;
+  }>).map((document) => ({
+    originalFilename: document.original_filename,
+    parseStatus: document.parse_status,
+    parseNote: metadataParseNote(document.metadata),
+    publicUrl:
+      typeof document.storage_path === "string" && document.storage_path.length > 0
+        ? publicUrlForStoragePath(document.storage_path)
+        : undefined,
+  }));
 
   const docIds = ((docsRes.data ?? []) as Array<{ id: string }>).map(
     (d) => d.id,
@@ -1863,6 +2170,7 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
 
   return {
     id: runId,
+    runNumber: runNumbers.get(runId) ?? null,
     tenderName: (tender?.title as string) ?? "Unknown",
     tenderId,
     company: "Demo company",
@@ -1893,6 +2201,7 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
             ((bd as Record<string, unknown>).confidence as number) * 100,
           )
         : null,
+    documents,
     evidence,
     round1,
     round2,
@@ -2575,10 +2884,57 @@ export async function startAgentRun(tenderId: string): Promise<string> {
   return data.run_id;
 }
 
+export async function fetchLatestBidDraft(runId: string): Promise<BidResponseDraft | null> {
+  if (isMockMode()) {
+    const generatedDraft = generatedMockBidDrafts.get(runId);
+    if (generatedDraft) return generatedDraft;
+    return mockBidDrafts.find((draft) => draft.runId === runId) ?? null;
+  }
+
+  const token = await requireAccessToken();
+  const res = await fetch(
+    `${AGENT_API_URL}/api/bid-drafts/latest?run_id=${encodeURIComponent(runId)}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (res.status === 404) return null;
+  const payload = await parseAgentResponse<RawBidResponseDraft>(res);
+  return mapBidDraftPayload(payload, publicUrlForStoragePath);
+}
+
+export async function generateBidDraft(
+  runId: string,
+  bidId?: string,
+): Promise<BidResponseDraft> {
+  if (isMockMode()) {
+    const draft =
+      mockBidDrafts.find((item) => item.runId === runId) ?? {
+        ...mockBidDrafts[0],
+        runId,
+        bidId,
+      };
+    generatedMockBidDrafts.set(runId, draft);
+    return draft;
+  }
+
+  const token = await requireAccessToken();
+  const res = await fetch(`${AGENT_API_URL}/api/bid-drafts/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ run_id: runId, bid_id: bidId ?? null }),
+  });
+  const payload = await parseAgentResponse<RawBidResponseDraft>(res);
+  return mapBidDraftPayload(payload, publicUrlForStoragePath);
+}
+
 async function parseAgentResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
   }
   return (await res.json()) as T;
+}
+
+function publicUrlForStoragePath(storagePath: string): string | undefined {
+  if (!supabase) return undefined;
+  return supabase.storage.from(BUCKET_NAME).getPublicUrl(storagePath).data.publicUrl;
 }

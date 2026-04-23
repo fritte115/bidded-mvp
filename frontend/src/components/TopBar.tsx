@@ -25,6 +25,7 @@ const titles: { match: (p: string) => boolean; title: string }[] = [
   { match: (p) => p === "/bids", title: "Bids" },
   { match: (p) => p === "/bids/new", title: "New Bid" },
   { match: (p) => /^\/bids\/[^/]+\/edit$/.test(p), title: "Edit Bid" },
+  { match: (p) => /^\/drafts\/[^/]+$/.test(p), title: "Draft Anbud" },
   { match: (p) => p === "/company", title: "Company Profile" },
   { match: (p) => p === "/settings", title: "Settings" },
 ];
@@ -47,8 +48,8 @@ export function TopBar() {
         <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
         <div className="h-4 w-px bg-border" />
         <Link to="/" className="flex items-center gap-2">
-          <img src={biddedMark} alt="Bidded" className="h-6 w-auto" />
-          <span className="text-base font-semibold tracking-tight text-foreground">Bidded</span>
+          <img src={biddedMark} alt="Bidded" className="h-6 w-6 shrink-0 object-contain" />
+          <span className="text-base font-semibold text-foreground">Bidded</span>
         </Link>
         <div className="h-4 w-px bg-border" />
         <span className="text-sm text-muted-foreground">{title}</span>

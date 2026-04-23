@@ -49,64 +49,73 @@ def authenticate_supabase_jwt(
 
     resolved_settings = settings or load_settings()
     jwt_secret = getattr(resolved_settings, "supabase_jwt_secret", None)
-
     if jwt_secret:
         payload = _decode_hs256_jwt(token, str(jwt_secret))
-        user_id = payload.get("sub")
-        if not isinstance(user_id, str) or not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Bearer token is missing a subject.",
-            )
-        email = payload.get("email")
-        return AuthenticatedUser(
-            user_id=user_id,
-            email=email if isinstance(email, str) else None,
+        return _authenticated_user_from_claims(
+            user_id=payload.get("sub"),
+            email=payload.get("email"),
         )
 
-    # Dev fallback: verify via Supabase /auth/v1/user
-    supabase_url = getattr(resolved_settings, "supabase_url", None)
-    service_key = getattr(resolved_settings, "supabase_service_role_key", None)
+    return _authenticate_via_supabase(token, settings=resolved_settings)
 
-    if not supabase_url or not service_key:
+
+def _authenticate_via_supabase(
+    token: str,
+    *,
+    settings: Any,
+) -> AuthenticatedUser:
+    supabase_url = getattr(settings, "supabase_url", None)
+    service_role_key = getattr(settings, "supabase_service_role_key", None)
+    if not supabase_url or not service_role_key:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=(
-                "Add SUPABASE_JWT_SECRET to .env (Supabase dashboard → Settings → API → JWT Secret). "
-                "Also ensure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set."
+                "SUPABASE_JWT_SECRET or both SUPABASE_URL and "
+                "SUPABASE_SERVICE_ROLE_KEY are required for authenticated "
+                "API requests."
             ),
         )
 
-    try:
-        import httpx  # noqa: PLC0415
+    from supabase import create_client  # noqa: PLC0415
+    from supabase_auth.errors import (  # noqa: PLC0415
+        AuthApiError,
+        AuthRetryableError,
+        AuthUnknownError,
+    )
 
-        resp = httpx.get(
-            f"{supabase_url}/auth/v1/user",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "apikey": service_key,
-            },
-            timeout=8.0,
-        )
-    except httpx.RequestError as exc:
+    try:
+        auth_client = create_client(str(supabase_url), str(service_role_key)).auth
+        response = auth_client.get_user(jwt=token)
+    except AuthApiError as exc:
+        if _is_invalid_supabase_token_error(exc):
+            raise _invalid_token() from exc
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Supabase Auth could not verify the bearer token.",
+        ) from exc
+    except (AuthRetryableError, AuthUnknownError) as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Could not reach Supabase to validate token: {exc}",
+            detail="Supabase Auth verification is temporarily unavailable.",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Supabase Auth verification failed.",
         ) from exc
 
-    if resp.status_code == 401:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Bearer token is invalid or expired.",
-        )
-    if resp.status_code != 200:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Token validation failed (Supabase returned {resp.status_code}).",
-        )
+    user = getattr(response, "user", None)
+    return _authenticated_user_from_claims(
+        user_id=getattr(user, "id", None),
+        email=getattr(user, "email", None),
+    )
 
-    data = resp.json()
-    user_id = data.get("id")
+
+def _authenticated_user_from_claims(
+    *,
+    user_id: Any,
+    email: Any,
+) -> AuthenticatedUser:
     if not isinstance(user_id, str) or not user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -115,7 +124,31 @@ def authenticate_supabase_jwt(
 
     return AuthenticatedUser(
         user_id=user_id,
-        email=data.get("email"),
+        email=email if isinstance(email, str) else None,
+    )
+
+
+def _is_invalid_supabase_token_error(error: Any) -> bool:
+    code = getattr(error, "code", None)
+    if code in {
+        "bad_jwt",
+        "invalid_jwt",
+        "no_authorization",
+        "session_not_found",
+        "user_not_found",
+    }:
+        return True
+
+    message = str(getattr(error, "message", error)).lower()
+    return any(
+        fragment in message
+        for fragment in (
+            "jwt",
+            "authorization",
+            "session not found",
+            "user not found",
+            "token",
+        )
     )
 
 

@@ -17,7 +17,14 @@ from bidded.demo_smoke import (
     run_demo_smoke,
 )
 from bidded.doctor import run_demo_environment_doctor
-from bidded.documents import TenderPdfRegistrationError, register_demo_tender_pdf
+from bidded.documents import (
+    CompanyKbRegistrationError,
+    PdfIngestionError,
+    TenderDocumentRegistrationError,
+    ingest_company_kb_pdf_document,
+    register_company_kb_pdf,
+    register_demo_tender_document,
+)
 from bidded.evals.decision_diff import (
     DecisionDiffError,
     diff_decision_payloads,
@@ -43,11 +50,14 @@ from bidded.evals.live_comparison import (
 from bidded.llm.factory import resolve_graph_handlers
 from bidded.orchestration import (
     AgentRunStatus,
+    BidResponseDraftError,
     PendingRunContextError,
     PrepareRunError,
     ProcurementManifestError,
     WorkerLifecycleError,
+    bid_response_draft_to_payload,
     create_pending_run_context,
+    generate_bid_response_draft,
     prepare_procurement_manifest_run,
     prepare_procurement_run,
     run_worker_once,
@@ -65,6 +75,7 @@ from bidded.orchestration.run_controls import (
 )
 
 DEMO_TENDER_PDF_HINT = "data/demo/incoming/Bilaga Skakrav.pdf"
+DEMO_TENDER_DOCUMENT_HINT = DEMO_TENDER_PDF_HINT
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -97,18 +108,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     register_parser = subparsers.add_parser(
         "register-demo-tender",
-        help="Register a local text-PDF as the demo tender.",
+        help="Register a local PDF or DOCX as the demo tender.",
         description=(
-            "Register a local text-PDF as the demo tender in Supabase. "
-            f"Preferred local demo input when present: {DEMO_TENDER_PDF_HINT}."
+            "Register a local text-PDF or DOCX as the demo tender in Supabase. "
+            f"Preferred local demo input when present: {DEMO_TENDER_DOCUMENT_HINT}."
         ),
     )
     register_parser.add_argument(
-        "pdf_path",
+        "document_path",
         type=Path,
         help=(
-            "Local text-PDF path. Preferred gitignored demo input: "
-            f"{DEMO_TENDER_PDF_HINT}."
+            "Local text-PDF or DOCX path. Preferred gitignored demo input: "
+            f"{DEMO_TENDER_DOCUMENT_HINT}."
         ),
     )
     register_parser.add_argument("--title", required=True, help="Tender title.")
@@ -130,6 +141,55 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional procurement metadata; repeat for multiple key/value pairs.",
     )
     register_parser.set_defaults(handler=_run_register_demo_tender_command)
+
+    company_kb_parser = subparsers.add_parser(
+        "register-company-kb-pdf",
+        help="Register an approved company KB PDF.",
+        description=(
+            "Upload and register an approved company KB text-PDF, such as an "
+            "ISO certificate, CV, reference case, policy, or pricing document."
+        ),
+    )
+    company_kb_parser.add_argument("pdf_path", type=Path, help="Local text-PDF path.")
+    company_kb_parser.add_argument(
+        "--company-id",
+        required=True,
+        help="Existing demo company UUID.",
+    )
+    company_kb_parser.add_argument(
+        "--source-label",
+        required=True,
+        help="Human-readable source label for evidence citations.",
+    )
+    company_kb_parser.add_argument(
+        "--attachment-type",
+        default="other",
+        choices=[
+            "certificate",
+            "cv",
+            "reference_case",
+            "policy_document",
+            "pricing_document",
+            "other",
+        ],
+        help="Attachment type exposed in generated bid drafts.",
+    )
+    company_kb_parser.set_defaults(handler=_run_register_company_kb_pdf_command)
+
+    ingest_company_kb_parser = subparsers.add_parser(
+        "ingest-company-kb-pdf",
+        help="Ingest a registered company KB PDF.",
+        description=(
+            "Parse a registered company_profile text-PDF into chunks and "
+            "company_profile evidence items for evidence-locked drafts."
+        ),
+    )
+    ingest_company_kb_parser.add_argument(
+        "--document-id",
+        required=True,
+        help="Existing company_profile document UUID.",
+    )
+    ingest_company_kb_parser.set_defaults(handler=_run_ingest_company_kb_pdf_command)
 
     pending_run_parser = subparsers.add_parser(
         "create-pending-run",
@@ -373,6 +433,31 @@ def build_parser() -> argparse.ArgumentParser:
     )
     export_parser.set_defaults(handler=_run_export_decision_command)
 
+    draft_parser = subparsers.add_parser(
+        "generate-bid-draft",
+        help="Generate an evidence-locked draft anbud packet.",
+        description=(
+            "Generate and persist a structured draft anbud packet from a "
+            "draftable bid decision, optionally staging attachment PDF copies."
+        ),
+    )
+    draft_parser.add_argument("--run-id", required=True, help="agent_runs UUID.")
+    draft_parser.add_argument(
+        "--bid-id",
+        help="Optional bids UUID to use as the pricing source.",
+    )
+    draft_parser.add_argument(
+        "--packet-dir",
+        type=Path,
+        help="Optional local directory for copied attachment PDFs.",
+    )
+    draft_parser.add_argument(
+        "--json-path",
+        type=Path,
+        help="Optional destination for the stable draft JSON payload.",
+    )
+    draft_parser.set_defaults(handler=_run_generate_bid_draft_command)
+
     eval_parser = subparsers.add_parser(
         "eval-golden",
         help="Run deterministic golden decision evals.",
@@ -542,16 +627,16 @@ def _run_register_demo_tender_command(args: argparse.Namespace) -> int:
     settings = load_settings()
     try:
         client = _create_supabase_client(settings)
-        result = register_demo_tender_pdf(
+        result = register_demo_tender_document(
             client,
-            pdf_path=args.pdf_path,
+            document_path=args.document_path,
             bucket_name=settings.supabase_storage_bucket,
             tender_title=args.title,
             issuing_authority=args.issuing_authority,
             procurement_reference=args.procurement_reference,
             procurement_metadata=dict(args.metadata),
         )
-    except (RuntimeError, TenderPdfRegistrationError) as exc:
+    except (RuntimeError, TenderDocumentRegistrationError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
 
@@ -559,6 +644,52 @@ def _run_register_demo_tender_command(args: argparse.Namespace) -> int:
         "Registered demo tender "
         f"{args.title} as document {result.document_id}; "
         f"storage path: {result.storage_path}."
+    )
+    return 0
+
+
+def _run_register_company_kb_pdf_command(args: argparse.Namespace) -> int:
+    settings = load_settings()
+    try:
+        client = _create_supabase_client(settings)
+        result = register_company_kb_pdf(
+            client,
+            pdf_path=args.pdf_path,
+            bucket_name=settings.supabase_storage_bucket,
+            company_id=args.company_id,
+            source_label=args.source_label,
+            attachment_type=args.attachment_type,
+        )
+    except (RuntimeError, CompanyKbRegistrationError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    print(
+        "Registered company KB PDF "
+        f"{result.original_filename} as document {result.document_id}; "
+        f"attachment type: {result.attachment_type}; "
+        f"storage path: {result.storage_path}."
+    )
+    return 0
+
+
+def _run_ingest_company_kb_pdf_command(args: argparse.Namespace) -> int:
+    settings = load_settings()
+    try:
+        client = _create_supabase_client(settings)
+        result = ingest_company_kb_pdf_document(
+            client,
+            document_id=args.document_id,
+            bucket_name=settings.supabase_storage_bucket,
+        )
+    except (RuntimeError, PdfIngestionError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    print(
+        "Ingested company KB PDF "
+        f"{result.document_id}; pages: {result.page_count}; "
+        f"chunks: {result.chunk_count}."
     )
     return 0
 
@@ -617,7 +748,7 @@ def _run_prepare_manifest_run_command(args: argparse.Namespace) -> int:
         )
     except (
         RuntimeError,
-        TenderPdfRegistrationError,
+        TenderDocumentRegistrationError,
         ProcurementManifestError,
         PrepareRunError,
     ) as exc:
@@ -825,6 +956,41 @@ def _run_export_decision_command(args: argparse.Namespace) -> int:
         f"Evidence items: {result.evidence_count}; "
         f"agent outputs: {result.agent_output_count}."
     )
+    return 0
+
+
+def _run_generate_bid_draft_command(args: argparse.Namespace) -> int:
+    settings = load_settings()
+    try:
+        client = _create_supabase_client(settings)
+        draft = generate_bid_response_draft(
+            client,
+            run_id=args.run_id,
+            bid_id=args.bid_id,
+            storage_bucket=settings.supabase_storage_bucket,
+            packet_dir=args.packet_dir,
+        )
+        payload = bid_response_draft_to_payload(draft)
+        if args.json_path is not None:
+            args.json_path.parent.mkdir(parents=True, exist_ok=True)
+            args.json_path.write_text(
+                json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+    except (RuntimeError, BidResponseDraftError, OSError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    print(
+        f"Generated bid draft for {payload.get('run_id')}; "
+        f"status: {payload.get('status')}; "
+        f"answers: {len(payload.get('answers') or [])}; "
+        f"attachments: {len(payload.get('attachments') or [])}."
+    )
+    if args.json_path is not None:
+        print(f"Wrote JSON: {args.json_path}")
+    if args.packet_dir is not None:
+        print(f"Attachment packet directory: {args.packet_dir}")
     return 0
 
 

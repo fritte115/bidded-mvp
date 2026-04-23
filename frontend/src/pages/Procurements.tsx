@@ -6,7 +6,6 @@ import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -22,7 +21,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { StatusBadge } from "@/components/StatusBadge";
 import { VerdictBadge } from "@/components/VerdictBadge";
 import { formatRelativeTime, runDisplayId } from "@/data/mock";
 import { usePermissions } from "@/lib/auth";
@@ -43,7 +41,6 @@ import {
   Eye,
   FileText,
   Files,
-  GitCompareArrows,
   Hourglass,
   Layers,
   Loader2,
@@ -73,6 +70,17 @@ import type { RunStatus } from "@/data/mock";
 type RunFilter = "all" | "not_run" | "running" | "done";
 type SortKey = "recent" | "name" | "status";
 
+const DELETE_BLOCKED_REASON =
+  "This procurement has run history. Bidded preserves linked run audit rows, so it cannot be hard-deleted.";
+
+const RUN_STATUS_LABELS = {
+  pending: "Pending",
+  running: "Running",
+  succeeded: "Succeeded",
+  failed: "Failed",
+  needs_human_review: "Review",
+} as const;
+
 const STATUS_DOT: Record<RunStatus, string> = {
   pending: "bg-muted-foreground",
   running: "bg-info",
@@ -80,6 +88,14 @@ const STATUS_DOT: Record<RunStatus, string> = {
   failed: "bg-danger",
   needs_human_review: "bg-warning",
 };
+
+const RUN_STATUS_DOT_CLASSES = {
+  pending: "bg-muted-foreground",
+  running: "bg-info",
+  succeeded: "bg-success",
+  failed: "bg-danger",
+  needs_human_review: "bg-warning",
+} as const;
 
 const STATUS_RANK: Record<RunStatus, number> = {
   running: 0,
@@ -233,6 +249,50 @@ function StageProgressDots({ stage, status }: { stage?: string | null; status: R
   );
 }
 
+function RunStatusDot({
+  status,
+  isStale = false,
+  selected = false,
+}: {
+  status?: keyof typeof RUN_STATUS_LABELS;
+  isStale?: boolean;
+  selected?: boolean;
+}) {
+  const toneStatus = status ? (isStale ? "failed" : status) : null;
+  const label = status ? (isStale ? "Stale" : RUN_STATUS_LABELS[status]) : "Not run";
+
+  return (
+    <span
+      className={cn(
+        "inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors",
+        selected && "bg-primary/5 ring-1 ring-primary/30",
+      )}
+      role="img"
+      aria-label={label}
+      title={label}
+    >
+      {status === "running" && !isStale ? (
+        <span className="relative flex h-2.5 w-2.5">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-info opacity-50" />
+          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-info" />
+        </span>
+      ) : toneStatus ? (
+        <span
+          className={cn(
+            "inline-flex h-2.5 w-2.5 rounded-full",
+            RUN_STATUS_DOT_CLASSES[toneStatus],
+          )}
+        />
+      ) : (
+        <span
+          className="inline-flex h-2.5 w-2.5 rounded-full border border-muted-foreground/35"
+        />
+      )}
+      <span className="sr-only">{label}</span>
+    </span>
+  );
+}
+
 export default function Procurements() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -382,23 +442,6 @@ export default function Procurements() {
     [rows],
   );
 
-  const allSelected =
-    filtered.length > 0 && filtered.every(({ procurement: p }) => selectedIds.includes(p.id));
-  const someSelected =
-    filtered.some(({ procurement: p }) => selectedIds.includes(p.id)) && !allSelected;
-
-  const toggleAll = () => {
-    if (allSelected) {
-      setSelectedIds((prev) =>
-        prev.filter((id) => !filtered.some(({ procurement: p }) => p.id === id)),
-      );
-    } else {
-      setSelectedIds((prev) =>
-        Array.from(new Set([...prev, ...filtered.map(({ procurement: p }) => p.id)])),
-      );
-    }
-  };
-
   const toggleOne = (id: string) => {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
@@ -444,11 +487,6 @@ export default function Procurements() {
     } finally {
       setDeletingId(null);
     }
-  };
-
-  const goCompare = () => {
-    if (selectedIds.length < 2) return;
-    navigate(`/compare?ids=${selectedIds.join(",")}`);
   };
 
   const selectedCount = selectedIds.length;
@@ -589,33 +627,6 @@ export default function Procurements() {
             </div>
           </div>
 
-          {/* Selection chip */}
-          {selectedCount > 0 && (
-            <div className="mb-3 flex items-center justify-between rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
-              <div className="flex items-center gap-3 text-sm">
-                <span className="font-medium text-foreground">
-                  <span className="font-mono tabular-nums">{selectedCount}</span> selected
-                </span>
-                <button
-                  onClick={() => setSelectedIds([])}
-                  className="text-muted-foreground hover:text-foreground hover:underline"
-                >
-                  Clear
-                </button>
-              </div>
-              <Button
-                size="sm"
-                variant="default"
-                onClick={goCompare}
-                disabled={selectedCount < 2}
-                className="h-8"
-              >
-                <GitCompareArrows className="h-3.5 w-3.5" />
-                Compare ({selectedCount})
-              </Button>
-            </div>
-          )}
-
           {isLoading && (
             <p className="py-8 text-center text-sm text-muted-foreground">Loading procurements…</p>
           )}
@@ -642,18 +653,11 @@ export default function Procurements() {
           {!isLoading && filtered.length > 0 && (
             <div className="overflow-hidden rounded-md border border-border">
               <Table>
-                <TableHeader className="sticky top-0 z-10 bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
-                  <TableRow className="hover:bg-transparent">
-                    <TableHead className="w-10">
-                      <Checkbox
-                        checked={allSelected ? true : someSelected ? "indeterminate" : false}
-                        onCheckedChange={toggleAll}
-                        aria-label="Select all"
-                      />
-                    </TableHead>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-10" />
                     <TableHead>Procurement</TableHead>
                     <TableHead className="whitespace-nowrap">Latest run</TableHead>
-                    <TableHead>Status</TableHead>
                     <TableHead>Stage</TableHead>
                     <TableHead>Decision</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -687,11 +691,18 @@ export default function Procurements() {
                           className="py-3.5"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <Checkbox
-                            checked={checked}
-                            onCheckedChange={() => toggleOne(t.id)}
-                            aria-label={`Select ${t.name}`}
-                          />
+                          <button
+                            type="button"
+                            className="inline-flex rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                            onClick={() => toggleOne(t.id)}
+                            aria-label={`${checked ? "Deselect" : "Select"} ${t.name}`}
+                          >
+                            <RunStatusDot
+                              status={run?.status}
+                              isStale={run?.isStale}
+                              selected={checked}
+                            />
+                          </button>
                         </TableCell>
 
                         {/* Procurement name + doc meta */}
@@ -773,17 +784,6 @@ export default function Procurements() {
                           )}
                         </TableCell>
 
-                        {/* Status */}
-                        <TableCell className="py-3.5">
-                          {run ? (
-                            <StatusBadge status={run.status} isStale={run.isStale} />
-                          ) : (
-                            <span className="inline-flex items-center rounded-sm border border-dashed border-border bg-muted/40 px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                              Not run
-                            </span>
-                          )}
-                        </TableCell>
-
                         {/* Stage progress */}
                         <TableCell className="py-3.5 text-sm">
                           {run ? (
@@ -810,7 +810,7 @@ export default function Procurements() {
                           ) : run?.decision ? (
                             <VerdictBadge verdict={run.decision} />
                           ) : (
-                            <span className="text-muted-foreground">—</span>
+                            null
                           )}
                         </TableCell>
 
@@ -880,20 +880,41 @@ export default function Procurements() {
                               </>
                             )}
                             {permissions.canDeleteProcurements && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 text-muted-foreground hover:text-destructive"
-                                disabled={deletingId === t.id}
-                                onClick={() => setPendingDelete({ id: t.id, name: t.name })}
-                                aria-label="Delete procurement"
-                              >
-                                {deletingId === t.id ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <Trash2 className="h-3 w-3" />
-                                )}
-                              </Button>
+                              t.hasRunHistory ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="inline-flex" tabIndex={0}>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 text-muted-foreground hover:text-destructive"
+                                        disabled
+                                        aria-label="Delete unavailable"
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                      </Button>
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="max-w-xs text-xs">
+                                    {DELETE_BLOCKED_REASON}
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 text-muted-foreground hover:text-destructive"
+                                  disabled={deletingId === t.id}
+                                  onClick={() => setPendingDelete({ id: t.id, name: t.name })}
+                                  aria-label="Delete procurement"
+                                >
+                                  {deletingId === t.id ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-3 w-3" />
+                                  )}
+                                </Button>
+                              )
                             )}
                           </div>
                         </TableCell>
