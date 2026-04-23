@@ -9,7 +9,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { ArrowLeft, UploadCloud, FileText, X, Loader2 } from "lucide-react";
-import { isSupportedProcurementDocument, registerProcurement } from "@/lib/api";
+import {
+  isSupportedProcurementDocument,
+  registerProcurement,
+} from "@/lib/api";
+import { normalizeDocumentUploads } from "@/lib/documentUploads";
 
 export default function RegisterProcurement() {
   const navigate = useNavigate();
@@ -21,13 +25,35 @@ export default function RegisterProcurement() {
   const [files, setFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
-  function handleFiles(incoming: FileList | null) {
+  async function handleFiles(incoming: FileList | null) {
     if (!incoming) return;
-    const next = Array.from(incoming).filter(isSupportedProcurementDocument);
+
+    const allFiles = Array.from(incoming);
+    const directFiles = allFiles.filter(isSupportedProcurementDocument);
+    const zippedPdfFiles = await normalizeDocumentUploads(
+      allFiles.filter((file) => !isSupportedProcurementDocument(file)),
+    );
+    const next = [
+      ...directFiles,
+      ...zippedPdfFiles.accepted.map((item) => item.file),
+    ];
+
     setFiles((prev) => {
       const existingNames = new Set(prev.map((f) => f.name));
       return [...prev, ...next.filter((f) => !existingNames.has(f.name))];
     });
+
+    if (zippedPdfFiles.rejected.length > 0) {
+      const description = zippedPdfFiles.rejected
+        .slice(0, 3)
+        .map((entry) => `${entry.name}: ${entry.reason}`)
+        .join(" · ");
+      if (next.length > 0) {
+        toast("Some files were skipped", { description });
+      } else {
+        toast.error("No supported files were added", { description });
+      }
+    }
   }
 
   function removeFile(i: number) {
@@ -114,20 +140,23 @@ export default function RegisterProcurement() {
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
-                handleFiles(e.dataTransfer.files);
+                void handleFiles(e.dataTransfer.files);
               }}
             >
               <UploadCloud className="mb-3 h-8 w-8 text-muted-foreground" />
-              <p className="text-sm font-medium text-foreground">Drop PDF or DOCX files here</p>
+              <p className="text-sm font-medium text-foreground">Drop PDF, DOCX, or ZIP files here</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Attach multiple files · text PDFs or DOCX · max 50 MB each
+                Attach multiple files · ZIPs are unpacked into PDFs locally · max 50 MB each
               </p>
               <input
                 type="file"
-                accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.docx"
+                accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.docx,application/zip,.zip"
                 multiple
                 className="sr-only"
-                onChange={(e) => handleFiles(e.target.files)}
+                onChange={(e) => {
+                  void handleFiles(e.target.files);
+                  e.target.value = "";
+                }}
               />
             </label>
 
@@ -159,7 +188,7 @@ export default function RegisterProcurement() {
                   ))}
                 </ul>
                 <p className="text-xs text-muted-foreground">
-                  {files.length} {files.length === 1 ? "file" : "files"} attached · stored in Supabase; text extraction and chunking run when the ingest worker is available (PRD backlog).
+                  {files.length} {files.length === 1 ? "file" : "files"} attached · ZIP entries are stored as individual PDFs, while direct DOCX files keep their DOCX format for ingestion.
                 </p>
               </>
             )}

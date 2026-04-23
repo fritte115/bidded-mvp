@@ -36,6 +36,7 @@ import {
   updateCompany,
   uploadCompanyKbDocuments,
 } from "@/lib/api";
+import { normalizeDocumentUploads } from "@/lib/documentUploads";
 import { renderFormattedText } from "@/lib/richText";
 import type { Company as CompanyType } from "@/data/mock";
 import {
@@ -223,19 +224,46 @@ export default function CompanyProfile() {
     }
   }
 
-  function handleKbFiles(incoming: FileList | null) {
+  async function handleKbFiles(incoming: FileList | null) {
     if (!incoming) return;
+
     const allowed = new Set(["pdf", "docx", "pptx", "xlsx", "csv", "txt", "md"]);
-    const next = Array.from(incoming)
+    const allFiles = Array.from(incoming);
+    const directFiles = allFiles
       .filter((file) => allowed.has(file.name.split(".").pop()?.toLowerCase() ?? ""))
       .map((file) => ({
         file,
         kbDocumentType: "certification" as CompanyKbDocumentType,
       }));
+    const zippedPdfFiles = await normalizeDocumentUploads(
+      allFiles.filter(
+        (file) => !allowed.has(file.name.split(".").pop()?.toLowerCase() ?? ""),
+      ),
+    );
+    const next = [
+      ...directFiles,
+      ...zippedPdfFiles.accepted.map((item) => ({
+        file: item.file,
+        kbDocumentType: "certification" as CompanyKbDocumentType,
+      })),
+    ];
+
     setKbFiles((prev) => {
       const existing = new Set(prev.map((item) => item.file.name));
       return [...prev, ...next.filter((item) => !existing.has(item.file.name))];
     });
+
+    if (zippedPdfFiles.rejected.length > 0) {
+      const description = zippedPdfFiles.rejected
+        .slice(0, 3)
+        .map((entry) => `${entry.name}: ${entry.reason}`)
+        .join(" · ");
+      if (next.length > 0) {
+        toast("Some files were skipped", { description });
+      } else {
+        toast.error("No supported files were added", { description });
+      }
+    }
   }
 
   async function uploadKbFiles() {
@@ -2360,20 +2388,23 @@ function KnowledgeBaseTab({
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault();
-              onFiles(e.dataTransfer.files);
+              void onFiles(e.dataTransfer.files);
             }}
           >
             <UploadCloud className="mb-2 h-7 w-7 text-muted-foreground" />
             <p className="text-sm font-medium">Drop company documents or click to upload</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              PDF, DOCX, PPTX, XLSX, CSV, TXT, MD
+              PDF, DOCX, PPTX, XLSX, CSV, TXT, MD, or ZIP bundles with PDFs
             </p>
             <input
               type="file"
               multiple
-              accept=".pdf,.docx,.pptx,.xlsx,.csv,.txt,.md"
+              accept=".pdf,.docx,.pptx,.xlsx,.csv,.txt,.md,.zip"
               className="sr-only"
-              onChange={(e) => onFiles(e.target.files)}
+              onChange={(e) => {
+                void onFiles(e.target.files);
+                e.target.value = "";
+              }}
             />
           </label>
         ) : (

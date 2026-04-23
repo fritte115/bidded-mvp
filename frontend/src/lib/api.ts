@@ -485,6 +485,7 @@ function mockBidRows(): Bid[] {
 
 function mockDbCompany(): DbCompany {
   return {
+    id: "demo-company",
     name: mockCompany.name,
     organization_number: mockCompany.orgNumber === "—" ? null : mockCompany.orgNumber,
     headquarters_country: "SE",
@@ -537,6 +538,7 @@ function mockDbCompany(): DbCompany {
  * delivery_capacity, etc.) that the UI doesn't expose for editing but the
  * swarm relies on when materializing `company_profile` evidence items. */
 export interface DbCompany {
+  id?: string;
   name: string;
   organization_number: string | null;
   headquarters_country: string;
@@ -1567,7 +1569,6 @@ export function safeDocumentFilename(filename: string): string {
 function buildStoragePath(title: string, checksumHex: string, originalFilename: string): string {
   return `demo/procurements/${slugify(title)}/${checksumHex.slice(0, 12)}-${safeDocumentFilename(originalFilename)}`;
 }
-
 export interface RegisterProcurementInput {
   title: string;
   issuingAuthority: string;
