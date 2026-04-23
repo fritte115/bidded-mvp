@@ -162,10 +162,16 @@ def _cited_evidence_rows(
     cited_rows = [
         row
         for row in rows
-        if str(row.get("id")) in evidence_ids
-        or str(row.get("evidence_key")) in evidence_keys
+        if _evidence_row_is_cited(
+            row, evidence_ids=evidence_ids, evidence_keys=evidence_keys
+        )
     ]
-    return sorted(cited_rows, key=lambda row: str(row.get("evidence_key") or ""))
+    return _merge_cited_snapshot_rows(
+        cited_rows,
+        _decision_evidence_snapshot_rows(decision_row),
+        evidence_ids=evidence_ids,
+        evidence_keys=evidence_keys,
+    )
 
 
 def _bundle_payload(
@@ -177,7 +183,12 @@ def _bundle_payload(
     evidence_rows: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     final_decision = _mapping(decision_row.get("final_decision"))
-    evidence_by_id = {str(row.get("id")): row for row in evidence_rows}
+    decision_metadata = _mapping(decision_row.get("metadata"))
+    evidence_by_id = {
+        evidence_id: row
+        for row in evidence_rows
+        if (evidence_id := _evidence_row_id(row)) is not None
+    }
     evidence_by_key = {
         str(row.get("evidence_key")): row
         for row in evidence_rows
@@ -225,6 +236,9 @@ def _bundle_payload(
                 str(item)
                 for item in _sequence(final_decision.get("recommended_actions"))
             ],
+            "decision_evidence_audit": dict(
+                _mapping(decision_metadata.get("decision_evidence_audit"))
+            ),
         },
         "agent_outputs": [
             _agent_output_export(row, evidence_by_id=evidence_by_id)
@@ -311,7 +325,7 @@ def _agent_output_export(
 def _evidence_export(row: Mapping[str, Any]) -> dict[str, Any]:
     source_metadata = _mapping(row.get("source_metadata"))
     return {
-        "evidence_id": _optional_string(row.get("id")),
+        "evidence_id": _evidence_row_id(row),
         "evidence_key": str(row.get("evidence_key") or ""),
         "source_type": str(row.get("source_type") or ""),
         "source_label": str(source_metadata.get("source_label") or ""),
@@ -369,6 +383,11 @@ def _render_markdown(payload: Mapping[str, Any]) -> str:
             _sequence(decision.get("recommended_actions")),
         )
     )
+    lines.extend(
+        _markdown_decision_evidence_audit_section(
+            _mapping(decision.get("decision_evidence_audit"))
+        )
+    )
     lines.extend(_markdown_evidence_section(_sequence(payload.get("evidence"))))
     return "\n".join(lines).rstrip() + "\n"
 
@@ -406,6 +425,41 @@ def _markdown_string_section(title: str, items: Sequence[Any]) -> list[str]:
     if not items:
         return [*lines, "- None", ""]
     lines.extend(f"- {item}" for item in items)
+    lines.append("")
+    return lines
+
+
+def _markdown_decision_evidence_audit_section(
+    audit: Mapping[str, Any],
+) -> list[str]:
+    lines = ["## Decision Evidence Audit"]
+    if not audit:
+        return [*lines, "- None", ""]
+
+    lines.extend(
+        [
+            f"- Gate verdict: {audit.get('gate_verdict')}",
+            f"- Structural score: {audit.get('structural_score')}",
+            f"- Judge confidence: {audit.get('judge_confidence')}",
+            f"- Unsupported claims: {audit.get('unsupported_claim_count', 0)}",
+            f"- Source unverified: {audit.get('source_unverified_count', 0)}",
+            f"- Source type mismatches: {audit.get('source_type_mismatch_count', 0)}",
+        ]
+    )
+    findings = [
+        _mapping(finding)
+        for finding in _sequence(audit.get("findings"))
+        if _mapping(finding)
+    ]
+    if findings:
+        lines.append("- Findings:")
+        for finding in findings[:8]:
+            message = str(finding.get("message") or "")
+            kind = str(finding.get("kind") or "")
+            evidence_keys = _format_evidence_keys(
+                _sequence(finding.get("evidence_keys"))
+            )
+            lines.append(f"  - {kind}: {message} Evidence: {evidence_keys}")
     lines.append("")
     return lines
 
@@ -474,6 +528,86 @@ def _evidence_keys_from_refs(
                     seen.add(key)
                     keys.append(key)
     return keys
+
+
+def _decision_evidence_snapshot_rows(
+    decision_row: Mapping[str, Any],
+) -> list[Mapping[str, Any]]:
+    metadata = _mapping(decision_row.get("metadata"))
+    rows: list[Mapping[str, Any]] = []
+    for raw_row in _sequence(metadata.get("evidence_snapshot")):
+        row = _mapping(raw_row)
+        if row:
+            rows.append(row)
+    return rows
+
+
+def _merge_cited_snapshot_rows(
+    live_rows: Sequence[Mapping[str, Any]],
+    snapshot_rows: Sequence[Mapping[str, Any]],
+    *,
+    evidence_ids: set[str],
+    evidence_keys: set[str],
+) -> list[Mapping[str, Any]]:
+    merged: list[Mapping[str, Any]] = [dict(row) for row in live_rows]
+    seen_ids = {
+        evidence_id
+        for row in merged
+        if (evidence_id := _evidence_row_id(row)) is not None
+    }
+    seen_keys = {
+        evidence_key
+        for row in merged
+        if (evidence_key := _evidence_row_key(row)) is not None
+    }
+    for snapshot_row in snapshot_rows:
+        if not _evidence_row_is_cited(
+            snapshot_row,
+            evidence_ids=evidence_ids,
+            evidence_keys=evidence_keys,
+        ):
+            continue
+        evidence_id = _evidence_row_id(snapshot_row)
+        evidence_key = _evidence_row_key(snapshot_row)
+        if evidence_id is not None and evidence_id in seen_ids:
+            continue
+        if evidence_key is not None and evidence_key in seen_keys:
+            continue
+        row = dict(snapshot_row)
+        if row.get("id") is None and row.get("evidence_id") is not None:
+            row["id"] = row["evidence_id"]
+        merged.append(row)
+        if evidence_id is not None:
+            seen_ids.add(evidence_id)
+        if evidence_key is not None:
+            seen_keys.add(evidence_key)
+    return sorted(merged, key=lambda row: str(row.get("evidence_key") or ""))
+
+
+def _evidence_row_is_cited(
+    row: Mapping[str, Any],
+    *,
+    evidence_ids: set[str],
+    evidence_keys: set[str],
+) -> bool:
+    evidence_id = _evidence_row_id(row)
+    evidence_key = _evidence_row_key(row)
+    return (
+        evidence_id is not None
+        and evidence_id in evidence_ids
+        or evidence_key is not None
+        and evidence_key in evidence_keys
+    )
+
+
+def _evidence_row_id(row: Mapping[str, Any]) -> str | None:
+    value = row.get("id", row.get("evidence_id"))
+    return str(value) if value is not None else None
+
+
+def _evidence_row_key(row: Mapping[str, Any]) -> str | None:
+    value = row.get("evidence_key")
+    return str(value) if value is not None else None
 
 
 def _collect_evidence_identifiers(

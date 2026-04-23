@@ -24,13 +24,15 @@ Det här repot är i PRD- och storyfasen. Den första Python-scaffolden finns i 
 | Agent tool policies | Immutable policy contracts finns under `src/bidded/agents/tool_policy.py` för LLM-agenternas läs/skrivgränser och orchestratorns side effects. |
 | Agent output schemas | Strict Pydantic schemas finns under `src/bidded/agents/schemas.py` för Evidence Scout, Round 1 motions, Round 2 rebuttals, Judge decisions, evidence-claim validation, nullable `RequirementType` och kravtypade Judge-detaljer för blockers, risker, missing info och actions. |
 | Seedat demo-bolag och demo-tender | `bidded seed-demo-company` upsertar en större syntetisk IT-konsultprofil, `bidded seed-demo-states` skapar replaybara fixture-runs för `pending`, `succeeded`, `failed` och `needs_human_review`, `bidded register-demo-tender` registrerar en lokal text-PDF, och `bidded.evidence` kan konvertera profilfakta till idempotenta `company_profile` evidence rows. |
-| PDF-ingestion | `bidded.documents` kan ladda ned registrerade tender-PDF:er från Storage, extrahera text med PyMuPDF, ersätta deterministiska sidrefererade `document_chunks`, optionalt generera och lagra chunk embeddings i Python, och uppdatera `documents.parse_status`. |
+| PDF-ingestion | `bidded.documents` kan ladda ned registrerade tender- och godkända company KB-PDF:er från Storage, extrahera text med PyMuPDF, ersätta deterministiska sidrefererade `document_chunks`, optionalt generera och lagra chunk embeddings i Python, skapa excerpt-level evidens och uppdatera `documents.parse_status`. |
 | Retrieval | `bidded.retrieval` kan hämta top-K `document_chunks` med hybrid keyword-, regulatory glossary- och embedding/pgvector-ranking, deduplicerade chunk-resultat och deterministisk fallback utan live embeddings. |
 | Tender evidence board | `bidded.evidence` kan segmentera tenderchunks i klausuler, föreslå, klassificera, validera, deduplicera, upserta och slå upp `tender_document` evidence rows från retrieved chunks med stabila citation keys, deterministisk nullable `requirement_type`, regulatory-glossary metadata, clause-section metadata, contract-clause tag metadata och extraherade kontraktstermer. |
 | Evidence Scout node | `bidded.orchestration.evidence_scout` skapar sex kategoribundna retrieval-frågor, validerar mockade Claude-output mot resolved evidence IDs och låter graphen append:a `evidence_scout`/`evidence` agent_outputs endast för giltiga scoutfakta. |
 | Specialist motion node | `bidded.orchestration.specialist_motions` bygger evidence-locked Round 1 requests utan peer motions eller privat context, skickar kravtypad glossary-context, validerar strict `Round1Motion` output och tillåter formella Compliance-blockers bara för exclusion/qualification-evidens. |
 | Focused rebuttal node | `bidded.orchestration.specialist_rebuttals` bygger Round 2 requests med shared evidence board, alla validerade Round 1-motions, fokuspunkter för oenighet/blockers/missing info och append:ar fyra `round_2_rebuttal` agent_outputs först efter validering. |
 | Judge decision node | `bidded.orchestration.judge` bygger evidence-locked Judge requests med kravtypad glossary-context, validerar strict `JudgeDecision` output, gate:ar endast typade formella compliance blockers till `no_bid`, append:ar `final_decision` agent_output och skriver Supabase-kompatibla `bid_decisions` payloads med kravtyper i relevanta detaljer. |
+| BITF-style decision evidence audit | `bidded.orchestration.decision_evidence_audit` bygger en deterministisk claim/evidence-graf från validerade Judge-payloads och befintlig evidence board, verifierar källproveniens, flaggar svagt/otillräckligt stöd och sparar warning-only audit metadata utan Rust/MCP/OWL-runtime. |
+| Draft anbud pack | `bidded.orchestration.bid_response_draft` skapar reviewbara `bid_response_drafts` från `bid` eller `conditional_bid`, svarar bara med citerad tender/company-evidens, prioriterar sparat `bids`-pris och matchar godkända company KB-PDF:er som bilagor. |
 | Prepare and pending agent runs | `bidded prepare-run` validerar en uppladdad uppsättning tenderdokument, kör eller återanvänder PDF-ingestion, bygger tender- och bolagsevidens, skriver en läsbar preparation audit till run-metadata och skapar en `pending` run; `bidded prepare-manifest-run` registrerar och förbereder ett lokalt gitignored sju-PDF-fixture från manifest; `bidded create-pending-run` finns kvar som enklare run-context-kommando. |
 | Worker lifecycle CLI | `bidded worker` kör en specificerad pending run eller äldsta pending demo-run, uppdaterar `agent_runs`, kör graphen och persisterar normaliserade `agent_outputs` och `bid_decisions`. |
 | Operator run controls | `bidded run-status`, `bidded retry-run`, `bidded reset-stale-runs` och `bidded export-decision` visar auditstatus, demo trace, skapar lineage-kopplade retries, failar stale `running` runs och exporterar beslut med evidens. |
@@ -245,6 +247,7 @@ PRD:n beskriver en lokal CLI/worker. Den kan nu:
 
 - seeda demo-bolaget idempotent
 - registrera en lokal text-PDF som tenderdokument
+- registrera och ingest:a godkända company KB-PDF:er för certifikat, CV:n, referenser, policys och prisbilagor
 - ladda upp PDF:en till Supabase Storage och spara dokumentrad med checksumma
 - förbereda ett redan uppladdat procurement document set med ingestion, evidence och en `pending` run utan agentexekvering
 - skapa en `pending` agent run utan att köra LLM eller dokumentprocessing
@@ -256,6 +259,7 @@ PRD:n beskriver en lokal CLI/worker. Den kan nu:
 - skapa en ny `pending` retry-run kopplad till failed eller `needs_human_review` source-run utan att mutera immutable `agent_outputs`
 - resetta stale `running` runs till `failed` med explicit operator reason och status-guard
 - exportera en färdig decision bundle som Markdown och stabil JSON från `bid_decisions`, `agent_outputs` och citerade `evidence_items`
+- generera ett evidence-locked draft anbud med svar, citeringar, pris och bilagemanifest från `bid` eller `conditional_bid`
 - köra golden evals med `bidded eval-golden`, optionalt för ett valt case ID och med stabil JSON-/Markdown-output
 - jämföra normaliserade beslut med `bidded diff-decisions` över eval JSON, decision-export JSON eller persisted run IDs
 - uppdatera run-status till `running`, `succeeded`, `failed` eller `needs_human_review`
@@ -280,6 +284,20 @@ gitignored: `data/demo/incoming/Bilaga Skakrav.pdf`.
   --issuing-authority "Example Municipality" \
   --procurement-reference "REF-2026-001" \
   --metadata procedure=open
+```
+
+Godkända company KB-PDF:er kan registreras och parsas till `company_profile`
+evidence innan ett draft anbud skapas:
+
+```bash
+.venv/bin/bidded register-company-kb-pdf \
+  data/demo/company-kb/iso-27001.pdf \
+  --company-id "$COMPANY_ID" \
+  --source-label "ISO 27001 certificate" \
+  --attachment-type certificate
+
+.venv/bin/bidded ingest-company-kb-pdf \
+  --document-id "$COMPANY_KB_DOCUMENT_ID"
 ```
 
 Demo smoke använder samma Supabase- och Storage-inställningar. Om vald PDF saknas
@@ -408,6 +426,11 @@ for offline tests or fixture rehearsal.
   --markdown-path decision-bundle.md \
   --json-path decision-bundle.json
 
+.venv/bin/bidded generate-bid-draft \
+  --run-id "$AGENT_RUN_ID" \
+  --packet-dir output/draft-packet \
+  --json-path output/bid-draft.json
+
 .venv/bin/bidded eval-golden
 
 .venv/bin/bidded eval-golden \
@@ -459,7 +482,10 @@ status, export och fallback-replay finns i
 | Variabel | Används av | Kommentar |
 | --- | --- | --- |
 | `BIDDED_SWARM_BACKEND` | Python worker/API | Default `auto`: använder Anthropic-handlers när `ANTHROPIC_API_KEY` finns och annars deterministiska `evidence_locked`-handlers. Sätt `evidence_locked` för offline/test och `anthropic` för fail-fast livekrav. |
-| `BIDDED_ANTHROPIC_MODEL` | Python worker/API Anthropic swarm | Valfri modelloverride för swarmen; default dokumenteras i `.env.example`. |
+| `BIDDED_ANTHROPIC_MODEL` | Python worker/API Anthropic swarm | Legacy/single-modell och fallback för reasoning-modellen; default dokumenteras i `.env.example`. |
+| `BIDDED_ANTHROPIC_FAST_MODEL` | Python worker/API Anthropic swarm | Modell för bounded/low-risk steg i mixed routing, till exempel Evidence Scout, Win Strategist och Delivery/CFO. |
+| `BIDDED_ANTHROPIC_REASONING_MODEL` | Python worker/API Anthropic swarm | Modell för high-stakes steg i mixed routing, till exempel Judge, Red Team och blocker-risk. Defaultar till `BIDDED_ANTHROPIC_MODEL`. |
+| `BIDDED_ANTHROPIC_MODEL_ROUTING` | Python worker/API Anthropic swarm | Default `mixed`; sätt `single` för att tvinga alla Anthropic-steg till `BIDDED_ANTHROPIC_MODEL`. |
 | `ANTHROPIC_API_KEY` | Python worker/API Claude swarm | När nyckeln finns och ingen backend override är satt kör worker/API den riktiga Anthropic-swarmvägen. |
 
 ## Utvecklingsflöde Idag

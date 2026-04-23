@@ -73,6 +73,13 @@ class StaleResetResult:
     skipped_count: int
 
 
+@dataclass(frozen=True)
+class ArchiveRunResult:
+    run_id: UUID
+    archived_at: str
+    already_archived: bool
+
+
 NowFactory = Callable[[], datetime]
 
 
@@ -265,6 +272,64 @@ def reset_stale_runs(
     )
 
 
+def archive_agent_run(
+    client: SupabaseRunControlClient,
+    *,
+    run_id: UUID | str,
+    reason: str,
+    tenant_key: str = DEMO_TENANT_KEY,
+    now_factory: NowFactory | None = None,
+) -> ArchiveRunResult:
+    """Soft-archive an agent run while preserving immutable audit artifacts."""
+
+    normalized_run_id = _normalize_uuid(run_id, "run_id")
+    normalized_reason = reason.strip()
+    if not normalized_reason:
+        raise RunControlError("An operator reason is required for archive.")
+
+    run_row = _require_run_row(
+        client,
+        run_id=normalized_run_id,
+        tenant_key=tenant_key,
+    )
+    existing_archived_at = _optional_string(run_row.get("archived_at"))
+    if existing_archived_at is not None:
+        return ArchiveRunResult(
+            run_id=normalized_run_id,
+            archived_at=existing_archived_at,
+            already_archived=True,
+        )
+
+    timestamp = _timestamp(now_factory or _utc_now)
+    metadata = _archive_metadata(
+        _mapping(run_row.get("metadata")),
+        reason=normalized_reason,
+        timestamp=timestamp,
+    )
+    updated_rows = _response_rows(
+        client.table("agent_runs")
+        .update(
+            {
+                "archived_at": timestamp,
+                "archived_reason": normalized_reason,
+                "metadata": metadata,
+            }
+        )
+        .eq("tenant_key", tenant_key)
+        .eq("id", str(normalized_run_id))
+        .execute()
+    )
+    if not updated_rows:
+        raise RunControlError(
+            f"Agent run could not be archived because it changed: {normalized_run_id}"
+        )
+    return ArchiveRunResult(
+        run_id=normalized_run_id,
+        archived_at=timestamp,
+        already_archived=False,
+    )
+
+
 def _require_run_row(
     client: SupabaseRunControlClient,
     *,
@@ -383,6 +448,21 @@ def _operator_reset_metadata(
     return merged
 
 
+def _archive_metadata(
+    metadata: Mapping[str, Any],
+    *,
+    reason: str,
+    timestamp: str,
+) -> dict[str, Any]:
+    merged = dict(metadata)
+    merged["operator_control"] = {
+        "action": "archive_run",
+        "reason": reason,
+        "requested_at": timestamp,
+    }
+    return merged
+
+
 def _response_rows(response: Any) -> list[Mapping[str, Any]]:
     data = getattr(response, "data", None)
     if not isinstance(data, list):
@@ -442,17 +522,19 @@ def _utc_now() -> datetime:
 
 _AGENT_RUN_SELECT_COLUMNS = (
     "id,created_at,tenant_key,tender_id,company_id,status,run_config,"
-    "error_details,started_at,completed_at,metadata"
+    "error_details,started_at,completed_at,metadata,archived_at,archived_reason"
 )
 
 
 __all__ = [
+    "ArchiveRunResult",
     "DemoTraceEntry",
     "RetryRunResult",
     "RunControlError",
     "RunStatusSnapshot",
     "StaleResetResult",
     "SupabaseRunControlClient",
+    "archive_agent_run",
     "get_run_status",
     "reset_stale_runs",
     "retry_agent_run",

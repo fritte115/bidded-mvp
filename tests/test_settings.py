@@ -29,6 +29,32 @@ def test_bidded_swarm_backend_defaults_to_auto() -> None:
     assert BiddedSettings().bidded_swarm_backend == "auto"
 
 
+def test_anthropic_model_routing_defaults_to_mixed() -> None:
+    s = BiddedSettings()
+    assert s.bidded_anthropic_model_routing == "mixed"
+    assert s.bidded_anthropic_fast_model == "claude-haiku-4-5"
+    assert s.bidded_anthropic_reasoning_model == s.bidded_anthropic_model
+
+
+def test_anthropic_reasoning_model_defaults_to_legacy_model() -> None:
+    s = BiddedSettings(bidded_anthropic_model="claude-sonnet-custom")
+    assert s.bidded_anthropic_reasoning_model == "claude-sonnet-custom"
+
+
+def test_anthropic_routing_env_vars_normalize(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BIDDED_ANTHROPIC_MODEL_ROUTING", " SINGLE ")
+    monkeypatch.setenv("BIDDED_ANTHROPIC_FAST_MODEL", " claude-haiku-custom ")
+    monkeypatch.setenv("BIDDED_ANTHROPIC_REASONING_MODEL", " claude-sonnet-custom ")
+
+    s = BiddedSettings()
+
+    assert s.bidded_anthropic_model_routing == "single"
+    assert s.bidded_anthropic_fast_model == "claude-haiku-custom"
+    assert s.bidded_anthropic_reasoning_model == "claude-sonnet-custom"
+
+
 def test_bidded_swarm_backend_normalizes_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

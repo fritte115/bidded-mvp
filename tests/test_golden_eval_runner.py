@@ -13,12 +13,13 @@ from bidded.evals.golden_runner import (
     GoldenCaseEvalResult,
     GoldenEvalError,
     GoldenEvalReport,
+    evaluate_golden_case,
     recorded_golden_outcome,
     run_golden_evals,
     write_golden_eval_json,
     write_golden_eval_markdown,
 )
-from bidded.fixtures.golden_cases import GoldenDemoCase
+from bidded.fixtures.golden_cases import GoldenDemoCase, golden_demo_cases
 from bidded.orchestration import EvidenceSourceType, Verdict
 
 
@@ -218,6 +219,72 @@ def test_golden_eval_counts_unsupported_material_claims_separately() -> None:
     assert result.evidence_coverage.missing_citation_details[0].reason == (
         "unsupported_material_claim"
     )
+
+
+def test_golden_eval_fails_rejected_decision_evidence_audit() -> None:
+    def rejected_audit_outcome(case: GoldenDemoCase) -> GoldenActualOutcome:
+        return _expected_outcome_with_claim(
+            case,
+            decision_evidence_audit=_decision_evidence_audit("rejected"),
+        )
+
+    report = run_golden_evals(
+        case_id="obvious_bid",
+        outcome_provider=rejected_audit_outcome,
+    )
+
+    result = report.results[0]
+    assert not result.passed
+    assert result.decision_evidence_audit_gate == "rejected"
+    assert result.decision_evidence_audit_failures == (
+        "decision_evidence_audit gate rejected",
+    )
+
+
+def test_golden_eval_reports_flagged_decision_audit_without_failing() -> None:
+    def flagged_audit_outcome(case: GoldenDemoCase) -> GoldenActualOutcome:
+        return _expected_outcome_with_claim(
+            case,
+            decision_evidence_audit=_decision_evidence_audit("flagged"),
+        )
+
+    report = run_golden_evals(
+        case_id="obvious_bid",
+        outcome_provider=flagged_audit_outcome,
+    )
+
+    result = report.results[0]
+    assert result.passed
+    assert result.decision_evidence_audit_gate == "flagged"
+    assert result.decision_evidence_audit_warnings == (
+        "decision_evidence_audit gate flagged",
+    )
+
+
+def test_golden_eval_fails_flagged_audit_when_case_requires_strict_pass() -> None:
+    case = next(case for case in golden_demo_cases() if case.case_id == "obvious_bid")
+    strict_case = case.model_copy(
+        update={
+            "expected": case.expected.model_copy(
+                update={"requires_strict_decision_evidence_audit": True}
+            )
+        }
+    )
+
+    result = evaluate_golden_case(
+        strict_case,
+        actual=_expected_outcome_with_claim(
+            strict_case,
+            decision_evidence_audit=_decision_evidence_audit("flagged"),
+        ),
+    )
+
+    assert not result.passed
+    assert result.decision_evidence_audit_gate == "flagged"
+    assert result.decision_evidence_audit_failures == (
+        "decision_evidence_audit gate flagged",
+    )
+    assert result.decision_evidence_audit_warnings == ()
 
 
 @pytest.mark.parametrize(
@@ -624,6 +691,7 @@ def test_golden_eval_models_load_legacy_payloads_without_version_fields() -> Non
 def _expected_outcome_with_claim(
     case: GoldenDemoCase,
     *claims: EvidenceCoverageClaim,
+    decision_evidence_audit: dict[str, object] | None = None,
 ) -> GoldenActualOutcome:
     return GoldenActualOutcome(
         verdict=case.expected.verdict,
@@ -634,7 +702,31 @@ def _expected_outcome_with_claim(
         validation_errors=case.expected.validation_errors,
         evidence_refs=case.expected.required_evidence_refs,
         coverage_claims=claims,
+        decision_evidence_audit=decision_evidence_audit,
     )
+
+
+def _decision_evidence_audit(gate_verdict: str) -> dict[str, object]:
+    return {
+        "schema_version": "2026-04-23.decision-evidence-audit.v1",
+        "gate_verdict": gate_verdict,
+        "structural_score": 0.5,
+        "judge_confidence": 0.82,
+        "claim_count": 1,
+        "evidence_count": 1,
+        "support_edge_count": 1,
+        "supported_claim_count": 1,
+        "unsupported_claim_count": 0,
+        "weak_claim_count": 0,
+        "strong_claim_count": 1,
+        "source_verified_count": 1,
+        "source_unverified_count": 0,
+        "source_type_mismatch_count": 0,
+        "invalid_hard_blocker_count": 0,
+        "overconfident_decision": gate_verdict == "flagged",
+        "graph": {"claims": [], "evidence": [], "edges": []},
+        "findings": [],
+    }
 
 
 def _adversarial_failure_outcome(case: GoldenDemoCase) -> GoldenActualOutcome:
