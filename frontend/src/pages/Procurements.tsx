@@ -336,7 +336,6 @@ export default function Procurements() {
                     <TableHead>Procurement</TableHead>
                     <TableHead>Documents</TableHead>
                     <TableHead className="whitespace-nowrap">Latest run</TableHead>
-                    <TableHead className="w-14 text-center">Status</TableHead>
                     <TableHead>Stage</TableHead>
                     <TableHead>Decision</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -373,7 +372,14 @@ export default function Procurements() {
                             aria-label={`Select ${t.name}`}
                           />
                         </TableCell>
-                        <TableCell className="font-medium">{t.name}</TableCell>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate">{t.name}</span>
+                            {run && (
+                              <RunStatusDot status={run.status} isStale={run.isStale} />
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell className="align-top">
                           <div className="max-w-[240px] space-y-2">
                             <span className="inline-flex items-center gap-1.5 rounded-sm bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
@@ -419,13 +425,6 @@ export default function Procurements() {
                                 {formatRelativeTime(run.startedAt)}
                               </span>
                             </Link>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {run ? (
-                            <RunStatusDot status={run.status} isStale={run.isStale} />
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}
