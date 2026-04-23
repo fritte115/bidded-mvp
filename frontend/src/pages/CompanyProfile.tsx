@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
+import { CompanyKnowledgeBaseCard } from "@/components/CompanyKnowledgeBaseCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -176,6 +177,10 @@ export default function CompanyProfile() {
       />
 
       <div className="space-y-6">
+        {data.raw.id ? (
+          <CompanyKnowledgeBaseCard companyId={data.raw.id} companyName={company.name} />
+        ) : null}
+
         {/* Hero / identity card */}
         <Card className="overflow-hidden border-border/60 shadow-sm">
           <div className="h-24 bg-gradient-to-br from-primary/20 via-primary/8 to-transparent" />

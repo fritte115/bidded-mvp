@@ -39,6 +39,7 @@ import {
   mapRound1Output,
   mapRound2Output,
 } from "@/lib/agentOutputMapping";
+import { registerUploadedDocuments } from "@/lib/documentRegistration";
 import {
   buildSourceDecisionMetadata,
   mapBidRow,
@@ -281,6 +282,7 @@ function mockBidRows(): Bid[] {
 
 function mockDbCompany(): DbCompany {
   return {
+    id: "demo-company",
     name: mockCompany.name,
     organization_number: mockCompany.orgNumber === "—" ? null : mockCompany.orgNumber,
     headquarters_country: "SE",
@@ -333,6 +335,7 @@ function mockDbCompany(): DbCompany {
  * delivery_capacity, etc.) that the UI doesn't expose for editing but the
  * swarm relies on when materializing `company_profile` evidence items. */
 export interface DbCompany {
+  id?: string;
   name: string;
   organization_number: string | null;
   headquarters_country: string;
@@ -1099,28 +1102,17 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
 // Must match SUPABASE_STORAGE_BUCKET in .env
 const BUCKET_NAME = "public-procurements";
 
-function slugify(value: string): string {
-  const slug = value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .replace(/-{2,}/g, "-");
-  return slug || "tender";
-}
-
-function safePdfFilename(filename: string): string {
-  const stem = filename.replace(/\.pdf$/i, "");
-  return `${slugify(stem) || "document"}.pdf`;
-}
-
-function buildStoragePath(title: string, checksumHex: string, originalFilename: string): string {
-  return `demo/procurements/${slugify(title)}/${checksumHex.slice(0, 12)}-${safePdfFilename(originalFilename)}`;
-}
-
 export interface RegisterProcurementInput {
   title: string;
   issuingAuthority: string;
   files: File[];
+}
+
+export interface CompanyKnowledgeBaseDocument {
+  id: string;
+  originalFilename: string;
+  parseStatus: ProcurementDocumentRow["parseStatus"];
+  uploadedAt: string;
 }
 
 /**
@@ -1197,45 +1189,70 @@ export async function registerProcurement(input: RegisterProcurementInput): Prom
   if (tenderErr) throw new Error(`registerProcurement (tender upsert): ${tenderErr.message}`);
   const tenderId = (tenderRows as Array<{ id: string }>)[0].id;
 
-  // 3. For each PDF: compute SHA-256 → build path → upload → upsert document row
-  for (const file of input.files) {
-    const buffer = await file.arrayBuffer();
-    const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
-    const checksum = Array.from(new Uint8Array(hashBuffer))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-    const storagePath = buildStoragePath(input.title, checksum, file.name);
-
-    const { error: uploadErr } = await client.storage
-      .from(BUCKET_NAME)
-      .upload(storagePath, new Blob([buffer], { type: "application/pdf" }), {
-        contentType: "application/pdf",
-        upsert: true,
-      });
-    if (uploadErr)
-      throw new Error(
-        `registerProcurement (storage upload ${file.name}): ${uploadErr.message} [status: ${(uploadErr as { statusCode?: string }).statusCode ?? "?"}]`,
-      );
-
-    const { error: docErr } = await client.from("documents").upsert(
-      {
-        tenant_key: "demo",
-        tender_id: tenderId,
-        company_id: null,
-        storage_path: storagePath,
-        checksum_sha256: checksum,
-        content_type: "application/pdf",
-        document_role: "tender_document",
-        parse_status: "pending",
-        original_filename: file.name,
-        metadata: { registered_via: "frontend_ui", demo_company_id: companyId },
-      },
-      { onConflict: "storage_path" },
-    );
-    if (docErr) throw new Error(`registerProcurement (document upsert ${file.name}): ${docErr.message}`);
-  }
+  await registerUploadedDocuments({
+    client,
+    bucketName: BUCKET_NAME,
+    ownerName: input.title,
+    companyId,
+    tenderId,
+    files: input.files,
+    scope: "tender_document",
+    registeredVia: "frontend_ui",
+    metadata: { demo_company_id: companyId },
+  });
 
   return tenderId;
+}
+
+export async function fetchCompanyKnowledgeBaseDocuments(
+  companyId: string,
+): Promise<CompanyKnowledgeBaseDocument[]> {
+  if (isMockMode()) {
+    return [];
+  }
+
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from("documents")
+    .select("id, original_filename, parse_status, created_at")
+    .eq("tenant_key", "demo")
+    .eq("company_id", companyId)
+    .eq("document_role", "company_profile")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw new Error(`fetchCompanyKnowledgeBaseDocuments: ${error.message}`);
+  }
+
+  return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+    id: String(row.id),
+    originalFilename: String(row.original_filename ?? "Unknown.pdf"),
+    parseStatus: (row.parse_status as ProcurementDocumentRow["parseStatus"]) ?? "pending",
+    uploadedAt: String(row.created_at ?? ""),
+  }));
+}
+
+export async function uploadCompanyKnowledgeBaseDocuments(input: {
+  companyId: string;
+  companyName: string;
+  files: File[];
+}): Promise<void> {
+  if (isMockMode()) {
+    throw new Error(MOCK_MODE_WRITE_MESSAGE);
+  }
+
+  const client = requireSupabase();
+  await registerUploadedDocuments({
+    client,
+    bucketName: BUCKET_NAME,
+    ownerName: input.companyName,
+    companyId: input.companyId,
+    tenderId: null,
+    files: input.files,
+    scope: "company_profile",
+    registeredVia: "frontend_company_kb",
+    metadata: { demo_company_id: input.companyId },
+  });
 }
 
 // ---------------------------------------------------------------------------
