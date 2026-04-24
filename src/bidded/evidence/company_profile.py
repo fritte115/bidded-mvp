@@ -133,6 +133,15 @@ def build_company_profile_evidence_items(
         )
     )
     evidence_items.extend(
+        _build_public_financial_statement_history_evidence(
+            tenant_key=tenant_key,
+            company_id=company_id,
+            profile_label=profile_label,
+            source_label=source_label,
+            company_profile=company_profile,
+        )
+    )
+    evidence_items.extend(
         _build_website_import_evidence(
             tenant_key=tenant_key,
             company_id=company_id,
@@ -690,6 +699,99 @@ def _build_public_financial_snapshot_evidence(
             source_label=source,
             confidence=0.9,
             metadata=dict(snapshot),
+        )
+    ]
+
+
+def _build_public_financial_statement_history_evidence(
+    *,
+    tenant_key: str,
+    company_id: UUID,
+    profile_label: str,
+    source_label: str,
+    company_profile: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    rows = sorted(
+        _mapping_sequence(
+            _nested_mapping(company_profile, "profile_details").get(
+                "public_financial_statement_history",
+                [],
+            )
+        ),
+        key=lambda row: int(row.get("year", 0)),
+    )
+    if not rows:
+        return []
+
+    usable_rows = [
+        row
+        for row in rows
+        if isinstance(row.get("year"), int | float)
+        and isinstance(row.get("total_revenue_ksek"), int | float)
+    ]
+    if not usable_rows:
+        return []
+
+    first = usable_rows[0]
+    latest = usable_rows[-1]
+    first_year = int(first["year"])
+    latest_year = int(latest["year"])
+    first_revenue = first["total_revenue_ksek"]
+    latest_revenue = latest["total_revenue_ksek"]
+    latest_result = latest.get("result_after_financial_net_ksek")
+    source = str(latest.get("source_label") or source_label)
+
+    row_summaries: list[str] = []
+    for row in usable_rows:
+        year = int(row["year"])
+        revenue = row["total_revenue_ksek"]
+        result = row.get("result_after_financial_net_ksek")
+        operating_result = row.get("operating_result_after_depreciation_ksek")
+        summary_parts = [f"{year}: revenue {_format_number(revenue)} KSEK"]
+        if isinstance(operating_result, int | float):
+            summary_parts.append(
+                f"operating result {_format_number(operating_result)} KSEK"
+            )
+        if isinstance(result, int | float):
+            summary_parts.append(
+                f"result after financial net {_format_number(result)} KSEK"
+            )
+        row_summaries.append(", ".join(summary_parts))
+
+    normalized_tail = (
+        f" and result after financial net {_format_number(latest_result)} KSEK"
+        if isinstance(latest_result, int | float)
+        else ""
+    )
+
+    return [
+        _company_evidence_payload(
+            tenant_key=tenant_key,
+            company_id=company_id,
+            profile_label=profile_label,
+            fact_key=f"financial-history-{first_year}-{latest_year}",
+            field_path="profile_details.public_financial_statement_history",
+            category="financial_standing",
+            excerpt=(
+                f"{first_year}-{latest_year} public financial statement history: "
+                f"{'; '.join(row_summaries)}."
+            ),
+            normalized_meaning=(
+                "The company profile public financial history shows revenue grew "
+                f"from {_format_number(first_revenue)} KSEK in {first_year} to "
+                f"{_format_number(latest_revenue)} KSEK in {latest_year}"
+                f"{normalized_tail}."
+            ),
+            source_label=source,
+            confidence=0.9,
+            metadata={
+                "first_year": first_year,
+                "latest_year": latest_year,
+                "first_total_revenue_ksek": first_revenue,
+                "latest_total_revenue_ksek": latest_revenue,
+                "latest_result_after_financial_net_ksek": latest_result,
+                "rows": [dict(row) for row in usable_rows],
+            },
         )
     ]
 

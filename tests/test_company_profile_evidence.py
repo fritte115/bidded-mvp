@@ -154,6 +154,63 @@ def test_public_financial_snapshot_converts_to_financial_standing_evidence() -> 
     )
 
 
+def test_public_financial_statement_history_converts_to_evidence() -> None:
+    company_profile = build_demo_company_payload()
+    company_profile["profile_details"] = {
+        **company_profile["profile_details"],
+        "public_financial_statement_history": [
+            {
+                "year": 2020,
+                "net_revenue_ksek": 12884,
+                "other_revenue_ksek": 86,
+                "total_revenue_ksek": 12970,
+                "operating_expenses_ksek": -11234,
+                "operating_result_after_depreciation_ksek": 1736,
+                "financial_income_ksek": 0,
+                "financial_expenses_ksek": -5,
+                "result_after_financial_net_ksek": 1731,
+                "result_before_tax_ksek": 1391,
+                "tax_ksek": -225,
+                "net_income_ksek": 1166,
+            },
+            {
+                "year": 2024,
+                "net_revenue_ksek": 24700,
+                "other_revenue_ksek": 201,
+                "total_revenue_ksek": 24901,
+                "operating_expenses_ksek": -24881,
+                "operating_result_after_depreciation_ksek": 21,
+                "financial_income_ksek": 2,
+                "financial_expenses_ksek": -127,
+                "result_after_financial_net_ksek": -104,
+                "result_before_tax_ksek": -104,
+                "tax_ksek": 0,
+                "net_income_ksek": -104,
+            },
+        ],
+    }
+
+    evidence_items = build_company_profile_evidence_items(
+        company_id=COMPANY_ID,
+        company_profile=company_profile,
+    )
+
+    history = _item_by_path(
+        evidence_items,
+        "profile_details.public_financial_statement_history",
+    )
+
+    assert history["category"] == "financial_standing"
+    assert "2020-2024 public financial statement history" in history["excerpt"]
+    assert "2020: revenue 12,970 KSEK" in history["excerpt"]
+    assert "2024: revenue 24,901 KSEK" in history["excerpt"]
+    assert "revenue grew from 12,970 KSEK in 2020 to 24,901 KSEK in 2024" in (
+        history["normalized_meaning"]
+    )
+    assert history["metadata"]["first_year"] == 2020
+    assert history["metadata"]["latest_year"] == 2024
+
+
 def test_imported_website_profile_facts_convert_to_evidence() -> None:
     company_profile = build_demo_company_payload()
     company_profile["profile_details"] = {
