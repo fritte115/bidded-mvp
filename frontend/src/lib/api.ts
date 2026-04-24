@@ -217,6 +217,34 @@ function visibleMockRuns(): Run[] {
   return mockRuns.filter((run) => !archived.has(run.id));
 }
 
+function mockArchivedRuns(): ActiveRun[] {
+  const archived = readMockArchivedRunIds();
+  const runNumbers = mockRunNumberMap();
+  return mockRuns
+    .filter((run) => archived.has(run.id))
+    .map((run) => {
+      const lifecycle = mockLifecycle(run);
+      return {
+        id: run.id,
+        runNumber: runNumbers.get(run.id) ?? null,
+        tenderName: run.tenderName,
+        status: run.status,
+        isStale: lifecycle.isStale,
+        isArchived: true,
+        staleAgeMinutes: lifecycle.staleAgeMinutes,
+        stage: lifecycle.stage,
+        startedAt: run.startedAt,
+        completedAt: run.completedAt ?? null,
+        durationSec: run.durationSec ?? null,
+      };
+    })
+    .sort((left, right) => {
+      const leftTime = new Date(left.completedAt ?? left.startedAt).getTime();
+      const rightTime = new Date(right.completedAt ?? right.startedAt).getTime();
+      return rightTime - leftTime;
+    });
+}
+
 function mockLifecycle(run: Run): RunLifecycleDisplay {
   return runLifecycleForDisplay({
     status: run.status,
@@ -1352,7 +1380,7 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
 }
 
 export async function fetchArchivedRuns(): Promise<ActiveRun[]> {
-  if (isMockMode()) return [];
+  if (isMockMode()) return mockArchivedRuns();
 
   const client = requireSupabase();
   const { data, error } = await client
