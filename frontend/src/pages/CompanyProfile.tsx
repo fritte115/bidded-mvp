@@ -379,6 +379,11 @@ export default function CompanyProfile() {
     .slice(0, 2)
     .map((w) => w[0])
     .join("");
+  const legalName = company.legalName?.trim();
+  const legalNameToDisplay =
+    legalName && legalName.toLowerCase() !== company.name.trim().toLowerCase()
+      ? legalName
+      : null;
 
   const latestFinancial = company.financials?.[company.financials.length - 1];
   const firstFinancial = company.financials?.[0];
@@ -447,8 +452,8 @@ export default function CompanyProfile() {
                 </div>
                 <div className="min-w-0 pb-1.5">
                   <h2 className="truncate text-2xl font-bold tracking-tight">{company.name}</h2>
-                  {company.legalName && (
-                    <p className="text-sm text-muted-foreground">{company.legalName}</p>
+                  {legalNameToDisplay && (
+                    <p className="text-sm text-muted-foreground">{legalNameToDisplay}</p>
                   )}
                   <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                     <span className="inline-flex items-center gap-1.5">
@@ -531,7 +536,6 @@ export default function CompanyProfile() {
                     </div>
                   </PopoverContent>
                 </Popover>
-                <Badge variant="outline">Last reviewed 2 weeks ago</Badge>
               </div>
             </div>
 

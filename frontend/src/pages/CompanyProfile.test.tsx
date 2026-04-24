@@ -102,6 +102,16 @@ describe("CompanyProfile Knowledge Base", () => {
     vi.mocked(updateCompany).mockResolvedValue();
   });
 
+  it("does not duplicate the company name or stale review metadata in the identity header", async () => {
+    renderCompanyProfile();
+
+    expect(
+      await screen.findByRole("heading", { name: mockCompany.name }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Last reviewed 2 weeks ago")).not.toBeInTheDocument();
+    expect(screen.getAllByText(mockCompany.name)).toHaveLength(1);
+  });
+
   it("renders KB document status, evidence preview, and delete action", async () => {
     renderCompanyProfile();
 
