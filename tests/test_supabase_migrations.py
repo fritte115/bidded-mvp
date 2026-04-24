@@ -100,6 +100,19 @@ def _company_kb_sql() -> str:
     return migration_files[0].read_text()
 
 
+def _impact_solution_financials_sql() -> str:
+    migration_files = sorted(
+        (PROJECT_ROOT / "supabase" / "migrations").glob(
+            "*_realign_impact_solution_financials.sql"
+        )
+    )
+
+    assert [path.name for path in migration_files] == [
+        "20260424173000_realign_impact_solution_financials.sql"
+    ]
+    return migration_files[0].read_text()
+
+
 def _table_body(sql: str, table_name: str) -> str:
     match = re.search(
         rf"create table if not exists public\.{table_name}\s*\((?P<body>.*?)\);",
@@ -523,6 +536,32 @@ def test_company_kb_migration_adds_private_bucket_and_relaxes_provenance() -> No
     assert "page_end is not null" in sql
     assert "create index if not exists documents_company_profile_idx" in sql
     assert "create index if not exists evidence_items_company_document_idx" in sql
+
+
+def test_impact_solution_financials_reseed_uses_public_2024_company_data() -> None:
+    sql = re.sub(r"\s+", " ", _impact_solution_financials_sql().lower())
+
+    for required_fragment in [
+        "update public.companies",
+        "name = 'impact solution scandinavia ab'",
+        "organization_number = '556925-0516'",
+        "employee_count = 7",
+        "annual_revenue_sek = 24901000",
+        "'latest_public_financial_year', 2024",
+        "'latest_public_revenue_sek', 24901000",
+        "'latest_public_result_after_financial_items_sek', -104000",
+        "'latest_public_ebitda_sek', 580000",
+        "'latest_public_assets_sek', 11187000",
+        "'latest_public_equity_sek', 1511000",
+        "'latest_public_equity_ratio_percent', 14.9",
+        "jsonb_build_object('year', 2024, 'revenue_msek', 24.901",
+        "'ebit_margin_pct', 0.1, 'headcount', 7",
+        "'source_label', 'allabolag/uc, bolagsfakta and vainu public company data'",
+    ]:
+        assert required_fragment in sql
+
+    assert "559247-8112" not in sql
+    assert "fadi zemzemi" not in sql
 
 
 def test_auth_rbac_migration_adds_membership_model_and_helpers() -> None:

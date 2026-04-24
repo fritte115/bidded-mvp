@@ -113,6 +113,47 @@ def test_seeded_revenue_geography_and_economics_convert_to_evidence() -> None:
     assert "minimum acceptable margin is 22%" in margin["normalized_meaning"]
 
 
+def test_public_financial_snapshot_converts_to_financial_standing_evidence() -> None:
+    company_profile = build_demo_company_payload()
+    company_profile["profile_details"] = {
+        **company_profile["profile_details"],
+        "public_financial_snapshot": {
+            "financial_year": 2024,
+            "revenue_ksek": 24901,
+            "result_after_financial_items_ksek": -104,
+            "ebitda_ksek": 580,
+            "total_assets_ksek": 11187,
+            "equity_ksek": 1511,
+            "equity_ratio_percent": 14.9,
+            "cash_liquidity_percent": 52.0,
+            "source_label": "Allabolag/UC public company data",
+        },
+    }
+
+    evidence_items = build_company_profile_evidence_items(
+        company_id=COMPANY_ID,
+        company_profile=company_profile,
+    )
+
+    financial_snapshot = _item_by_path(
+        evidence_items,
+        "profile_details.public_financial_snapshot",
+    )
+
+    assert financial_snapshot["category"] == "financial_standing"
+    assert "2024 public financial snapshot" in financial_snapshot["excerpt"]
+    assert "24,901 KSEK" in financial_snapshot["excerpt"]
+    assert "-104 KSEK" in financial_snapshot["excerpt"]
+    assert "14.9%" in financial_snapshot["excerpt"]
+    assert "public annual-account snapshot" in financial_snapshot["normalized_meaning"]
+    assert financial_snapshot["metadata"]["financial_year"] == 2024
+    assert financial_snapshot["metadata"]["revenue_ksek"] == 24901
+    assert (
+        financial_snapshot["source_metadata"]["source_label"]
+        == "Allabolag/UC public company data"
+    )
+
+
 def test_imported_website_profile_facts_convert_to_evidence() -> None:
     company_profile = build_demo_company_payload()
     company_profile["profile_details"] = {

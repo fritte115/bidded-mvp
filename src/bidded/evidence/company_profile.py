@@ -124,6 +124,15 @@ def build_company_profile_evidence_items(
         )
     )
     evidence_items.extend(
+        _build_public_financial_snapshot_evidence(
+            tenant_key=tenant_key,
+            company_id=company_id,
+            profile_label=profile_label,
+            source_label=source_label,
+            company_profile=company_profile,
+        )
+    )
+    evidence_items.extend(
         _build_website_import_evidence(
             tenant_key=tenant_key,
             company_id=company_id,
@@ -612,6 +621,79 @@ def _build_economics_evidence(
     return evidence_items
 
 
+def _build_public_financial_snapshot_evidence(
+    *,
+    tenant_key: str,
+    company_id: UUID,
+    profile_label: str,
+    source_label: str,
+    company_profile: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    snapshot = _nested_mapping(
+        company_profile,
+        "profile_details",
+        "public_financial_snapshot",
+    )
+    if not snapshot:
+        return []
+
+    financial_year = snapshot.get("financial_year")
+    revenue_ksek = snapshot.get("revenue_ksek")
+    result_ksek = snapshot.get("result_after_financial_items_ksek")
+    ebitda_ksek = snapshot.get("ebitda_ksek")
+    assets_ksek = snapshot.get("total_assets_ksek")
+    equity_ksek = snapshot.get("equity_ksek")
+    equity_ratio = snapshot.get("equity_ratio_percent")
+    cash_liquidity = snapshot.get("cash_liquidity_percent")
+    if not isinstance(financial_year, int | float) or not isinstance(
+        revenue_ksek,
+        int | float,
+    ):
+        return []
+
+    source = str(snapshot.get("source_label") or source_label)
+    excerpt_parts = [
+        f"{_format_number(revenue_ksek)} KSEK revenue",
+    ]
+    if isinstance(result_ksek, int | float):
+        excerpt_parts.append(
+            f"{_format_number(result_ksek)} KSEK result after financial items"
+        )
+    if isinstance(ebitda_ksek, int | float):
+        excerpt_parts.append(f"{_format_number(ebitda_ksek)} KSEK EBITDA")
+    if isinstance(assets_ksek, int | float):
+        excerpt_parts.append(f"{_format_number(assets_ksek)} KSEK total assets")
+    if isinstance(equity_ksek, int | float):
+        excerpt_parts.append(f"{_format_number(equity_ksek)} KSEK equity")
+    if isinstance(equity_ratio, int | float):
+        excerpt_parts.append(f"{_format_percent(equity_ratio)} equity ratio")
+    if isinstance(cash_liquidity, int | float):
+        excerpt_parts.append(f"{_format_percent(cash_liquidity)} cash liquidity")
+
+    return [
+        _company_evidence_payload(
+            tenant_key=tenant_key,
+            company_id=company_id,
+            profile_label=profile_label,
+            fact_key=f"financial-snapshot-{int(financial_year)}",
+            field_path="profile_details.public_financial_snapshot",
+            category="financial_standing",
+            excerpt=(
+                f"{int(financial_year)} public financial snapshot: "
+                f"{'; '.join(excerpt_parts)}."
+            ),
+            normalized_meaning=(
+                f"The company profile includes a public annual-account snapshot "
+                f"for {int(financial_year)} with {_format_number(revenue_ksek)} "
+                "KSEK revenue."
+            ),
+            source_label=source,
+            confidence=0.9,
+            metadata=dict(snapshot),
+        )
+    ]
+
+
 def _build_website_import_evidence(
     *,
     tenant_key: str,
@@ -914,6 +996,11 @@ def _format_money(value: int | float) -> str:
 
 def _format_number(value: int | float) -> str:
     return f"{value:,.0f}"
+
+
+def _format_percent(value: int | float) -> str:
+    formatted = f"{value:,.1f}" if not float(value).is_integer() else f"{value:,.0f}"
+    return f"{formatted}%"
 
 
 def _format_plain_number(value: int | float) -> str:
