@@ -1293,7 +1293,7 @@ def _excerpt(text: str, max_len: int = 260) -> str:
     normalized = _normalize_text(text)
     if len(normalized) <= max_len:
         return normalized
-    return normalized[: max_len - 3].rstrip() + "..."
+    return normalized[:max_len].rstrip()
 
 
 def _normalize_text(text: str) -> str:

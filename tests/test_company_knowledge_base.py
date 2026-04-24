@@ -343,6 +343,45 @@ def test_ingest_company_kb_document_extracts_text_and_materializes_cited_evidenc
     assert "2027-03-31" in evidence["excerpt"]
 
 
+def test_rule_based_company_kb_extraction_uses_resolvable_excerpt_for_long_text() -> (
+    None
+):
+    client = RecordingCompanyKbClient()
+    long_capability_text = (
+        "Impact Solution delivers vending, retail, and workplace service concepts "
+        "with documented routines for assortment planning, customer onboarding, "
+        "operations, partner coordination, quality follow-up, and issue handling. "
+        "The delivery material describes named roles, practical execution steps, "
+        "and examples from previous public-sector-style bid responses."
+    )
+    [registered] = register_company_kb_documents(
+        client,
+        company_id=COMPANY_ID,
+        bucket_name="company-knowledge",
+        files=[
+            CompanyKbUploadFile(
+                filename="capability.txt",
+                content=long_capability_text.encode(),
+                content_type="text/plain",
+                kb_document_type=CompanyKbDocumentType.CAPABILITY_STATEMENT,
+            )
+        ],
+    )
+
+    result = ingest_company_kb_document(
+        client,
+        document_id=registered.document_id,
+        bucket_name="company-knowledge",
+    )
+
+    assert result.extraction_status == "extracted"
+    assert result.warnings == ()
+    evidence = client.rows["evidence_items"][0]
+    chunk = client.rows["document_chunks"][0]
+    assert evidence["excerpt"] in chunk["text"]
+    assert evidence["metadata"]["extraction_method"] == "rule_based"
+
+
 def test_ingest_company_kb_document_uses_fallback_on_extraction_failure() -> None:
     client = RecordingCompanyKbClient()
     [registered] = register_company_kb_documents(
