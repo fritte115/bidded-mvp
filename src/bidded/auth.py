@@ -24,7 +24,16 @@ def authenticate_supabase_jwt(
     *,
     settings: Any | None = None,
 ) -> AuthenticatedUser:
-    """Validate a Supabase HS256 access token and return the caller identity."""
+    """Validate a Supabase access token and return the caller identity.
+
+    Primary path: HS256 signature verification using SUPABASE_JWT_SECRET.
+
+    Dev fallback (no JWT secret): validates the token against Supabase's
+    /auth/v1/user endpoint using the service-role key. This is still secure —
+    Supabase will reject any token it didn't issue. Add SUPABASE_JWT_SECRET to
+    .env (Settings → API → JWT Secret in the Supabase dashboard) to use the
+    faster local-verification path.
+    """
     if not authorization:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -110,7 +119,7 @@ def _authenticated_user_from_claims(
     if not isinstance(user_id, str) or not user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Bearer token is missing a subject.",
+            detail="Supabase returned a user without an id.",
         )
 
     return AuthenticatedUser(

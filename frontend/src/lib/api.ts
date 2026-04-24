@@ -48,6 +48,7 @@ import {
   mapDecisionRow,
 } from "@/lib/bidIntegrationMapping";
 import { mapBidDraftPayload, type RawBidResponseDraft } from "@/lib/bidDraftMapping";
+import type { ProcurementDocumentRole } from "@/lib/procurementDocumentRoles";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1350,6 +1351,55 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
   });
 }
 
+export async function fetchArchivedRuns(): Promise<ActiveRun[]> {
+  if (isMockMode()) return [];
+
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from("agent_runs")
+    .select("id, status, started_at, created_at, completed_at, archived_at, metadata, tenders(title)")
+    .eq("tenant_key", "demo")
+    .not("archived_at", "is", null)
+    .order("archived_at", { ascending: false })
+    .limit(50);
+
+  if (error) throw new Error(`fetchArchivedRuns: ${error.message}`);
+
+  return (data ?? []).map((r: Record<string, unknown>) => {
+    const tender = r.tenders as { title: string } | null;
+    const startedAt = r.started_at as string | null;
+    const createdAt = r.created_at as string | null;
+    const completedAt = r.completed_at as string | null;
+    const durationSec =
+      startedAt && completedAt
+        ? Math.round(
+            (new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 1000,
+          )
+        : null;
+    const status = (r.status as RunStatus) ?? "pending";
+    const lifecycle = runLifecycleForDisplay({
+      status,
+      startedAt,
+      createdAt,
+      completedAt,
+      archivedAt: r.archived_at as string | null,
+      metadata: r.metadata,
+    });
+    return {
+      id: r.id as string,
+      tenderName: tender?.title ?? "Unknown procurement",
+      status,
+      isStale: lifecycle.isStale,
+      isArchived: true,
+      staleAgeMinutes: lifecycle.staleAgeMinutes,
+      stage: lifecycle.stage,
+      startedAt: startedAt ?? createdAt ?? "",
+      completedAt,
+      durationSec,
+    };
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Procurements
 // ---------------------------------------------------------------------------
@@ -1409,12 +1459,14 @@ function verdictFromBidDecisionRow(
   return { decision: null, needsJudgeReview: false };
 }
 
-export async function fetchProcurements(): Promise<ProcurementRow[]> {
+export async function fetchProcurements(page = 0, pageSize = 50): Promise<ProcurementRow[]> {
   if (isMockMode()) {
     return mockProcurementRows();
   }
 
   const client = requireSupabase();
+  const from = page * pageSize;
+  const to = from + pageSize - 1;
   const { data, error } = await client
     .from("tenders")
     .select(`
@@ -1434,7 +1486,8 @@ export async function fetchProcurements(): Promise<ProcurementRow[]> {
       )
     `)
     .eq("tenant_key", "demo")
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .range(from, to);
 
   if (error) throw new Error(`fetchProcurements: ${error.message}`);
 
@@ -1569,10 +1622,16 @@ export function safeDocumentFilename(filename: string): string {
 function buildStoragePath(title: string, checksumHex: string, originalFilename: string): string {
   return `demo/procurements/${slugify(title)}/${checksumHex.slice(0, 12)}-${safeDocumentFilename(originalFilename)}`;
 }
+
+export interface RegisterProcurementDocumentInput {
+  file: File;
+  procurementDocumentRole: ProcurementDocumentRole | null;
+}
+
 export interface RegisterProcurementInput {
   title: string;
   issuingAuthority: string;
-  files: File[];
+  documents: RegisterProcurementDocumentInput[];
 }
 
 /**
@@ -1664,7 +1723,8 @@ export async function registerProcurement(input: RegisterProcurementInput): Prom
   const tenderId = (tenderRows as Array<{ id: string }>)[0].id;
 
   // 3. For each document: compute SHA-256 -> upload -> upsert document row
-  for (const file of input.files) {
+  for (const document of input.documents) {
+    const file = document.file;
     const contentType = contentTypeForProcurementDocument(file);
     const buffer = await file.arrayBuffer();
     const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
@@ -1684,6 +1744,13 @@ export async function registerProcurement(input: RegisterProcurementInput): Prom
         `registerProcurement (storage upload ${file.name}): ${uploadErr.message} [status: ${(uploadErr as { statusCode?: string }).statusCode ?? "?"}]`,
       );
 
+    const metadata: Record<string, string> = {
+      registered_via: "frontend_ui",
+      demo_company_id: companyId,
+    };
+    if (document.procurementDocumentRole) {
+      metadata.procurement_document_role = document.procurementDocumentRole;
+    }
     const { error: docErr } = await client.from("documents").upsert(
       {
         tenant_key: "demo",
@@ -1695,7 +1762,7 @@ export async function registerProcurement(input: RegisterProcurementInput): Prom
         document_role: "tender_document",
         parse_status: "pending",
         original_filename: file.name,
-        metadata: { registered_via: "frontend_ui", demo_company_id: companyId },
+        metadata,
       },
       { onConflict: "storage_path" },
     );
@@ -2580,6 +2647,222 @@ export async function archiveAgentRun(
     const body = await res.json().catch(() => ({}));
     throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
   }
+}
+
+export async function deleteAgentRun(runId: string): Promise<void> {
+  if (isMockMode()) {
+    archiveMockAgentRun(runId);
+    return;
+  }
+
+  const token = await requireAccessToken();
+  const res = await fetch(`${AGENT_API_URL}/api/runs/${encodeURIComponent(runId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
+  }
+}
+
+export async function enrichCompanyFromBolagsverket(
+  orgNumber: string,
+  companyId?: string,
+): Promise<Record<string, unknown>> {
+  if (isMockMode()) throw new Error(MOCK_MODE_WRITE_MESSAGE);
+  const token = await requireAccessToken();
+  const res = await fetch(`${AGENT_API_URL}/api/company/enrich`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ organization_number: orgNumber, company_id: companyId }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
+  }
+  return body as Record<string, unknown>;
+}
+
+export async function fetchTendersFromTed(page = 1, limit = 25): Promise<void> {
+  if (isMockMode()) throw new Error(MOCK_MODE_WRITE_MESSAGE);
+  const token = await requireAccessToken();
+  const res = await fetch(`${AGENT_API_URL}/api/tenders/fetch-from-ted`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ page, limit }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
+  }
+}
+
+function normalizeTedTender(raw: Record<string, unknown>): import("@/data/exploreMock").ExternalTender {
+  const estimatedValueMSEK = (() => {
+    const v = raw.estimated_value_msek ?? raw.estimatedValueMSEK ?? raw.value_msek ?? raw.estimated_value;
+    if (typeof v === "number" && isFinite(v) && v > 0) return v;
+    if (typeof v === "string") {
+      const n = parseFloat(v);
+      if (isFinite(n) && n > 0) return n;
+    }
+    return 0;
+  })();
+
+  const deadline = (() => {
+    const d = raw.deadline ?? raw.submission_deadline ?? raw.closing_date;
+    if (typeof d === "string" && d.length > 0 && !isNaN(new Date(d).getTime())) return d;
+    return new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  })();
+
+  const publishedAt = (() => {
+    const d = raw.published_at ?? raw.publishedAt ?? raw.publication_date ?? raw.created_at;
+    if (typeof d === "string" && d.length > 0 && !isNaN(new Date(d).getTime())) return d;
+    return new Date().toISOString();
+  })();
+
+  const cpvCodes = (() => {
+    const c = raw.cpv_codes ?? raw.cpvCodes ?? raw.cpv;
+    if (Array.isArray(c)) return c.map(String).filter(Boolean);
+    if (typeof c === "string" && c.length > 0) return [c];
+    return [];
+  })();
+
+  const pubNumber = String(raw.publicationNumber ?? raw.publication_number ?? raw.pub_number ?? "");
+
+  return {
+    id: String(raw.id ?? raw.ted_id ?? pubNumber ?? `ted-${Date.now()}-${Math.random()}`),
+    source: (raw.source as import("@/data/exploreMock").ExternalSource) ?? "TED",
+    title: String(raw.title ?? raw.notice_title ?? "Untitled tender"),
+    buyer: String(raw.buyer ?? raw.contracting_authority ?? raw.issuing_authority ?? "Unknown authority"),
+    country: String(raw.country ?? raw.country_code ?? "SE"),
+    nutsCode: String(raw.nuts_code ?? raw.nutsCode ?? raw.nuts ?? ""),
+    cpvCodes,
+    procedureType: (raw.procedure_type ?? raw.procedureType ?? "Open") as import("@/data/exploreMock").ExternalTender["procedureType"],
+    contractType: (raw.contract_type ?? raw.contractType ?? "Services") as import("@/data/exploreMock").ExternalTender["contractType"],
+    estimatedValueMSEK,
+    currency: (raw.currency ?? "SEK") as "SEK" | "EUR",
+    publishedAt,
+    deadline,
+    summary: String(raw.summary ?? raw.description ?? raw.short_description ?? ""),
+    requirements: (() => {
+      const r = raw.requirements;
+      if (Array.isArray(r)) return r.map(String).filter(Boolean);
+      return [];
+    })(),
+    sourceUrl: String(raw.source_url ?? raw.sourceUrl ?? raw.url ?? raw.ted_url ?? ""),
+    attachments: (() => {
+      const a = raw.attachments;
+      if (Array.isArray(a)) return a as import("@/data/exploreMock").ExternalAttachment[];
+      return [];
+    })(),
+    ...(pubNumber && { publicationNumber: pubNumber }),
+    // Pass through any extra fields from the search (evaluationCriteria, contractDurationMonths etc.)
+    ...(raw.evaluationCriteria != null && { evaluationCriteria: raw.evaluationCriteria as { name: string; weight: number }[] }),
+    ...(raw.contractDurationMonths != null && { contractDurationMonths: raw.contractDurationMonths as number }),
+    ...(raw.submissionLanguage != null && { submissionLanguage: raw.submissionLanguage as string }),
+    ...(raw.languages != null && { languages: raw.languages as string[] }),
+    ...(raw.lots != null && { lots: raw.lots as number }),
+    ...(raw.framework != null && { framework: raw.framework as boolean }),
+  };
+}
+
+export async function fetchExploreTenders(): Promise<import("@/data/exploreMock").ExternalTender[]> {
+  if (isMockMode()) {
+    const { externalTenders } = await import("@/data/exploreMock");
+    return externalTenders;
+  }
+
+  try {
+    const token = await requireAccessToken();
+    const res = await fetch(`${AGENT_API_URL}/api/tenders/search?page=1&limit=50`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      // Backend unavailable (502/503) or TED API down — fall back to mock data silently
+      const { externalTenders } = await import("@/data/exploreMock");
+      return externalTenders;
+    }
+    const body = await res.json();
+    const raw = (body.tenders ?? body.results ?? body.items ?? body ?? []) as unknown[];
+    return Array.isArray(raw)
+      ? raw.map((t) => normalizeTedTender(t as Record<string, unknown>))
+      : [];
+  } catch {
+    const { externalTenders } = await import("@/data/exploreMock");
+    return externalTenders;
+  }
+}
+
+export async function fetchMoreExploreTenders(page: number): Promise<import("@/data/exploreMock").ExternalTender[]> {
+  if (isMockMode()) {
+    return [];
+  }
+
+  try {
+    const token = await requireAccessToken();
+    const res = await fetch(`${AGENT_API_URL}/api/tenders/search?page=${page}&limit=50`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return [];
+    const body = await res.json();
+    const raw = (body.tenders ?? body.results ?? body.items ?? body ?? []) as unknown[];
+    return Array.isArray(raw)
+      ? raw.map((t) => normalizeTedTender(t as Record<string, unknown>))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export interface NoticeDetail {
+  publicationNumber: string;
+  summary?: string;
+  requirements?: string[];
+  evaluationCriteria?: { name: string; weight: number }[];
+  contractDurationMonths?: number;
+  contactName?: string;
+  contactEmail?: string;
+  submissionLanguage?: string;
+  languages?: string[];
+  lots?: number;
+  framework?: boolean;
+  certifications?: string[];
+}
+
+export async function fetchNoticeDetail(pubNumber: string): Promise<NoticeDetail | null> {
+  if (isMockMode()) return null;
+  try {
+    const token = await requireAccessToken();
+    const res = await fetch(
+      `${AGENT_API_URL}/api/tenders/notice/${encodeURIComponent(pubNumber)}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!res.ok) return null;
+    return (await res.json()) as NoticeDetail;
+  } catch {
+    return null;
+  }
+}
+
+export async function downloadBidDocument(runId: string): Promise<Blob> {
+  if (isMockMode()) throw new Error(MOCK_MODE_WRITE_MESSAGE);
+  const token = await requireAccessToken();
+  const res = await fetch(
+    `${AGENT_API_URL}/api/runs/${encodeURIComponent(runId)}/bid-document`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
+  }
+  return res.blob();
 }
 
 export async function startAgentRun(tenderId: string): Promise<string> {

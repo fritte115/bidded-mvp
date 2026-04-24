@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { fetchBids, updateBidStatus, fetchProcurements } from "@/lib/api";
+import { fetchBids, updateBidStatus, fetchProcurements, deleteBid } from "@/lib/api";
 import { usePermissions } from "@/lib/auth";
 import { summarizeBidPipeline } from "@/lib/bidIntegrationMapping";
 import {
@@ -35,6 +35,16 @@ import {
   Send,
   Target,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 
 type SortKey = "updated" | "rate" | "margin";
@@ -58,6 +68,8 @@ export default function Bids() {
   const [expandedColumns, setExpandedColumns] = useState<Record<BidStatus, boolean>>({
     draft: false, review: false, submitted: false, won: false, lost: false,
   });
+  const [deletingBidId, setDeletingBidId] = useState<string | null>(null);
+  const [pendingDeleteBid, setPendingDeleteBid] = useState<{ id: string; name: string } | null>(null);
 
   const { data: bids = [], isLoading } = useQuery({
     queryKey: ["bids"],
@@ -130,6 +142,24 @@ export default function Bids() {
   const handleEdit = (id: string) => {
     if (!permissions.canManageBids) return;
     navigate(`/bids/${id}/edit`);
+  };
+
+  const handleDeleteBid = async () => {
+    if (!pendingDeleteBid) return;
+    const { id, name } = pendingDeleteBid;
+    setPendingDeleteBid(null);
+    setDeletingBidId(id);
+    try {
+      await deleteBid(id);
+      await queryClient.invalidateQueries({ queryKey: ["bids"] });
+      toast.success("Bid deleted", { description: name });
+    } catch (err) {
+      toast.error("Delete failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setDeletingBidId(null);
+    }
   };
 
   return (
@@ -258,6 +288,7 @@ export default function Bids() {
                           canManage={permissions.canManageBids}
                           onMove={handleMove}
                           onEdit={handleEdit}
+                          onDelete={(id, name) => setPendingDeleteBid({ id, name })}
                         />
                       ))}
                       {items.length > COLLAPSED_LIMIT && (
@@ -282,6 +313,31 @@ export default function Bids() {
           })}
         </div>
       )}
+
+      <AlertDialog
+        open={!!pendingDeleteBid}
+        onOpenChange={(open) => { if (!open) setPendingDeleteBid(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete bid?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The bid for{" "}
+              <span className="font-medium text-foreground">{pendingDeleteBid?.name}</span>{" "}
+              will be permanently removed. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleDeleteBid}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
