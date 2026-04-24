@@ -766,7 +766,7 @@ export default function Procurements() {
                               </span>
                             </div>
                           ) : (
-                            <span className="text-muted-foreground">—</span>
+                            null
                           )}
                         </TableCell>
 
@@ -783,7 +783,7 @@ export default function Procurements() {
                               <StageProgressDots stage={isFinishedRun ? "finished" : run.stage} status={run.status} />
                             </div>
                           ) : (
-                            <span className="text-muted-foreground">—</span>
+                            null
                           )}
                         </TableCell>
 
@@ -1016,7 +1016,7 @@ export default function Procurements() {
                           </td>
                           <td className="px-4 py-2.5 text-xs text-muted-foreground">{formatRelativeTime(r.startedAt)}</td>
                           <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
-                            {r.durationSec ? `${Math.round(r.durationSec)}s` : "—"}
+                            {r.durationSec ? `${Math.round(r.durationSec)}s` : null}
                           </td>
                           <td className="px-4 py-2.5 text-right">
                             <div className="flex items-center justify-end gap-1">
