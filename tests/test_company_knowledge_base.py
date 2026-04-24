@@ -13,6 +13,8 @@ from bidded.documents.company_kb import (
     EvidenceExcerptRef,
     ExtractedCompanyKbFact,
     ExtractedCompanyKbFacts,
+    _excerpt,
+    _repair_pdf_text_extraction_artifacts,
     delete_company_kb_document,
     ingest_company_kb_document,
     list_company_kb_documents,
@@ -380,6 +382,32 @@ def test_rule_based_company_kb_extraction_uses_resolvable_excerpt_for_long_text(
     chunk = client.rows["document_chunks"][0]
     assert evidence["excerpt"] in chunk["text"]
     assert evidence["metadata"]["extraction_method"] == "rule_based"
+
+
+def test_pdf_text_artifact_repair_handles_common_ligature_glyph_errors() -> None:
+    extracted = (
+        "ICA Nära Hovslä. Vår samarbetspartner för de0a anbud är ICA Nära "
+        "Hovslä0, som är den aktuella påfyllaren för varuautomater >ll "
+        "Räddningstjänsten Storgöteborg. Butiken ICA Nära Hovslätt är erfaren."
+    )
+
+    repaired = _repair_pdf_text_extraction_artifacts(extracted)
+
+    assert "de0a" not in repaired
+    assert "Hovslä0" not in repaired
+    assert ">ll" not in repaired
+    assert "detta anbud" in repaired
+    assert repaired.startswith("ICA Nära Hovslätt")
+    assert "varuautomater till Räddningstjänsten" in repaired
+
+
+def test_company_kb_excerpt_truncates_at_word_boundary() -> None:
+    excerpt = _excerpt(
+        "alpha beta gamma delta epsilon",
+        max_len=18,
+    )
+
+    assert excerpt == "alpha beta gamma"
 
 
 def test_ingest_company_kb_document_uses_fallback_on_extraction_failure() -> None:

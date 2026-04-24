@@ -64,6 +64,32 @@ const kbDocumentTypes: Array<{ value: CompanyKbDocumentType; label: string }> = 
   { value: "legal_insurance", label: "Legal/insurance" },
 ];
 
+function inferCompanyKbDocumentType(filename: string): CompanyKbDocumentType {
+  const normalized = filename
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  if (/\b(iso|cert|certifikat|intyg)\b/.test(normalized)) {
+    return "certification";
+  }
+  if (/referens|case|kundcase/.test(normalized)) {
+    return "case_study";
+  }
+  if (/\b(cv|profil)\b/.test(normalized)) {
+    return "cv_profile";
+  }
+  if (/miljo|kvalitet|policy|process|rutin|hallbar/.test(normalized)) {
+    return "policy_process";
+  }
+  if (/pris|kostnad|finans|ekonomi|budget|marginal/.test(normalized)) {
+    return "financial_pricing";
+  }
+  if (/avtal|forsakring|jurid|legal/.test(normalized)) {
+    return "legal_insurance";
+  }
+  return "capability_statement";
+}
+
 const COMPLETENESS_FIELDS: {
   key: string;
   label: string;
@@ -241,7 +267,7 @@ export default function CompanyProfile() {
       .filter((file) => allowed.has(file.name.split(".").pop()?.toLowerCase() ?? ""))
       .map((file) => ({
         file,
-        kbDocumentType: "certification" as CompanyKbDocumentType,
+        kbDocumentType: inferCompanyKbDocumentType(file.name),
       }));
     const zippedPdfFiles = await normalizeDocumentUploads(
       allFiles.filter(
@@ -252,7 +278,7 @@ export default function CompanyProfile() {
       ...directFiles,
       ...zippedPdfFiles.accepted.map((item) => ({
         file: item.file,
-        kbDocumentType: "certification" as CompanyKbDocumentType,
+        kbDocumentType: inferCompanyKbDocumentType(item.file.name),
       })),
     ];
 

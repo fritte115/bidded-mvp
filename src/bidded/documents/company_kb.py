@@ -866,15 +866,24 @@ def _extract_pdf_units(file_bytes: bytes) -> list[ExtractedTextUnit]:
     except Exception as exc:
         raise CompanyKbError(f"PDF extraction failed: {exc}") from exc
     try:
-        return [
-            ExtractedTextUnit(
-                unit_number=page.number + 1,
-                text=_normalize_text(page.get_text("text")),
-                metadata={"location_type": "page", "page_numbers": [page.number + 1]},
+        units: list[ExtractedTextUnit] = []
+        for page in document:
+            text = _repair_pdf_text_extraction_artifacts(
+                _normalize_text(page.get_text("text"))
             )
-            for page in document
-            if _normalize_text(page.get_text("text"))
-        ]
+            if not text:
+                continue
+            units.append(
+                ExtractedTextUnit(
+                    unit_number=page.number + 1,
+                    text=text,
+                    metadata={
+                        "location_type": "page",
+                        "page_numbers": [page.number + 1],
+                    },
+                )
+            )
+        return units
     finally:
         document.close()
 
@@ -1293,7 +1302,60 @@ def _excerpt(text: str, max_len: int = 260) -> str:
     normalized = _normalize_text(text)
     if len(normalized) <= max_len:
         return normalized
-    return normalized[:max_len].rstrip()
+    truncated = normalized[:max_len].rstrip()
+    if " " in truncated:
+        return truncated.rsplit(" ", 1)[0]
+    return truncated
+
+
+_PDF_ARTIFACT_LETTERS = "A-Za-zÅÄÖåäöÉéÈèÜü"
+
+
+def _repair_pdf_text_extraction_artifacts(text: str) -> str:
+    """Repair common bad ToUnicode mappings from exported Office PDFs.
+
+    Some Calibri-based PDFs map ligature-like glyphs to punctuation or digits
+    even though the visual PDF is correct. Keep this intentionally narrow so
+    normal technical symbols and numbers are not rewritten.
+    """
+
+    repaired = text
+    repaired = re.sub(r"(?<!\S)>ll\b", "till", repaired)
+    repaired = re.sub(
+        rf"\b>(?=[{_PDF_ARTIFACT_LETTERS}])",
+        "ti",
+        repaired,
+    )
+    repaired = re.sub(
+        rf"(?<=[{_PDF_ARTIFACT_LETTERS}])>(?=[{_PDF_ARTIFACT_LETTERS}])",
+        "ti",
+        repaired,
+    )
+    repaired = re.sub(
+        rf"(?<=[{_PDF_ARTIFACT_LETTERS}])0(?=[{_PDF_ARTIFACT_LETTERS}]|[,.!?;:]|\s|$)",
+        "tt",
+        repaired,
+    )
+    return _repair_truncated_tt_words(repaired)
+
+
+def _repair_truncated_tt_words(text: str) -> str:
+    words = sorted(
+        set(re.findall(rf"\b[{_PDF_ARTIFACT_LETTERS}]{{5,}}tt\b", text)),
+        key=len,
+        reverse=True,
+    )
+    repaired = text
+    for word in words:
+        prefix = word[:-2]
+        if len(prefix) < 4:
+            continue
+        repaired = re.sub(
+            rf"\b{re.escape(prefix)}\.(?=\s|$)",
+            word,
+            repaired,
+        )
+    return repaired
 
 
 def _normalize_text(text: str) -> str:
