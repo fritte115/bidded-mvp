@@ -34,6 +34,8 @@ def _run_setup_function(
     env["WORKTREE_ROOT"] = str(worktree)
     if xdg_config_home is not None:
         env["XDG_CONFIG_HOME"] = str(xdg_config_home)
+    else:
+        env.pop("XDG_CONFIG_HOME", None)
 
     return subprocess.run(
         [
@@ -112,6 +114,7 @@ def test_ensure_env_file_prefers_git_configured_source(tmp_path: Path) -> None:
 
     git_env = os.environ.copy()
     git_env["HOME"] = str(home)
+    git_env.pop("XDG_CONFIG_HOME", None)
     subprocess.run(
         [
             "git",
