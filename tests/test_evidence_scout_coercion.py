@@ -81,3 +81,29 @@ def test_validate_evidence_scout_preserves_explicit_claim() -> None:
     }
     out = validate_evidence_scout_output(raw, evidence_board=board)
     assert out.findings[0].claim == "Explicit claim only."
+
+
+def test_validate_evidence_scout_coerces_title_like_agent_role() -> None:
+    board = _minimal_board()
+    raw = {
+        "agent_role": "Evidence Scout — Procurement extraction and categorization",
+        "findings": [
+            {
+                "category": "deadline",
+                "claim": "Bids close at noon.",
+                "evidence_refs": [
+                    {
+                        "evidence_key": "TENDER-DEADLINE-001",
+                        "source_type": "tender_document",
+                        "evidence_id": str(_EID),
+                    }
+                ],
+            }
+        ],
+        "missing_info": [],
+        "potential_blockers": [],
+    }
+
+    out = validate_evidence_scout_output(raw, evidence_board=board)
+
+    assert out.agent_role == "evidence_scout"
