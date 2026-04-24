@@ -119,6 +119,9 @@ def normalize_website_url(raw_url: str) -> str:
     if not stripped:
         raise WebsiteImportError("URL is required.")
     if "://" not in stripped:
+        email_domain = _domain_from_bare_email_address(stripped)
+        if email_domain:
+            stripped = email_domain
         stripped = f"https://{stripped}"
 
     url_without_fragment, _fragment = urldefrag(stripped)
@@ -135,6 +138,17 @@ def normalize_website_url(raw_url: str) -> str:
     return urlunparse(
         parsed._replace(scheme=parsed.scheme.lower(), netloc=netloc, path=path)
     )
+
+
+def _domain_from_bare_email_address(value: str) -> str | None:
+    if any(separator in value for separator in ("/", "?", "#")):
+        return None
+    if value.count("@") != 1:
+        return None
+    local_part, domain = value.rsplit("@", 1)
+    if not local_part or not domain or "." not in domain:
+        return None
+    return domain
 
 
 class UrlLibWebsitePageFetcher:
