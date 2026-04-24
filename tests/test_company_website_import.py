@@ -129,6 +129,27 @@ def test_import_treats_bare_email_address_as_website_domain() -> None:
     assert preview["source_url"] == "https://impactsolution.se/"
 
 
+def test_import_strips_email_userinfo_without_password() -> None:
+    fetcher = RecordingFetcher(
+        {
+            "https://impactsolution.se/": (
+                "<html><body><p>Impact Solution provides workplace vending.</p>"
+                "</body></html>"
+            )
+        }
+    )
+
+    preview = import_company_website(
+        url="https://info@impactsolution.se/",
+        fetcher=fetcher,
+        extractor=RecordingExtractor(),
+        host_resolver=lambda _host: ("93.184.216.34",),
+    )
+
+    assert fetcher.requested_urls == ["https://impactsolution.se/"]
+    assert preview["source_url"] == "https://impactsolution.se/"
+
+
 def test_import_rejects_explicit_url_credentials() -> None:
     with pytest.raises(WebsiteImportError, match="URL credentials"):
         import_company_website(

@@ -130,6 +130,8 @@ def normalize_website_url(raw_url: str) -> str:
         raise WebsiteImportError("Only http and https URLs can be imported.")
     if not parsed.hostname:
         raise WebsiteImportError("URL must include a host.")
+    if parsed.username and not parsed.password:
+        parsed = parsed._replace(netloc=parsed.hostname)
     if parsed.username or parsed.password:
         raise WebsiteImportError("URL credentials are not allowed.")
 
