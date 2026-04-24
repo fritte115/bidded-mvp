@@ -101,6 +101,13 @@ class InvalidEvidenceRound2Model(RecordingRound2Model):
         return payload
 
 
+class MissingConfidenceRound2Model(RecordingRound2Model):
+    def draft_rebuttal(self, request: Round2RebuttalRequest) -> dict[str, Any]:
+        payload = super().draft_rebuttal(request)
+        payload.pop("confidence", None)
+        return payload
+
+
 def _ready_state() -> BidRunState:
     return BidRunState(
         run_id=RUN_ID,
@@ -304,3 +311,30 @@ def test_invalid_round_2_rebuttal_drops_hallucinated_disagreement() -> None:
         for ref in d.get("evidence_refs", [])
     }
     assert "TENDER-HALLUCINATED-DOES-NOT-EXIST" not in hallucinated_keys
+
+
+def test_round_2_rebuttal_fills_missing_confidence_from_round_1_motion() -> None:
+    handlers = replace(
+        default_graph_node_handlers(),
+        round_1_specialist=_round_1_motion,
+        round_2_rebuttal=build_round_2_rebuttal_handler(
+            MissingConfidenceRound2Model()
+        ),
+    )
+
+    result = run_bidded_graph_shell(_ready_state(), handlers=handlers)
+
+    assert result.state.status is AgentRunStatus.SUCCEEDED
+    rebuttal_rows = [
+        output
+        for output in result.state.agent_outputs
+        if output.round_name == "round_2_rebuttal"
+    ]
+    assert len(rebuttal_rows) == 4
+    assert {row.payload["confidence"] for row in rebuttal_rows} == {0.74}
+    assert all(
+        row.validation_errors
+        and row.validation_errors[0].field_path == "confidence"
+        and "omitted confidence" in row.validation_errors[0].message
+        for row in rebuttal_rows
+    )
