@@ -38,3 +38,13 @@ expose `lovable_*` views matching those shapes.
 npm install
 npm run dev
 ```
+
+Vite binds to `127.0.0.1` by default and will automatically choose the next
+available port when another worktree is already using `8080`. Use the URL Vite
+prints in the terminal. Override with `FRONTEND_DEV_HOST` or
+`FRONTEND_DEV_PORT` only when you intentionally need a specific address.
+
+When `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are missing in local
+development, the app starts with a local demo admin user so new worktrees remain
+usable without copying secrets. Add `frontend/.env` only when testing live
+Supabase login and writes.

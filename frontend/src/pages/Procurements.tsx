@@ -81,14 +81,6 @@ const RUN_STATUS_LABELS = {
   needs_human_review: "Review",
 } as const;
 
-const STATUS_DOT: Record<RunStatus, string> = {
-  pending: "bg-muted-foreground",
-  running: "bg-info",
-  succeeded: "bg-success",
-  failed: "bg-danger",
-  needs_human_review: "bg-warning",
-};
-
 const RUN_STATUS_DOT_CLASSES = {
   pending: "bg-muted-foreground",
   running: "bg-info",
@@ -765,19 +757,13 @@ export default function Procurements() {
                         {/* Latest run */}
                         <TableCell className="py-3.5 text-sm">
                           {run ? (
-                            <div className="flex items-center gap-2">
-                              <span
-                                className={cn("h-2 w-2 shrink-0 rounded-full", STATUS_DOT[run.status])}
-                                aria-hidden
-                              />
-                              <div className="flex flex-col leading-tight">
-                                <span className="font-medium tabular-nums text-foreground group-hover:text-primary group-hover:underline">
-                                  {runDisplayId(run)}
-                                </span>
-                                <span className="text-xs text-muted-foreground">
-                                  {formatRelativeTime(run.startedAt)}
-                                </span>
-                              </div>
+                            <div className="flex flex-col leading-tight">
+                              <span className="font-medium tabular-nums text-foreground group-hover:text-primary group-hover:underline">
+                                {runDisplayId(run)}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {formatRelativeTime(run.startedAt)}
+                              </span>
                             </div>
                           ) : (
                             <span className="text-muted-foreground">—</span>
@@ -804,7 +790,7 @@ export default function Procurements() {
                         {/* Decision */}
                         <TableCell className="py-3.5">
                           {run?.needsJudgeReview ? (
-                            <span className="inline-flex items-center rounded-sm border border-warning/30 bg-warning/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-warning">
+                            <span className="inline-flex items-center rounded-sm border border-warning/30 bg-warning/10 px-2 py-0.5 text-[11px] font-semibold text-warning">
                               Review
                             </span>
                           ) : run?.decision ? (
@@ -1012,7 +998,7 @@ export default function Procurements() {
                           <td className="px-4 py-2.5">
                             <div className="flex flex-col leading-tight">
                               <span className="font-medium text-foreground">{r.tenderName}</span>
-                              <span className="font-mono text-[11px] text-muted-foreground">{runDisplayId(r.id)}</span>
+                              <span className="font-mono text-[11px] text-muted-foreground">{runDisplayId(r)}</span>
                             </div>
                           </td>
                           <td className="px-4 py-2.5">

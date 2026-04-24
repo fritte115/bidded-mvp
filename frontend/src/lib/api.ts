@@ -1357,7 +1357,7 @@ export async function fetchArchivedRuns(): Promise<ActiveRun[]> {
   const client = requireSupabase();
   const { data, error } = await client
     .from("agent_runs")
-    .select("id, status, started_at, created_at, completed_at, archived_at, metadata, tenders(title)")
+    .select("id, tender_id, status, started_at, created_at, completed_at, archived_at, metadata, tenders(title)")
     .eq("tenant_key", "demo")
     .not("archived_at", "is", null)
     .order("archived_at", { ascending: false })
@@ -1365,7 +1365,43 @@ export async function fetchArchivedRuns(): Promise<ActiveRun[]> {
 
   if (error) throw new Error(`fetchArchivedRuns: ${error.message}`);
 
-  return (data ?? []).map((r: Record<string, unknown>) => {
+  const rows = (data ?? []) as Record<string, unknown>[];
+  const tenderIds = Array.from(
+    new Set(
+      rows
+        .map((row) => row.tender_id)
+        .filter((value): value is string => typeof value === "string" && value.length > 0),
+    ),
+  );
+
+  let runNumbers = new Map<string, number>();
+  if (tenderIds.length > 0) {
+    const { data: sequenceRows, error: sequenceErr } = await client
+      .from("agent_runs")
+      .select("id, tender_id, started_at, created_at")
+      .eq("tenant_key", "demo")
+      .in("tender_id", tenderIds);
+
+    if (sequenceErr) {
+      throw new Error(`fetchArchivedRuns (run numbers): ${sequenceErr.message}`);
+    }
+
+    runNumbers = buildRunNumberMap(
+      ((sequenceRows ?? []) as Array<{
+        id: string;
+        tender_id: string;
+        started_at: string | null;
+        created_at: string | null;
+      }>).map((row) => ({
+        id: row.id,
+        tenderId: row.tender_id,
+        startedAt: row.started_at,
+        createdAt: row.created_at,
+      })),
+    );
+  }
+
+  return rows.map((r: Record<string, unknown>) => {
     const tender = r.tenders as { title: string } | null;
     const startedAt = r.started_at as string | null;
     const createdAt = r.created_at as string | null;
@@ -1387,6 +1423,7 @@ export async function fetchArchivedRuns(): Promise<ActiveRun[]> {
     });
     return {
       id: r.id as string,
+      runNumber: runNumbers.get(r.id as string) ?? null,
       tenderName: tender?.title ?? "Unknown procurement",
       status,
       isStale: lifecycle.isStale,
