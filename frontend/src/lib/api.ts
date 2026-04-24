@@ -1152,9 +1152,13 @@ export async function importCompanyWebsite(
   url: string,
   maxPages = 5,
 ): Promise<CompanyWebsiteImportPreview> {
+  const token = await requireAccessToken();
   const res = await fetch(`${AGENT_API_URL}/api/company/import-website`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
     body: JSON.stringify({ url, max_pages: maxPages }),
   });
   if (!res.ok) {
