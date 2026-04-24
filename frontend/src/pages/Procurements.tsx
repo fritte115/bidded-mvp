@@ -66,6 +66,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import type { RunStatus } from "@/data/mock";
+import { summarizeProcurementDocuments } from "@/lib/procurementDocumentStatus";
 
 type RunFilter = "all" | "not_run" | "running" | "done";
 type SortKey = "recent" | "name" | "status";
@@ -705,21 +706,7 @@ export default function Procurements() {
                             </span>
                             <span className="mt-0.5 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                               {(() => {
-                                const docs = t.documents;
-                                const failed = docs.filter((d) => d.parseStatus === "parser_failed");
-                                const parsing = docs.filter((d) => d.parseStatus === "parsing" || d.parseStatus === "pending");
-                                const hasIssues = failed.length > 0 || parsing.length > 0;
-                                const tooltipLines = [
-                                  ...docs.map((d) => {
-                                    const icon = d.parseStatus === "parsed" ? "✓" : d.parseStatus === "parser_failed" ? "✗" : "…";
-                                    return `${icon} ${d.originalFilename}${d.parseNote ? ` — ${d.parseNote}` : ""}`;
-                                  }),
-                                ].join("\n");
-                                const statusLabel = failed.length > 0
-                                  ? `${failed.length} failed`
-                                  : parsing.length > 0
-                                  ? "parsing…"
-                                  : "parsed";
+                                const documentSummary = summarizeProcurementDocuments(t.documents, run);
                                 return (
                                   <Tooltip>
                                     <TooltipTrigger asChild>
@@ -731,19 +718,19 @@ export default function Procurements() {
                                         <span
                                           className={cn(
                                             "rounded-sm px-1 py-px text-[10px] font-medium",
-                                            hasIssues
-                                              ? failed.length > 0
+                                            documentSummary.hasIssues
+                                              ? documentSummary.statusLabel.includes("failed")
                                                 ? "bg-destructive/10 text-destructive"
                                                 : "bg-info/10 text-info"
                                               : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
                                           )}
                                         >
-                                          {statusLabel}
+                                          {documentSummary.statusLabel}
                                         </span>
                                       </span>
                                     </TooltipTrigger>
                                     <TooltipContent className="max-w-xs whitespace-pre-line text-xs">
-                                      {tooltipLines}
+                                      {documentSummary.tooltipLines}
                                     </TooltipContent>
                                   </Tooltip>
                                 );
