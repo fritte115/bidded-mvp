@@ -55,6 +55,41 @@ class RecordingExtractor:
         )
 
 
+class MissingBasicsExtractor:
+    def extract(
+        self,
+        *,
+        source_url: str,
+        pages: Sequence[WebsiteImportPage],
+    ) -> WebsiteProfileExtraction:
+        return WebsiteProfileExtraction(
+            profile_patch={
+                "website": source_url,
+                "description": "Varuautomat på jobbet - Impact Solution",
+                "industries": ["Retail", "Facilities management", "Workplace"],
+                "capabilities": ["Workplace vending"],
+            },
+            field_sources={
+                "description": {
+                    "page_url": pages[0].url,
+                    "excerpt": "Varuautomat på jobbet - Impact Solution",
+                    "source_label": f"website:{source_url}",
+                },
+                "capabilities": {
+                    "page_url": pages[0].url,
+                    "excerpt": "Varuautomat på jobbet",
+                    "source_label": f"website:{source_url}",
+                },
+            },
+            warnings=(
+                "No contact email or phone number found on the page.",
+                "No office address or location information found on the page.",
+                "Article content appears to be placeholder text (Lorem ipsum) "
+                "and was not extracted as factual content.",
+            ),
+        )
+
+
 def test_import_fetches_homepage_and_same_origin_key_pages() -> None:
     fetcher = RecordingFetcher(
         {
@@ -217,3 +252,48 @@ def test_rule_based_extractor_derives_common_profile_fields() -> None:
     assert preview["field_sources"]["capabilities"]["source_label"] == (
         "website:https://example.com/"
     )
+
+
+def test_import_fills_missing_contact_basics_from_rule_based_fallback() -> None:
+    fetcher = RecordingFetcher(
+        {
+            "https://impactsolution.se/": """
+                <html><body>
+                <h1>Varuautomat på jobbet - Impact Solution</h1>
+                <p>Vi hjälper arbetsplatser med moderna varuautomater.</p>
+                <p>Kontakta oss på info@impactsolution.se eller
+                +46 10 207 15 10.</p>
+                <p>Besöksadress Tiundagatan 59, 753 20, Uppsala.</p>
+                <article>Lorem ipsum dolor sit amet.</article>
+                </body></html>
+            """
+        }
+    )
+
+    preview = import_company_website(
+        url="impactsolution.se",
+        fetcher=fetcher,
+        extractor=MissingBasicsExtractor(),
+        host_resolver=lambda _host: ("93.184.216.34",),
+    )
+
+    patch = preview["profile_patch"]
+    assert patch["capabilities"] == ["Workplace vending"]
+    assert patch["email"] == "info@impactsolution.se"
+    assert patch["phone"] == "+46 10 207 15 10"
+    assert patch["offices"] == ["Uppsala"]
+    assert preview["field_sources"]["email"]["source_label"] == (
+        "website:https://impactsolution.se/"
+    )
+    assert (
+        "No contact email or phone number found on the page."
+        not in preview["warnings"]
+    )
+    assert (
+        "No office address or location information found on the page."
+        not in preview["warnings"]
+    )
+    assert preview["warnings"] == [
+        "Article content appears to be placeholder text (Lorem ipsum) "
+        "and was not extracted as factual content.",
+    ]

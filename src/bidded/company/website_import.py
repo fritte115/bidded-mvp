@@ -93,8 +93,24 @@ def import_company_website(
         except WebsiteImportError as exc:
             warnings.append(f"Skipped {candidate_url}: {exc}")
 
-    extraction = profile_extractor.extract(source_url=home.url, pages=tuple(pages))
+    import_pages = tuple(pages)
+    extraction = profile_extractor.extract(source_url=home.url, pages=import_pages)
+    profile_patch = dict(extraction.profile_patch)
+    field_sources = {
+        key: dict(value) for key, value in extraction.field_sources.items()
+    }
+    if extractor is not None:
+        fallback_extraction = RuleBasedWebsiteProfileExtractor().extract(
+            source_url=home.url,
+            pages=import_pages,
+        )
+        _fill_missing_profile_fields(
+            profile_patch,
+            field_sources,
+            fallback_extraction,
+        )
     warnings.extend(extraction.warnings)
+    warnings = _filter_resolved_website_import_warnings(warnings, profile_patch)
 
     return {
         "source_url": home.url,
@@ -106,10 +122,8 @@ def import_company_website(
             }
             for page in pages
         ],
-        "profile_patch": dict(extraction.profile_patch),
-        "field_sources": {
-            key: dict(value) for key, value in extraction.field_sources.items()
-        },
+        "profile_patch": profile_patch,
+        "field_sources": field_sources,
         "warnings": warnings,
     }
 
@@ -811,6 +825,94 @@ def _excerpt_for_terms(text: str, lower_terms: Sequence[str]) -> str:
     start = max(min(starts) - 120, 0)
     end = min(start + 300, len(text))
     return text[start:end].strip()
+
+
+def _fill_missing_profile_fields(
+    profile_patch: dict[str, Any],
+    field_sources: dict[str, dict[str, str]],
+    fallback_extraction: WebsiteProfileExtraction,
+) -> None:
+    for key, value in fallback_extraction.profile_patch.items():
+        if _profile_value_present(value) and not _profile_value_present(
+            profile_patch.get(key)
+        ):
+            profile_patch[key] = value
+        if key in profile_patch and key not in field_sources:
+            source = fallback_extraction.field_sources.get(key)
+            if source:
+                field_sources[key] = dict(source)
+
+
+def _filter_resolved_website_import_warnings(
+    warnings: Sequence[str],
+    profile_patch: Mapping[str, Any],
+) -> list[str]:
+    filtered: list[str] = []
+    seen: set[str] = set()
+    for warning in warnings:
+        normalized = warning.strip()
+        if not normalized or normalized in seen:
+            continue
+        if _warning_is_resolved_by_profile_patch(normalized, profile_patch):
+            continue
+        filtered.append(normalized)
+        seen.add(normalized)
+    return filtered
+
+
+def _warning_is_resolved_by_profile_patch(
+    warning: str,
+    profile_patch: Mapping[str, Any],
+) -> bool:
+    lower_warning = warning.lower()
+    has_contact = _profile_value_present(profile_patch.get("email")) or (
+        _profile_value_present(profile_patch.get("phone"))
+    )
+    if "contact email or phone" in lower_warning and has_contact:
+        return True
+    if (
+        ("office address" in lower_warning or "location information" in lower_warning)
+        and _profile_value_present(profile_patch.get("offices"))
+    ):
+        return True
+    if "service capabilities" in lower_warning and _profile_value_present(
+        profile_patch.get("capabilities")
+    ):
+        return True
+    if "industries" in lower_warning and _profile_value_present(
+        profile_patch.get("industries")
+    ):
+        return True
+    has_governance_details = any(
+        _profile_value_present(profile_patch.get(key))
+        for key in (
+            "certifications",
+            "references",
+            "securityPosture",
+            "sustainability",
+        )
+    )
+    if (
+        "certifications" in lower_warning
+        and "references" in lower_warning
+        and "security posture" in lower_warning
+        and "sustainability" in lower_warning
+        and has_governance_details
+    ):
+        return True
+    return False
+
+
+def _profile_value_present(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, Mapping):
+        return bool(value)
+    if isinstance(value, Sequence):
+        return bool(value)
+    return True
 
 
 def _mapping(value: Any) -> Mapping[str, Any]:
