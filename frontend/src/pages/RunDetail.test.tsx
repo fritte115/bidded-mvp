@@ -197,6 +197,32 @@ describe("RunDetail", () => {
     expect(within(sidebar).getByText("EVD-404")).toBeInTheDocument();
   });
 
+  it("shows the persisted failure reason when a run fails", async () => {
+    vi.mocked(fetchRunDetail).mockResolvedValue({
+      ...run,
+      status: "failed",
+      stage: "Evidence Scout",
+      decision: null,
+      confidence: null,
+      failureReason:
+        "Anthropic API credit balance is too low. Add credits or switch to deterministic mode, then re-run.",
+    });
+
+    renderRunDetail();
+
+    expect(await screen.findByText("Run failed at: Evidence Scout")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Anthropic API credit balance is too low. Add credits or switch to deterministic mode, then re-run.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "The orchestrator stopped before a decision could be reached. Review inputs and re-run.",
+      ),
+    ).not.toBeInTheDocument();
+  });
+
   it("hides judge disagreement when it repeats the verdict memo", async () => {
     vi.mocked(fetchRunDetail).mockResolvedValue({
       ...run,

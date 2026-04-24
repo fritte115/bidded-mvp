@@ -478,6 +478,7 @@ function mockRunDetail(runId: string): RunDetail | null {
     startedAt: run.startedAt,
     completedAt: run.completedAt ?? null,
     durationSec: run.durationSec ?? null,
+    failureReason: null,
     decision: run.decision ?? null,
     confidence: run.confidence ?? null,
     documents,
@@ -2089,6 +2090,7 @@ export interface RunDetail {
   startedAt: string;
   completedAt: string | null;
   durationSec: number | null;
+  failureReason?: string | null;
   decision: Verdict | null;
   confidence: number | null; // 0–100
   documents: RunDetailDocument[];
@@ -2107,7 +2109,7 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
   const { data: runRow, error: runErr } = await client
     .from("agent_runs")
     .select(
-      `id, status, created_at, started_at, completed_at, archived_at, archived_reason, metadata, tender_id, company_id,
+      `id, status, created_at, started_at, completed_at, archived_at, archived_reason, error_details, metadata, tender_id, company_id,
        tenders!inner(title),
        bid_decisions(verdict, confidence, final_decision, metadata)`,
     )
@@ -2288,6 +2290,7 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
               1000,
           )
         : null,
+    failureReason: runFailureReasonForDisplay(run.error_details),
     decision:
       bd && (bd as Record<string, unknown>).verdict
         ? normalizeVerdictStr(
@@ -2306,6 +2309,27 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
     round2,
     judge,
   };
+}
+
+function runFailureReasonForDisplay(errorDetails: unknown): string | null {
+  if (!errorDetails || typeof errorDetails !== "object" || Array.isArray(errorDetails)) {
+    return null;
+  }
+  const details = errorDetails as Record<string, unknown>;
+  const rawMessage = details.message;
+  if (typeof rawMessage !== "string") return null;
+  const message = rawMessage.trim();
+  if (!message) return null;
+  if (
+    message.includes("credit balance is too low") &&
+    message.includes("Anthropic API")
+  ) {
+    return (
+      "Anthropic API credit balance is too low. Add credits or switch to " +
+      "deterministic mode, then re-run."
+    );
+  }
+  return message;
 }
 
 function decisionEvidenceSnapshotRows(

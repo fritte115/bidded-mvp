@@ -291,7 +291,8 @@ export default function RunDetail() {
                 <p className="text-xs text-muted-foreground">
                   {run.isStale
                     ? "The worker is no longer updating this run. Archive it or start a fresh run."
-                    : "The orchestrator stopped before a decision could be reached. Review inputs and re-run."}
+                    : run.failureReason ??
+                      "The orchestrator stopped before a decision could be reached. Review inputs and re-run."}
                 </p>
               </div>
             </div>
