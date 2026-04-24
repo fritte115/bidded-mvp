@@ -138,6 +138,25 @@ describe("company knowledge base API", () => {
     );
   });
 
+  it("normalizes email-like website import input before calling the agent API", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        source_url: "https://impactsolution.se/",
+        pages: [],
+        profile_patch: { website: "https://impactsolution.se/" },
+        field_sources: {},
+        warnings: [],
+      }),
+    });
+    const { importCompanyWebsite } = await import("./api");
+
+    await importCompanyWebsite("https://info@impactsolution.se/");
+
+    const payload = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(payload.url).toBe("https://impactsolution.se/");
+  });
+
   it("reads and deletes company KB documents through the backend", async () => {
     fetchMock
       .mockResolvedValueOnce({

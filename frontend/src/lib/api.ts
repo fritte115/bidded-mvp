@@ -811,6 +811,35 @@ export interface CompanyWebsiteImportPreview {
   warnings: string[];
 }
 
+function normalizeWebsiteImportUrl(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return trimmed;
+
+  if (!trimmed.includes("://")) {
+    return domainFromBareEmailAddress(trimmed) ?? trimmed;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.username && !parsed.password) {
+      parsed.username = "";
+      return parsed.toString();
+    }
+  } catch {
+    return trimmed;
+  }
+  return trimmed;
+}
+
+function domainFromBareEmailAddress(input: string): string | null {
+  if (/[/?#]/.test(input)) return null;
+  const parts = input.split("@");
+  if (parts.length !== 2) return null;
+  const [localPart, domain] = parts;
+  if (!localPart || !domain || !domain.includes(".")) return null;
+  return domain;
+}
+
 export function applyCompanyWebsiteImportPreview(
   company: Company,
   preview: CompanyWebsiteImportPreview,
@@ -1153,13 +1182,14 @@ export async function importCompanyWebsite(
   maxPages = 5,
 ): Promise<CompanyWebsiteImportPreview> {
   const token = await requireAccessToken();
+  const normalizedUrl = normalizeWebsiteImportUrl(url);
   const res = await fetch(`${AGENT_API_URL}/api/company/import-website`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ url, max_pages: maxPages }),
+    body: JSON.stringify({ url: normalizedUrl, max_pages: maxPages }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
