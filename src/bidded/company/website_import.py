@@ -119,6 +119,13 @@ def normalize_website_url(raw_url: str) -> str:
     if not stripped:
         raise WebsiteImportError("URL is required.")
     if "://" not in stripped:
+        parsed_without_slashes = urlparse(stripped)
+        has_unsupported_scheme = (
+            parsed_without_slashes.scheme
+            and parsed_without_slashes.scheme.lower() not in {"http", "https"}
+        )
+        if has_unsupported_scheme:
+            raise WebsiteImportError("Only http and https URLs can be imported.")
         email_domain = _domain_from_bare_email_address(stripped)
         if email_domain:
             stripped = email_domain
@@ -421,7 +428,10 @@ def _select_key_page_urls(*, base_url: str, html: str, limit: int) -> list[str]:
     scored: dict[str, int] = {}
     for href, label in parsed_html.links:
         absolute, _fragment = urldefrag(urljoin(base_url, href))
-        candidate = normalize_website_url(absolute)
+        try:
+            candidate = normalize_website_url(absolute)
+        except WebsiteImportError:
+            continue
         parsed = urlparse(candidate)
         if (parsed.scheme, parsed.netloc.lower()) != (base.scheme, base.netloc.lower()):
             continue

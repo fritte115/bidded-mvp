@@ -64,6 +64,7 @@ def test_import_fetches_homepage_and_same_origin_key_pages() -> None:
                   <body>
                     <script>window.secret = true;</script>
                     <nav><a href="/blog">Blog</a></nav>
+                    <a href="mailto:info@example.com?subject=Hello">Email</a>
                     <a href="/about">About us</a>
                     <a href="/services/cloud">Cloud services</a>
                     <a href="https://other.example/about">External</a>
