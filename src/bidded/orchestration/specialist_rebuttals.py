@@ -258,6 +258,9 @@ def _coerce_round2_rebuttal_mapping(
             }
         )
         out["validation_errors"] = validation_errors
+    for field in ("missing_info", "potential_evidence_gaps", "recommended_actions"):
+        if field in out:
+            out[field] = _coerce_string_list(out[field])
     # Resolve top-level evidence_refs
     refs = out.get("evidence_refs")
     if isinstance(refs, list):
@@ -305,6 +308,58 @@ def _coerce_round2_rebuttal_mapping(
 
 def _is_missing_confidence(value: Any) -> bool:
     return value is None or (isinstance(value, str) and not value.strip())
+
+
+def _coerce_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    items: list[str] = []
+    for item in value:
+        text = _text_from_string_list_item(item)
+        if text:
+            items.append(text)
+    return items
+
+
+def _text_from_string_list_item(item: Any) -> str:
+    if isinstance(item, str):
+        return item.strip()
+    if not isinstance(item, Mapping):
+        return str(item).strip()
+
+    text = ""
+    for key in (
+        "item",
+        "text",
+        "action",
+        "gap",
+        "missing_info",
+        "claim",
+        "requirement",
+        "summary",
+        "detail",
+        "description",
+        "note",
+    ):
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            text = value.strip()
+            break
+    if not text:
+        text = "; ".join(
+            f"{key}: {value}"
+            for key, value in item.items()
+            if value is not None and str(value).strip()
+        )
+
+    qualifiers = [
+        f"{key}: {item[key]}"
+        for key in ("priority", "owner", "due_by", "deadline")
+        if key in item and item[key] is not None and str(item[key]).strip()
+    ]
+    if qualifiers:
+        text = f"{text} ({'; '.join(qualifiers)})"
+    return text
 
 
 def build_round_2_rebuttal_handler(

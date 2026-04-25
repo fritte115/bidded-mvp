@@ -108,6 +108,34 @@ class MissingConfidenceRound2Model(RecordingRound2Model):
         return payload
 
 
+class StructuredStringListsRound2Model(RecordingRound2Model):
+    def draft_rebuttal(self, request: Round2RebuttalRequest) -> dict[str, Any]:
+        payload = super().draft_rebuttal(request)
+        payload["missing_info"] = [
+            {
+                "item": "Explicit confirmation of liability insurance coverage.",
+                "priority": "critical",
+            },
+            {
+                "item": "Environmental Management System certificate.",
+                "priority": "high",
+            },
+        ]
+        payload["potential_evidence_gaps"] = [
+            {
+                "gap": "Quality Management System evidence is not attached.",
+                "priority": "high",
+            }
+        ]
+        payload["recommended_actions"] = [
+            {
+                "action": "Ask the bid owner to attach insurance proof.",
+                "owner": "bid_owner",
+            }
+        ]
+        return payload
+
+
 def _ready_state() -> BidRunState:
     return BidRunState(
         run_id=RUN_ID,
@@ -336,5 +364,44 @@ def test_round_2_rebuttal_fills_missing_confidence_from_round_1_motion() -> None
         row.validation_errors
         and row.validation_errors[0].field_path == "confidence"
         and "omitted confidence" in row.validation_errors[0].message
+        for row in rebuttal_rows
+    )
+
+
+def test_round_2_rebuttal_coerces_structured_string_lists() -> None:
+    handlers = replace(
+        default_graph_node_handlers(),
+        round_1_specialist=_round_1_motion,
+        round_2_rebuttal=build_round_2_rebuttal_handler(
+            StructuredStringListsRound2Model()
+        ),
+    )
+
+    result = run_bidded_graph_shell(_ready_state(), handlers=handlers)
+
+    assert result.state.status is AgentRunStatus.SUCCEEDED
+    rebuttal_rows = [
+        output
+        for output in result.state.agent_outputs
+        if output.round_name == "round_2_rebuttal"
+    ]
+    assert len(rebuttal_rows) == 4
+    assert all(
+        row.payload["missing_info"]
+        == [
+            "Explicit confirmation of liability insurance coverage. "
+            "(priority: critical)",
+            "Environmental Management System certificate. (priority: high)",
+        ]
+        for row in rebuttal_rows
+    )
+    assert all(
+        row.payload["potential_evidence_gaps"]
+        == ["Quality Management System evidence is not attached. (priority: high)"]
+        for row in rebuttal_rows
+    )
+    assert all(
+        row.payload["recommended_actions"]
+        == ["Ask the bid owner to attach insurance proof. (owner: bid_owner)"]
         for row in rebuttal_rows
     )
