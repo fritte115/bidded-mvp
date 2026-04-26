@@ -23,6 +23,7 @@ Supabase service role key in UI code.
 | Variable | Required For | Demo Value |
 | --- | --- | --- |
 | `SUPABASE_URL` | All Supabase-backed CLI and worker commands | Hosted demo project URL. |
+| `SUPABASE_ANON_KEY` | Browser frontend access through `frontend/.env` | Public anon/publishable key from the Supabase dashboard; never use the service role key here. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Local worker, seeds, Storage, and audit writes | Server-side/local-worker only. |
 | `SUPABASE_STORAGE_BUCKET` | PDF registration, ingestion, doctor, smoke | Defaults to `public-procurements`. |
 | `ANTHROPIC_API_KEY` | `doctor --check-anthropic` and `demo-smoke --live-llm` | Optional for mocked smoke. |

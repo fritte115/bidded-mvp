@@ -138,6 +138,27 @@ def test_ensure_frontend_env_file_accepts_root_public_publishable_key(
     assert "SUPABASE_SERVICE_ROLE_KEY" not in frontend_env
 
 
+def test_ensure_frontend_env_file_accepts_root_anon_key(
+    tmp_path: Path,
+) -> None:
+    worktree = _prepare_worktree(tmp_path)
+    home = tmp_path / "home"
+    (worktree / ".env").write_text(
+        "SUPABASE_URL=https://example.supabase.co\n"
+        "SUPABASE_ANON_KEY=anon-public-key\n"
+        "SUPABASE_SERVICE_ROLE_KEY=service-role-secret\n",
+    )
+
+    result = _run_setup_function(worktree, "ensure_frontend_env_file", home=home)
+
+    assert result.returncode == 0, result.stderr
+    frontend_env = (worktree / "frontend" / ".env").read_text()
+    assert "VITE_SUPABASE_URL=https://example.supabase.co" in frontend_env
+    assert "VITE_SUPABASE_ANON_KEY=anon-public-key" in frontend_env
+    assert "service-role-secret" not in frontend_env
+    assert "SUPABASE_SERVICE_ROLE_KEY" not in frontend_env
+
+
 def test_ensure_env_file_prefers_git_configured_source(tmp_path: Path) -> None:
     worktree = _prepare_worktree(tmp_path)
     home = tmp_path / "home"
