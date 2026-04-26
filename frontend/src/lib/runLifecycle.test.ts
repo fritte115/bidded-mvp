@@ -84,16 +84,24 @@ describe("run archiving", () => {
     window.localStorage.clear();
   });
 
-  it("hides archived mock runs instead of throwing the Supabase env error", async () => {
+  it("moves archived mock runs from active details to the archived list", async () => {
     vi.stubEnv("VITE_SUPABASE_URL", "");
     vi.stubEnv("VITE_SUPABASE_ANON_KEY", "");
-    const { archiveAgentRun, fetchRunDetail } = await import("./api");
+    const { archiveAgentRun, fetchArchivedRuns, fetchRunDetail } = await import("./api");
 
     expect(await fetchRunDetail("run_5d9e4a7b")).not.toBeNull();
 
     await expect(archiveAgentRun("run_5d9e4a7b")).resolves.toBeUndefined();
 
     expect(await fetchRunDetail("run_5d9e4a7b")).toBeNull();
+    expect(await fetchArchivedRuns()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "run_5d9e4a7b",
+          isArchived: true,
+        }),
+      ]),
+    );
   });
 
   it("archives live runs through the agent API instead of deleting Supabase rows", async () => {

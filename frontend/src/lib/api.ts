@@ -217,6 +217,34 @@ function visibleMockRuns(): Run[] {
   return mockRuns.filter((run) => !archived.has(run.id));
 }
 
+function mockArchivedRuns(): ActiveRun[] {
+  const archived = readMockArchivedRunIds();
+  const runNumbers = mockRunNumberMap();
+  return mockRuns
+    .filter((run) => archived.has(run.id))
+    .map((run) => {
+      const lifecycle = mockLifecycle(run);
+      return {
+        id: run.id,
+        runNumber: runNumbers.get(run.id) ?? null,
+        tenderName: run.tenderName,
+        status: run.status,
+        isStale: lifecycle.isStale,
+        isArchived: true,
+        staleAgeMinutes: lifecycle.staleAgeMinutes,
+        stage: lifecycle.stage,
+        startedAt: run.startedAt,
+        completedAt: run.completedAt ?? null,
+        durationSec: run.durationSec ?? null,
+      };
+    })
+    .sort((left, right) => {
+      const leftTime = new Date(left.completedAt ?? left.startedAt).getTime();
+      const rightTime = new Date(right.completedAt ?? right.startedAt).getTime();
+      return rightTime - leftTime;
+    });
+}
+
 function mockLifecycle(run: Run): RunLifecycleDisplay {
   return runLifecycleForDisplay({
     status: run.status,
@@ -450,6 +478,7 @@ function mockRunDetail(runId: string): RunDetail | null {
     startedAt: run.startedAt,
     completedAt: run.completedAt ?? null,
     durationSec: run.durationSec ?? null,
+    failureReason: null,
     decision: run.decision ?? null,
     confidence: run.confidence ?? null,
     documents,
@@ -781,6 +810,35 @@ export interface CompanyWebsiteImportPreview {
     { page_url: string; excerpt: string; source_label: string }
   >;
   warnings: string[];
+}
+
+function normalizeWebsiteImportUrl(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return trimmed;
+
+  if (!trimmed.includes("://")) {
+    return domainFromBareEmailAddress(trimmed) ?? trimmed;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.username && !parsed.password) {
+      parsed.username = "";
+      return parsed.toString();
+    }
+  } catch {
+    return trimmed;
+  }
+  return trimmed;
+}
+
+function domainFromBareEmailAddress(input: string): string | null {
+  if (/[/?#]/.test(input)) return null;
+  const parts = input.split("@");
+  if (parts.length !== 2) return null;
+  const [localPart, domain] = parts;
+  if (!localPart || !domain || !domain.includes(".")) return null;
+  return domain;
 }
 
 export function applyCompanyWebsiteImportPreview(
@@ -1124,10 +1182,15 @@ export async function importCompanyWebsite(
   url: string,
   maxPages = 5,
 ): Promise<CompanyWebsiteImportPreview> {
+  const token = await requireAccessToken();
+  const normalizedUrl = normalizeWebsiteImportUrl(url);
   const res = await fetch(`${AGENT_API_URL}/api/company/import-website`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, max_pages: maxPages }),
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ url: normalizedUrl, max_pages: maxPages }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -1352,12 +1415,12 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
 }
 
 export async function fetchArchivedRuns(): Promise<ActiveRun[]> {
-  if (isMockMode()) return [];
+  if (isMockMode()) return mockArchivedRuns();
 
   const client = requireSupabase();
   const { data, error } = await client
     .from("agent_runs")
-    .select("id, status, started_at, created_at, completed_at, archived_at, metadata, tenders(title)")
+    .select("id, tender_id, status, started_at, created_at, completed_at, archived_at, metadata, tenders(title)")
     .eq("tenant_key", "demo")
     .not("archived_at", "is", null)
     .order("archived_at", { ascending: false })
@@ -1365,7 +1428,43 @@ export async function fetchArchivedRuns(): Promise<ActiveRun[]> {
 
   if (error) throw new Error(`fetchArchivedRuns: ${error.message}`);
 
-  return (data ?? []).map((r: Record<string, unknown>) => {
+  const rows = (data ?? []) as Record<string, unknown>[];
+  const tenderIds = Array.from(
+    new Set(
+      rows
+        .map((row) => row.tender_id)
+        .filter((value): value is string => typeof value === "string" && value.length > 0),
+    ),
+  );
+
+  let runNumbers = new Map<string, number>();
+  if (tenderIds.length > 0) {
+    const { data: sequenceRows, error: sequenceErr } = await client
+      .from("agent_runs")
+      .select("id, tender_id, started_at, created_at")
+      .eq("tenant_key", "demo")
+      .in("tender_id", tenderIds);
+
+    if (sequenceErr) {
+      throw new Error(`fetchArchivedRuns (run numbers): ${sequenceErr.message}`);
+    }
+
+    runNumbers = buildRunNumberMap(
+      ((sequenceRows ?? []) as Array<{
+        id: string;
+        tender_id: string;
+        started_at: string | null;
+        created_at: string | null;
+      }>).map((row) => ({
+        id: row.id,
+        tenderId: row.tender_id,
+        startedAt: row.started_at,
+        createdAt: row.created_at,
+      })),
+    );
+  }
+
+  return rows.map((r: Record<string, unknown>) => {
     const tender = r.tenders as { title: string } | null;
     const startedAt = r.started_at as string | null;
     const createdAt = r.created_at as string | null;
@@ -1387,6 +1486,7 @@ export async function fetchArchivedRuns(): Promise<ActiveRun[]> {
     });
     return {
       id: r.id as string,
+      runNumber: runNumbers.get(r.id as string) ?? null,
       tenderName: tender?.title ?? "Unknown procurement",
       status,
       isStale: lifecycle.isStale,
@@ -1441,10 +1541,37 @@ export interface ProcurementRow {
   hasRunHistory: boolean;
 }
 
+function recordFromUnknown(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") return null;
+  return value as Record<string, unknown>;
+}
+
 function metadataParseNote(metadata: unknown): string | null {
-  if (!metadata || typeof metadata !== "object") return null;
-  const m = metadata as Record<string, unknown>;
-  if (typeof m.parse_error === "string" && m.parse_error.length > 0) return m.parse_error;
+  const m = recordFromUnknown(metadata);
+  if (!m) return null;
+  if (typeof m.parse_error === "string" && m.parse_error.length > 0) {
+    return m.parse_error;
+  }
+  const parser = recordFromUnknown(m.parser);
+  if (!parser) return null;
+  if (
+    typeof parser.skip_message === "string" &&
+    parser.skip_message.length > 0
+  ) {
+    return parser.skip_message;
+  }
+  if (
+    parser.status === "parsed_skipped" &&
+    parser.reason === "no_text_layer"
+  ) {
+    return "Visual/reference attachment without an extractable text layer.";
+  }
+  if (
+    typeof parser.error_message === "string" &&
+    parser.error_message.length > 0
+  ) {
+    return parser.error_message;
+  }
   return null;
 }
 
@@ -1990,6 +2117,7 @@ export interface RunDetail {
   startedAt: string;
   completedAt: string | null;
   durationSec: number | null;
+  failureReason?: string | null;
   decision: Verdict | null;
   confidence: number | null; // 0–100
   documents: RunDetailDocument[];
@@ -2008,7 +2136,7 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
   const { data: runRow, error: runErr } = await client
     .from("agent_runs")
     .select(
-      `id, status, created_at, started_at, completed_at, archived_at, archived_reason, metadata, tender_id, company_id,
+      `id, status, created_at, started_at, completed_at, archived_at, archived_reason, error_details, metadata, tender_id, company_id,
        tenders!inner(title),
        bid_decisions(verdict, confidence, final_decision, metadata)`,
     )
@@ -2189,6 +2317,7 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
               1000,
           )
         : null,
+    failureReason: runFailureReasonForDisplay(run.error_details),
     decision:
       bd && (bd as Record<string, unknown>).verdict
         ? normalizeVerdictStr(
@@ -2207,6 +2336,27 @@ export async function fetchRunDetail(runId: string): Promise<RunDetail | null> {
     round2,
     judge,
   };
+}
+
+function runFailureReasonForDisplay(errorDetails: unknown): string | null {
+  if (!errorDetails || typeof errorDetails !== "object" || Array.isArray(errorDetails)) {
+    return null;
+  }
+  const details = errorDetails as Record<string, unknown>;
+  const rawMessage = details.message;
+  if (typeof rawMessage !== "string") return null;
+  const message = rawMessage.trim();
+  if (!message) return null;
+  if (
+    message.includes("credit balance is too low") &&
+    message.includes("Anthropic API")
+  ) {
+    return (
+      "Anthropic API credit balance is too low. Add credits or switch to " +
+      "deterministic mode, then re-run."
+    );
+  }
+  return message;
 }
 
 function decisionEvidenceSnapshotRows(

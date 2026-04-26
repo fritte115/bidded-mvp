@@ -501,28 +501,37 @@ def test_ingest_tender_pdf_document_fails_when_embeddings_are_required() -> None
     )
 
 
-def test_ingest_tender_pdf_document_marks_empty_text_pdf_as_parser_failed() -> None:
+def test_ingest_tender_pdf_document_marks_empty_text_pdf_as_visual_reference() -> None:
     client = RecordingSupabaseClient(
         pdf_bytes=_text_pdf(["", ""]),
         document_row=_document_row(),
     )
 
-    with pytest.raises(PdfIngestionError, match="No extractable text"):
-        ingest_tender_pdf_document(
-            client,
-            document_id=DOCUMENT_ID,
-            bucket_name="procurement-fixtures",
-        )
+    result = ingest_tender_pdf_document(
+        client,
+        document_id=DOCUMENT_ID,
+        bucket_name="procurement-fixtures",
+    )
 
+    assert result.document_id == DOCUMENT_ID
+    assert result.page_count == 2
+    assert result.chunk_count == 0
+    assert result.chunks == []
+    assert client.deletes["document_chunks"] == [[("document_id", str(DOCUMENT_ID))]]
     assert "document_chunks" not in client.inserts
+    assert "evidence_items" not in client.inserts
     status_updates = client.updates["documents"]
     assert [update["parse_status"] for update, _filters in status_updates] == [
         "parsing",
-        "parser_failed",
+        "parsed",
     ]
-    failed_metadata = status_updates[-1][0]["metadata"]
-    assert failed_metadata["parser"]["status"] == "parser_failed"
-    assert "OCR is a non-goal" in failed_metadata["parser"]["error_message"]
+    skipped_metadata = status_updates[-1][0]["metadata"]
+    assert skipped_metadata["parser"]["status"] == "parsed_skipped"
+    assert skipped_metadata["parser"]["reason"] == "no_text_layer"
+    assert skipped_metadata["parser"]["visual_document"] is True
+    assert skipped_metadata["parser"]["page_count"] == 2
+    assert skipped_metadata["parser"]["chunk_count"] == 0
+    assert "OCR is a non-goal" in skipped_metadata["parser"]["skip_message"]
 
 
 def test_ingest_tender_pdf_document_persists_parser_failure_error() -> None:
