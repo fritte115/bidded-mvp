@@ -123,6 +123,32 @@ def build_company_profile_evidence_items(
             company_profile=company_profile,
         )
     )
+    evidence_items.extend(
+        _build_public_financial_snapshot_evidence(
+            tenant_key=tenant_key,
+            company_id=company_id,
+            profile_label=profile_label,
+            source_label=source_label,
+            company_profile=company_profile,
+        )
+    )
+    evidence_items.extend(
+        _build_public_financial_statement_history_evidence(
+            tenant_key=tenant_key,
+            company_id=company_id,
+            profile_label=profile_label,
+            source_label=source_label,
+            company_profile=company_profile,
+        )
+    )
+    evidence_items.extend(
+        _build_website_import_evidence(
+            tenant_key=tenant_key,
+            company_id=company_id,
+            profile_label=profile_label,
+            company_profile=company_profile,
+        )
+    )
 
     return evidence_items
 
@@ -604,6 +630,406 @@ def _build_economics_evidence(
     return evidence_items
 
 
+def _build_public_financial_snapshot_evidence(
+    *,
+    tenant_key: str,
+    company_id: UUID,
+    profile_label: str,
+    source_label: str,
+    company_profile: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    snapshot = _nested_mapping(
+        company_profile,
+        "profile_details",
+        "public_financial_snapshot",
+    )
+    if not snapshot:
+        return []
+
+    financial_year = snapshot.get("financial_year")
+    revenue_ksek = snapshot.get("revenue_ksek")
+    result_ksek = snapshot.get("result_after_financial_items_ksek")
+    ebitda_ksek = snapshot.get("ebitda_ksek")
+    assets_ksek = snapshot.get("total_assets_ksek")
+    equity_ksek = snapshot.get("equity_ksek")
+    equity_ratio = snapshot.get("equity_ratio_percent")
+    cash_liquidity = snapshot.get("cash_liquidity_percent")
+    if not isinstance(financial_year, int | float) or not isinstance(
+        revenue_ksek,
+        int | float,
+    ):
+        return []
+
+    source = str(snapshot.get("source_label") or source_label)
+    excerpt_parts = [
+        f"{_format_number(revenue_ksek)} KSEK revenue",
+    ]
+    if isinstance(result_ksek, int | float):
+        excerpt_parts.append(
+            f"{_format_number(result_ksek)} KSEK result after financial items"
+        )
+    if isinstance(ebitda_ksek, int | float):
+        excerpt_parts.append(f"{_format_number(ebitda_ksek)} KSEK EBITDA")
+    if isinstance(assets_ksek, int | float):
+        excerpt_parts.append(f"{_format_number(assets_ksek)} KSEK total assets")
+    if isinstance(equity_ksek, int | float):
+        excerpt_parts.append(f"{_format_number(equity_ksek)} KSEK equity")
+    if isinstance(equity_ratio, int | float):
+        excerpt_parts.append(f"{_format_percent(equity_ratio)} equity ratio")
+    if isinstance(cash_liquidity, int | float):
+        excerpt_parts.append(f"{_format_percent(cash_liquidity)} cash liquidity")
+
+    return [
+        _company_evidence_payload(
+            tenant_key=tenant_key,
+            company_id=company_id,
+            profile_label=profile_label,
+            fact_key=f"financial-snapshot-{int(financial_year)}",
+            field_path="profile_details.public_financial_snapshot",
+            category="financial_standing",
+            excerpt=(
+                f"{int(financial_year)} public financial snapshot: "
+                f"{'; '.join(excerpt_parts)}."
+            ),
+            normalized_meaning=(
+                f"The company profile includes a public annual-account snapshot "
+                f"for {int(financial_year)} with {_format_number(revenue_ksek)} "
+                "KSEK revenue."
+            ),
+            source_label=source,
+            confidence=0.9,
+            metadata=dict(snapshot),
+        )
+    ]
+
+
+def _build_public_financial_statement_history_evidence(
+    *,
+    tenant_key: str,
+    company_id: UUID,
+    profile_label: str,
+    source_label: str,
+    company_profile: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    rows = sorted(
+        _mapping_sequence(
+            _nested_mapping(company_profile, "profile_details").get(
+                "public_financial_statement_history",
+                [],
+            )
+        ),
+        key=lambda row: int(row.get("year", 0)),
+    )
+    if not rows:
+        return []
+
+    usable_rows = [
+        row
+        for row in rows
+        if isinstance(row.get("year"), int | float)
+        and isinstance(row.get("total_revenue_ksek"), int | float)
+    ]
+    if not usable_rows:
+        return []
+
+    first = usable_rows[0]
+    latest = usable_rows[-1]
+    first_year = int(first["year"])
+    latest_year = int(latest["year"])
+    first_revenue = first["total_revenue_ksek"]
+    latest_revenue = latest["total_revenue_ksek"]
+    latest_result = latest.get("result_after_financial_net_ksek")
+    source = str(latest.get("source_label") or source_label)
+
+    row_summaries: list[str] = []
+    for row in usable_rows:
+        year = int(row["year"])
+        revenue = row["total_revenue_ksek"]
+        result = row.get("result_after_financial_net_ksek")
+        operating_result = row.get("operating_result_after_depreciation_ksek")
+        summary_parts = [f"{year}: revenue {_format_number(revenue)} KSEK"]
+        if isinstance(operating_result, int | float):
+            summary_parts.append(
+                f"operating result {_format_number(operating_result)} KSEK"
+            )
+        if isinstance(result, int | float):
+            summary_parts.append(
+                f"result after financial net {_format_number(result)} KSEK"
+            )
+        row_summaries.append(", ".join(summary_parts))
+
+    normalized_tail = (
+        f" and result after financial net {_format_number(latest_result)} KSEK"
+        if isinstance(latest_result, int | float)
+        else ""
+    )
+
+    return [
+        _company_evidence_payload(
+            tenant_key=tenant_key,
+            company_id=company_id,
+            profile_label=profile_label,
+            fact_key=f"financial-history-{first_year}-{latest_year}",
+            field_path="profile_details.public_financial_statement_history",
+            category="financial_standing",
+            excerpt=(
+                f"{first_year}-{latest_year} public financial statement history: "
+                f"{'; '.join(row_summaries)}."
+            ),
+            normalized_meaning=(
+                "The company profile public financial history shows revenue grew "
+                f"from {_format_number(first_revenue)} KSEK in {first_year} to "
+                f"{_format_number(latest_revenue)} KSEK in {latest_year}"
+                f"{normalized_tail}."
+            ),
+            source_label=source,
+            confidence=0.9,
+            metadata={
+                "first_year": first_year,
+                "latest_year": latest_year,
+                "first_total_revenue_ksek": first_revenue,
+                "latest_total_revenue_ksek": latest_revenue,
+                "latest_result_after_financial_net_ksek": latest_result,
+                "rows": [dict(row) for row in usable_rows],
+            },
+        )
+    ]
+
+
+def _build_website_import_evidence(
+    *,
+    tenant_key: str,
+    company_id: UUID,
+    profile_label: str,
+    company_profile: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    imports = _mapping_sequence(
+        _nested_mapping(company_profile, "profile_details").get("website_imports", [])
+    )
+    evidence_items: list[dict[str, Any]] = []
+
+    for index, website_import in enumerate(imports):
+        source_url = str(website_import.get("source_url", "")).strip()
+        if not source_url:
+            continue
+        source_label = f"website:{source_url}"
+        imported_at = str(website_import.get("imported_at", "")).strip()
+        profile_patch = _nested_mapping(website_import, "profile_patch")
+
+        description = str(profile_patch.get("description", "")).strip()
+        if description:
+            evidence_items.append(
+                _website_import_payload(
+                    tenant_key=tenant_key,
+                    company_id=company_id,
+                    profile_label=profile_label,
+                    import_index=index,
+                    source_url=source_url,
+                    imported_at=imported_at,
+                    field_name="description",
+                    category="profile_summary",
+                    field_path=(
+                        f"profile_details.website_imports[{index}]."
+                        "profile_patch.description"
+                    ),
+                    excerpt=description,
+                    normalized_meaning=(
+                        "The imported website profile describes the company as: "
+                        f"{description}"
+                    ),
+                    source_label=source_label,
+                    website_import=website_import,
+                    confidence=0.78,
+                )
+            )
+
+        capabilities = _string_sequence(profile_patch.get("capabilities", []))
+        if capabilities:
+            values_text = ", ".join(capabilities)
+            evidence_items.append(
+                _website_import_payload(
+                    tenant_key=tenant_key,
+                    company_id=company_id,
+                    profile_label=profile_label,
+                    import_index=index,
+                    source_url=source_url,
+                    imported_at=imported_at,
+                    field_name="capabilities",
+                    category="capability",
+                    field_path=(
+                        f"profile_details.website_imports[{index}]."
+                        "profile_patch.capabilities"
+                    ),
+                    excerpt=f"Website-imported capabilities: {values_text}.",
+                    normalized_meaning=(
+                        "The imported website profile lists company capabilities: "
+                        f"{values_text}."
+                    ),
+                    source_label=source_label,
+                    website_import=website_import,
+                    confidence=0.78,
+                    metadata={"values": capabilities},
+                )
+            )
+
+        for cert_index, certification in enumerate(
+            _mapping_sequence(profile_patch.get("certifications", []))
+        ):
+            name = str(certification.get("name", "")).strip()
+            if not name:
+                continue
+            issuer = str(certification.get("issuer", "")).strip()
+            status = str(certification.get("validUntil", "")).strip()
+            evidence_items.append(
+                _website_import_payload(
+                    tenant_key=tenant_key,
+                    company_id=company_id,
+                    profile_label=profile_label,
+                    import_index=index,
+                    source_url=source_url,
+                    imported_at=imported_at,
+                    field_name="certifications",
+                    category="certification",
+                    field_path=(
+                        f"profile_details.website_imports[{index}]."
+                        f"profile_patch.certifications[{cert_index}]"
+                    ),
+                    excerpt=(
+                        f"Website-imported certification: {name}; "
+                        f"issuer {issuer}; status {status}."
+                    ),
+                    normalized_meaning=(
+                        f"The imported website profile lists {name} certification."
+                    ),
+                    source_label=source_label,
+                    website_import=website_import,
+                    confidence=0.76,
+                    metadata={
+                        "certification_name": name,
+                        "issuer": issuer,
+                        "status": status,
+                    },
+                )
+            )
+
+        for reference_index, reference in enumerate(
+            _mapping_sequence(profile_patch.get("references", []))
+        ):
+            client = str(reference.get("client", "")).strip()
+            scope = str(reference.get("scope", "")).strip()
+            if not client and not scope:
+                continue
+            evidence_items.append(
+                _website_import_payload(
+                    tenant_key=tenant_key,
+                    company_id=company_id,
+                    profile_label=profile_label,
+                    import_index=index,
+                    source_url=source_url,
+                    imported_at=imported_at,
+                    field_name="references",
+                    category="reference",
+                    field_path=(
+                        f"profile_details.website_imports[{index}]."
+                        f"profile_patch.references[{reference_index}]"
+                    ),
+                    excerpt=f"Website-imported reference: {client}: {scope}.",
+                    normalized_meaning=(
+                        f"The imported website profile lists {client} as a reference."
+                    ),
+                    source_label=source_label,
+                    website_import=website_import,
+                    confidence=0.74,
+                    metadata={"client": client, "scope": scope},
+                )
+            )
+
+        for security_index, security_item in enumerate(
+            _mapping_sequence(profile_patch.get("securityPosture", []))
+        ):
+            item = str(security_item.get("item", "")).strip()
+            status = str(security_item.get("status", "")).strip()
+            note = str(security_item.get("note", "")).strip()
+            if not item:
+                continue
+            evidence_items.append(
+                _website_import_payload(
+                    tenant_key=tenant_key,
+                    company_id=company_id,
+                    profile_label=profile_label,
+                    import_index=index,
+                    source_url=source_url,
+                    imported_at=imported_at,
+                    field_name="securityPosture",
+                    category="security",
+                    field_path=(
+                        f"profile_details.website_imports[{index}]."
+                        f"profile_patch.securityPosture[{security_index}]"
+                    ),
+                    excerpt=(
+                        f"Website-imported security posture: {item}; "
+                        f"{status}; {note}."
+                    ),
+                    normalized_meaning=(
+                        f"The imported website profile lists {item} as {status}."
+                    ),
+                    source_label=source_label,
+                    website_import=website_import,
+                    confidence=0.74,
+                    metadata={"item": item, "status": status, "note": note},
+                )
+            )
+
+    return evidence_items
+
+
+def _website_import_payload(
+    *,
+    tenant_key: str,
+    company_id: UUID,
+    profile_label: str,
+    import_index: int,
+    source_url: str,
+    imported_at: str,
+    field_name: str,
+    category: str,
+    field_path: str,
+    excerpt: str,
+    normalized_meaning: str,
+    source_label: str,
+    website_import: Mapping[str, Any],
+    confidence: float,
+    metadata: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    field_source = _nested_mapping(website_import, "field_sources", field_name)
+    source_excerpt = str(field_source.get("excerpt", "")).strip()
+    page_url = str(field_source.get("page_url", "")).strip()
+    item_source_label = str(field_source.get("source_label") or source_label)
+    payload = _company_evidence_payload(
+        tenant_key=tenant_key,
+        company_id=company_id,
+        profile_label=profile_label,
+        fact_key=f"website-import-{import_index}-{field_name}-{source_url}",
+        field_path=field_path,
+        category=category,
+        excerpt=(
+            f"{excerpt} Source excerpt: {source_excerpt}"
+            if source_excerpt
+            else excerpt
+        ),
+        normalized_meaning=normalized_meaning,
+        source_label=item_source_label,
+        confidence=confidence,
+        metadata={
+            "source_url": source_url,
+            "page_url": page_url,
+            "imported_at": imported_at,
+            **dict(metadata or {}),
+        },
+    )
+    return payload
+
+
 def _company_evidence_payload(
     *,
     tenant_key: str,
@@ -672,6 +1098,11 @@ def _format_money(value: int | float) -> str:
 
 def _format_number(value: int | float) -> str:
     return f"{value:,.0f}"
+
+
+def _format_percent(value: int | float) -> str:
+    formatted = f"{value:,.1f}" if not float(value).is_integer() else f"{value:,.0f}"
+    return f"{formatted}%"
 
 
 def _format_plain_number(value: int | float) -> str:

@@ -14,6 +14,7 @@ from bidded.fixtures.golden_cases import (
     GoldenFixtureSelection,
     golden_demo_cases,
 )
+from bidded.orchestration.decision_evidence_audit import DecisionEvidenceAudit
 from bidded.orchestration.state import (
     EvidenceItemState,
     EvidenceRef,
@@ -131,6 +132,7 @@ class GoldenActualOutcome(StrictStateModel):
     validation_errors: tuple[str, ...] = ()
     evidence_refs: tuple[EvidenceRef, ...] = Field(default_factory=tuple)
     coverage_claims: tuple[EvidenceCoverageClaim, ...] = ()
+    decision_evidence_audit: DecisionEvidenceAudit | None = None
     version_metadata: VersionMetadata | None = None
 
 
@@ -157,6 +159,9 @@ class GoldenCaseEvalResult(StrictStateModel):
     evidence_coverage: EvidenceCoverageScore = Field(
         default_factory=_default_evidence_coverage_score
     )
+    decision_evidence_audit_gate: str | None = None
+    decision_evidence_audit_failures: tuple[str, ...] = ()
+    decision_evidence_audit_warnings: tuple[str, ...] = ()
     actual_decision: NormalizedDecision | None = None
     version_metadata: VersionMetadata = Field(
         default_factory=lambda: default_version_metadata(
@@ -266,6 +271,14 @@ def evaluate_golden_case(
         actual.coverage_claims,
         evidence_board=case.evidence_board,
     )
+    decision_audit_failures = _decision_evidence_audit_failures(
+        actual.decision_evidence_audit,
+        strict=case.expected.requires_strict_decision_evidence_audit,
+    )
+    decision_audit_warnings = _decision_evidence_audit_warnings(
+        actual.decision_evidence_audit,
+        strict=case.expected.requires_strict_decision_evidence_audit,
+    )
     verdict_regression_failures = _verdict_regression_failures(case, actual)
     missing_required_blockers = _missing_required(
         case.expected.blockers,
@@ -309,6 +322,7 @@ def evaluate_golden_case(
             unexpected_validation_errors,
             evidence_reference_failures,
             not evidence_coverage.passed,
+            decision_audit_failures,
         )
     )
 
@@ -335,6 +349,13 @@ def evaluate_golden_case(
         actual_validation_errors=actual.validation_errors,
         evidence_reference_failures=evidence_reference_failures,
         evidence_coverage=evidence_coverage,
+        decision_evidence_audit_gate=(
+            actual.decision_evidence_audit.gate_verdict
+            if actual.decision_evidence_audit is not None
+            else None
+        ),
+        decision_evidence_audit_failures=decision_audit_failures,
+        decision_evidence_audit_warnings=decision_audit_warnings,
         actual_decision=_normalized_actual_decision(case.case_id, actual),
         version_metadata=version_metadata,
         version_warnings=version_warnings,
@@ -429,6 +450,32 @@ def score_evidence_coverage(
     )
 
 
+def _decision_evidence_audit_failures(
+    audit: DecisionEvidenceAudit | None,
+    *,
+    strict: bool,
+) -> tuple[str, ...]:
+    if audit is None:
+        if strict:
+            return ("decision_evidence_audit missing for strict audit case",)
+        return ()
+    if audit.gate_verdict == "rejected":
+        return ("decision_evidence_audit gate rejected",)
+    if strict and audit.gate_verdict != "confirmed":
+        return (f"decision_evidence_audit gate {audit.gate_verdict}",)
+    return ()
+
+
+def _decision_evidence_audit_warnings(
+    audit: DecisionEvidenceAudit | None,
+    *,
+    strict: bool,
+) -> tuple[str, ...]:
+    if strict or audit is None or audit.gate_verdict != "flagged":
+        return ()
+    return ("decision_evidence_audit gate flagged",)
+
+
 def write_golden_eval_json(report: GoldenEvalReport, path: Path) -> None:
     """Write a deterministic JSON representation of an eval report."""
 
@@ -483,9 +530,9 @@ def render_golden_eval_markdown(report: GoldenEvalReport) -> str:
             "",
             (
                 "| Case | Status | Expected | Actual | Evidence coverage | "
-                "Unsupported claims | Validation errors |"
+                "Unsupported claims | Decision audit | Validation errors |"
             ),
-            "| --- | --- | --- | --- | --- | --- | --- |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for result in report.results:
@@ -540,6 +587,7 @@ def _pass_rate(report: GoldenEvalReport) -> float:
 def _golden_case_markdown_row(result: GoldenCaseEvalResult) -> str:
     coverage = result.evidence_coverage
     validation_errors = "; ".join(result.actual_validation_errors) or "none"
+    audit_status = result.decision_evidence_audit_gate or "none"
     return (
         f"| {_markdown_cell(result.case_id)} "
         f"| {'PASS' if result.passed else 'FAIL'} "
@@ -547,6 +595,7 @@ def _golden_case_markdown_row(result: GoldenCaseEvalResult) -> str:
         f"| {result.actual_verdict.value} "
         f"| {coverage.score:.2f} "
         f"| {coverage.unsupported_claim_count} "
+        f"| {_markdown_cell(audit_status)} "
         f"| {_markdown_cell(validation_errors)} |"
     )
 
@@ -620,6 +669,16 @@ def _golden_case_failure_markdown(result: GoldenCaseEvalResult) -> list[str]:
         lines,
         "Evidence-reference failures",
         result.evidence_reference_failures,
+    )
+    _extend_markdown_issue_lines(
+        lines,
+        "Decision evidence audit failures",
+        result.decision_evidence_audit_failures,
+    )
+    _extend_markdown_issue_lines(
+        lines,
+        "Decision evidence audit warnings",
+        result.decision_evidence_audit_warnings,
     )
     if not result.evidence_coverage.passed:
         coverage = result.evidence_coverage

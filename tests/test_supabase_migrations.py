@@ -63,6 +63,56 @@ def _pgvector_search_sql() -> str:
     return migration_files[0].read_text()
 
 
+def _agent_run_archive_sql() -> str:
+    migration_files = sorted(
+        (PROJECT_ROOT / "supabase" / "migrations").glob(
+            "*_add_agent_run_archive.sql"
+        )
+    )
+
+    assert [path.name for path in migration_files] == [
+        "20260423113000_add_agent_run_archive.sql"
+    ]
+    return migration_files[0].read_text()
+
+
+def _auth_rbac_sql() -> str:
+    migration_files = sorted(
+        (PROJECT_ROOT / "supabase" / "migrations").glob("*_add_auth_rbac.sql")
+    )
+
+    assert [path.name for path in migration_files] == [
+        "20260423120000_add_auth_rbac.sql"
+    ]
+    return migration_files[0].read_text()
+
+
+def _company_kb_sql() -> str:
+    migration_files = sorted(
+        (PROJECT_ROOT / "supabase" / "migrations").glob(
+            "*_company_knowledge_base.sql"
+        )
+    )
+
+    assert [path.name for path in migration_files] == [
+        "20260423121000_company_knowledge_base.sql"
+    ]
+    return migration_files[0].read_text()
+
+
+def _impact_solution_financials_sql() -> str:
+    migration_files = sorted(
+        (PROJECT_ROOT / "supabase" / "migrations").glob(
+            "*_realign_impact_solution_financials.sql"
+        )
+    )
+
+    assert [path.name for path in migration_files] == [
+        "20260424173000_realign_impact_solution_financials.sql"
+    ]
+    return migration_files[0].read_text()
+
+
 def _table_body(sql: str, table_name: str) -> str:
     match = re.search(
         rf"create table if not exists public\.{table_name}\s*\((?P<body>.*?)\);",
@@ -221,6 +271,30 @@ def test_agent_runs_track_lifecycle_targets_and_runtime_metadata() -> None:
         ),
     ]:
         assert required_fragment in table_body
+
+
+def test_agent_run_archive_migration_adds_soft_archive_contract() -> None:
+    sql = _agent_run_archive_sql().lower()
+    normalized_sql = re.sub(r"\s+", " ", sql)
+
+    for required_fragment in [
+        "alter table if exists public.agent_runs",
+        "add column if not exists archived_at timestamptz",
+        "add column if not exists archived_reason text",
+        "to_regclass('public.agent_runs') is not null",
+        (
+            "constraint agent_runs_archived_reason_check "
+            "check (archived_reason is null or archived_reason <> '')"
+        ),
+        (
+            "create index if not exists agent_runs_unarchived_status_idx "
+            "on public.agent_runs (status, created_at desc) where archived_at is null"
+        ),
+    ]:
+        assert required_fragment in normalized_sql
+
+    assert "delete from public.agent_runs" not in sql
+    assert "drop trigger agent_outputs_immutable_before_update" not in sql
 
 
 def test_agent_outputs_are_validated_immutable_agent_round_artifacts() -> None:
@@ -442,3 +516,150 @@ def test_pgvector_search_migration_adds_index_and_rpc_contract() -> None:
     ) in sql
     assert "dc.embedding <=> query_embedding" in sql
     assert "least(greatest(match_count, 1), 50)" in sql
+
+
+def test_company_kb_migration_adds_private_bucket_and_relaxes_provenance() -> None:
+    sql = re.sub(r"\s+", " ", _company_kb_sql().lower())
+
+    assert "insert into storage.buckets" in sql
+    assert "'company-knowledge'" in sql
+    assert "public = false" in sql
+    assert (
+        "drop constraint if exists evidence_items_company_profile_source_check" in sql
+    )
+    assert "add constraint evidence_items_company_profile_source_check check" in sql
+    assert "source_type <> 'company_profile'" in sql
+    assert "document_id is null" in sql
+    assert "document_id is not null" in sql
+    assert "chunk_id is not null" in sql
+    assert "page_start is not null" in sql
+    assert "page_end is not null" in sql
+    assert "create index if not exists documents_company_profile_idx" in sql
+    assert "create index if not exists evidence_items_company_document_idx" in sql
+
+
+def test_impact_solution_financials_reseed_uses_public_2024_company_data() -> None:
+    sql = re.sub(r"\s+", " ", _impact_solution_financials_sql().lower())
+
+    for required_fragment in [
+        "update public.companies",
+        "name = 'impact solution scandinavia ab'",
+        "organization_number = '556925-0516'",
+        "employee_count = 7",
+        "annual_revenue_sek = 24901000",
+        "'revenue_band_sek', jsonb_build_object('min', 12970000, 'max', 24901000)",
+        "'latest_public_financial_year', 2024",
+        "'latest_public_net_revenue_sek', 24700000",
+        "'latest_public_revenue_sek', 24901000",
+        "'latest_public_operating_result_after_depreciation_sek', 21000",
+        "'latest_public_result_after_financial_items_sek', -104000",
+        "'latest_public_net_income_sek', -104000",
+        "'latest_public_ebitda_sek', 580000",
+        "'latest_public_assets_sek', 11187000",
+        "'latest_public_equity_sek', 1511000",
+        "'latest_public_equity_ratio_percent', 14.9",
+        "'public_financial_statement_history', jsonb_build_array",
+        "'net_revenue_ksek', 24700",
+        "'total_revenue_ksek', 24901",
+        "'operating_result_after_depreciation_ksek', 21",
+        "'result_after_financial_net_ksek', -104",
+        "jsonb_build_object('year', 2020, 'revenue_msek', 12.970",
+        "jsonb_build_object('year', 2021, 'revenue_msek', 18.376",
+        "jsonb_build_object('year', 2022, 'revenue_msek', 20.093",
+        "jsonb_build_object('year', 2023, 'revenue_msek', 22.112",
+        "jsonb_build_object('year', 2024, 'revenue_msek', 24.901",
+        "'ebit_margin_pct', 0.1, 'headcount', 7",
+        "'source_label', 'allabolag/uc, bolagsfakta and vainu public company data'",
+    ]:
+        assert required_fragment in sql
+
+    assert "559247-8112" not in sql
+    assert "fadi zemzemi" not in sql
+
+
+def test_auth_rbac_migration_adds_membership_model_and_helpers() -> None:
+    sql = re.sub(r"\s+", " ", _auth_rbac_sql().lower())
+
+    for required_fragment in [
+        "create table if not exists public.organizations",
+        "create table if not exists public.profiles",
+        "references auth.users(id) on delete cascade",
+        "create table if not exists public.organization_memberships",
+        (
+            "constraint organization_memberships_role_check "
+            "check (role in ('admin', 'user'))"
+        ),
+        (
+            "constraint organization_memberships_status_check "
+            "check (status in ('active', 'invited', 'disabled'))"
+        ),
+        "create or replace function public.is_superadmin()",
+        "create or replace function public.has_org_role(",
+        "create or replace function public.is_org_member(",
+        "create or replace function public.has_any_org_membership()",
+        "create or replace function public.has_any_org_role(",
+        "create or replace function public.shares_organization_with(",
+    ]:
+        assert required_fragment in sql
+
+
+def test_auth_rbac_migration_backfills_organization_id() -> None:
+    sql = re.sub(r"\s+", " ", _auth_rbac_sql().lower())
+
+    for required_fragment in [
+        "alter table if exists public.%i add column if not exists organization_id uuid",
+        "alter table if exists public.%i alter column organization_id set not null",
+        "create index if not exists %i on public.%i (organization_id)",
+    ]:
+        assert required_fragment in sql
+
+    for table_name in [
+        "companies",
+        "tenders",
+        "documents",
+        "document_chunks",
+        "evidence_items",
+        "agent_runs",
+        "agent_outputs",
+        "bid_decisions",
+        "bids",
+    ]:
+        assert f"'{table_name}'" in sql
+
+
+def test_auth_rbac_migration_replaces_anon_policies_with_role_policies() -> None:
+    sql = re.sub(r"\s+", " ", _auth_rbac_sql().lower())
+
+    for old_policy in [
+        '"anon can read demo companies"',
+        '"anon can update demo companies"',
+        '"anon can insert demo bids"',
+        '"anon can update demo bids"',
+        '"anon can delete demo bids"',
+        '"anon can delete demo agent runs"',
+        '"anon can delete demo agent outputs"',
+    ]:
+        assert f"drop policy if exists {old_policy}" in sql
+
+    assert "update storage.buckets set public = false" in sql
+
+    for required_fragment in [
+        "alter table public.companies enable row level security",
+        "create policy \"members can read companies\"",
+        "create policy \"admins can update companies\"",
+        "create policy \"members can read tenders\"",
+        "create policy \"members can create tenders\"",
+        "create policy \"admins can delete tenders\"",
+        "create policy \"members can read documents\"",
+        "create policy \"members can create documents\"",
+        "create policy \"admins can delete documents\"",
+        "create policy \"members can read agent runs\"",
+        "create policy \"admins can delete agent runs\"",
+        "create policy \"members can read evidence items\"",
+        "create policy \"members can read bid decisions\"",
+        "create policy \"admins can manage bids\"",
+        "to authenticated",
+    ]:
+        assert required_fragment in sql
+
+    assert "to anon" not in sql

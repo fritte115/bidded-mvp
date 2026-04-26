@@ -11,10 +11,7 @@ from bidded.agents.schemas import (
     EvidenceReference,
     Round2Rebuttal,
 )
-from bidded.orchestration.evidence_refs import (
-    coerce_evidence_refs,
-    resolve_evidence_ref_dict_against_board,
-)
+from bidded.orchestration.evidence_refs import coerce_evidence_refs
 from bidded.orchestration.graph import (
     GraphRouteNode,
     InvalidGraphOutput,
@@ -216,6 +213,9 @@ _ROUND_2_REBUTTAL_ALLOWED_KEYS = frozenset(
 def _coerce_round2_rebuttal_mapping(
     raw: Mapping[str, Any],
     evidence_board: Sequence[EvidenceItemState],
+    *,
+    motions: Mapping[SpecialistRole, SpecialistMotionState],
+    expected_role: SpecialistRole,
 ) -> dict[str, Any]:
     """Heal LLM-drift shape issues before strict Pydantic validation.
 
@@ -241,6 +241,26 @@ def _coerce_round2_rebuttal_mapping(
     # Coerce revised_stance "null" string → None
     if "revised_stance" in out:
         out["revised_stance"] = _coerce_revised_stance(out["revised_stance"])
+    if _is_missing_confidence(out.get("confidence")):
+        out["confidence"] = motions[expected_role].confidence
+        validation_errors = out.get("validation_errors")
+        if not isinstance(validation_errors, list):
+            validation_errors = []
+        validation_errors.append(
+            {
+                "code": "coerced_missing_confidence",
+                "message": (
+                    "Round 2 rebuttal omitted confidence; reused Round 1 "
+                    f"motion confidence {motions[expected_role].confidence:.2f}."
+                ),
+                "field_path": "confidence",
+                "retryable": False,
+            }
+        )
+        out["validation_errors"] = validation_errors
+    for field in ("missing_info", "potential_evidence_gaps", "recommended_actions"):
+        if field in out:
+            out[field] = _coerce_string_list(out[field])
     # Resolve top-level evidence_refs
     refs = out.get("evidence_refs")
     if isinstance(refs, list):
@@ -284,6 +304,62 @@ def _coerce_round2_rebuttal_mapping(
             _coerce_validation_error_item(e) for e in validation_errors
         ]
     return out
+
+
+def _is_missing_confidence(value: Any) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
+def _coerce_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    items: list[str] = []
+    for item in value:
+        text = _text_from_string_list_item(item)
+        if text:
+            items.append(text)
+    return items
+
+
+def _text_from_string_list_item(item: Any) -> str:
+    if isinstance(item, str):
+        return item.strip()
+    if not isinstance(item, Mapping):
+        return str(item).strip()
+
+    text = ""
+    for key in (
+        "item",
+        "text",
+        "action",
+        "gap",
+        "missing_info",
+        "claim",
+        "requirement",
+        "summary",
+        "detail",
+        "description",
+        "note",
+    ):
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            text = value.strip()
+            break
+    if not text:
+        text = "; ".join(
+            f"{key}: {value}"
+            for key, value in item.items()
+            if value is not None and str(value).strip()
+        )
+
+    qualifiers = [
+        f"{key}: {item[key]}"
+        for key in ("priority", "owner", "due_by", "deadline")
+        if key in item and item[key] is not None and str(item[key]).strip()
+    ]
+    if qualifiers:
+        text = f"{text} ({'; '.join(qualifiers)})"
+    return text
 
 
 def build_round_2_rebuttal_handler(
@@ -354,7 +430,12 @@ def validate_round_2_rebuttal_output(
         coerced = (
             raw_output
             if isinstance(raw_output, Round2Rebuttal)
-            else _coerce_round2_rebuttal_mapping(raw_output, evidence_board)
+            else _coerce_round2_rebuttal_mapping(
+                raw_output,
+                evidence_board,
+                motions=motions,
+                expected_role=expected_role,
+            )
         )
         output = Round2Rebuttal.model_validate(coerced)
     except ValidationError as exc:
@@ -627,7 +708,9 @@ def _drop_unsupported_rebuttal_refs(
 
     def _kept(refs: Sequence[EvidenceReference]) -> list[EvidenceReference]:
         return [
-            ref for ref in refs if _matching_evidence_item(ref, evidence_board) is not None
+            ref
+            for ref in refs
+            if _matching_evidence_item(ref, evidence_board) is not None
         ]
 
     new_top_refs = _kept(output.evidence_refs)

@@ -261,6 +261,33 @@ _UNNUMBERED_CLAUSE_HEADING_KEYWORDS = (
     "underleverant",
     "vite",
 )
+_ROLE_DOWNWEIGHT_GENERIC_REQUIREMENTS = frozenset(
+    {"pricing_appendix", "evaluation_model"}
+)
+_PRICING_TERMS = (
+    "price",
+    "pricing",
+    "pris",
+    "sek",
+    "msek",
+    "per hour",
+    "per month",
+    "per månad",
+    "per manad",
+    "timpris",
+)
+_EVALUATION_TERMS = (
+    "award",
+    "evaluation",
+    "scoring",
+    "weighting",
+    "utvärder",
+    "utvarder",
+    "poäng",
+    "poang",
+    "quality",
+    "kvalitet",
+)
 
 
 class SupabaseTenderEvidenceQuery(Protocol):
@@ -330,6 +357,7 @@ class TenderEvidenceCandidate(BaseModel):
     page_end: int = Field(gt=0)
     excerpt: str = Field(min_length=1)
     source_label: str = Field(min_length=1)
+    procurement_document_role: str | None = None
     category: str = Field(min_length=1)
     requirement_type: RequirementType | None = None
     normalized_meaning: str = Field(min_length=1)
@@ -443,8 +471,14 @@ def build_tender_evidence_candidates(
     candidates: list[TenderEvidenceCandidate] = []
     for chunk in chunks:
         source_label = str(chunk.metadata.get("source_label") or "tender document")
+        procurement_document_role = _normalized_procurement_document_role(
+            chunk.metadata.get("procurement_document_role")
+        )
         for sentence in _sentences(chunk.text):
-            category = _category_for_sentence(sentence)
+            category = _category_for_sentence(
+                sentence,
+                procurement_document_role=procurement_document_role,
+            )
             if category is None:
                 continue
 
@@ -456,8 +490,12 @@ def build_tender_evidence_candidates(
                     page_end=chunk.page_end,
                     excerpt=sentence,
                     source_label=source_label,
+                    procurement_document_role=procurement_document_role,
                     category=category,
-                    requirement_type=_requirement_type_for_sentence(sentence),
+                    requirement_type=_requirement_type_for_sentence(
+                        sentence,
+                        procurement_document_role=procurement_document_role,
+                    ),
                     normalized_meaning=f"Tender states: {sentence}",
                 )
             )
@@ -475,15 +513,21 @@ def _build_clause_scoped_evidence_candidates(
         if not segment.body_text:
             continue
         for sentence in _sentences(segment.body_text):
-            category = _category_for_sentence(sentence)
-            if category is None:
-                continue
             chunk = _chunk_for_clause_sentence(
                 sentence,
                 segment=segment,
                 chunks_by_id=chunks_by_id,
             )
             source_label = str(chunk.metadata.get("source_label") or "tender document")
+            procurement_document_role = _normalized_procurement_document_role(
+                chunk.metadata.get("procurement_document_role")
+            )
+            category = _category_for_sentence(
+                sentence,
+                procurement_document_role=procurement_document_role,
+            )
+            if category is None:
+                continue
             candidates.append(
                 TenderEvidenceCandidate(
                     document_id=segment.document_id,
@@ -492,8 +536,12 @@ def _build_clause_scoped_evidence_candidates(
                     page_end=chunk.page_end,
                     excerpt=sentence,
                     source_label=source_label,
+                    procurement_document_role=procurement_document_role,
                     category=category,
-                    requirement_type=_requirement_type_for_sentence(sentence),
+                    requirement_type=_requirement_type_for_sentence(
+                        sentence,
+                        procurement_document_role=procurement_document_role,
+                    ),
                     normalized_meaning=f"Tender states: {sentence}",
                     clause_section=segment,
                 )
@@ -532,6 +580,11 @@ def build_tender_evidence_items(
                 min_confidence=classifier_min_confidence,
             )
             _apply_contract_clause_classification(metadata, classification)
+        source_metadata: dict[str, Any] = {"source_label": candidate.source_label}
+        if candidate.procurement_document_role is not None:
+            source_metadata["procurement_document_role"] = (
+                candidate.procurement_document_role
+            )
         evidence_items.append(
             {
                 "tenant_key": tenant_key,
@@ -546,7 +599,7 @@ def build_tender_evidence_items(
                     else None
                 ),
                 "confidence": candidate.confidence,
-                "source_metadata": {"source_label": candidate.source_label},
+                "source_metadata": source_metadata,
                 "document_id": str(candidate.document_id),
                 "chunk_id": str(candidate.chunk_id),
                 "page_start": candidate.page_start,
@@ -661,6 +714,8 @@ def _evidence_key(candidate: TenderEvidenceCandidate) -> str:
 
 def _metadata_for_candidate(candidate: TenderEvidenceCandidate) -> dict[str, Any]:
     metadata: dict[str, Any] = {"source": "tender_evidence_board"}
+    if candidate.procurement_document_role is not None:
+        metadata["procurement_document_role"] = candidate.procurement_document_role
     if candidate.clause_section is not None:
         metadata["clause_section"] = _clause_section_metadata(candidate.clause_section)
     contract_clause_tag_matches = match_contract_clause_tags(
@@ -974,12 +1029,27 @@ def _inline_text(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def _category_for_sentence(sentence: str) -> str | None:
-    requirement_type = _requirement_type_for_sentence(sentence)
+def _category_for_sentence(
+    sentence: str,
+    *,
+    procurement_document_role: str | None = None,
+) -> str | None:
+    requirement_type = _requirement_type_for_sentence(
+        sentence,
+        procurement_document_role=procurement_document_role,
+    )
     if requirement_type is not None:
         return _CATEGORY_BY_REQUIREMENT_TYPE[requirement_type]
 
     lowered = sentence.casefold()
+    if procurement_document_role == "pricing_appendix":
+        if _has_pricing_signal(lowered):
+            return "award_criterion"
+        return None
+    if procurement_document_role == "evaluation_model":
+        if _has_evaluation_signal(lowered) or _has_pricing_signal(lowered):
+            return "award_criterion"
+        return None
     if any(term in lowered for term in ["must", "shall", "mandatory", "required"]):
         return "mandatory_requirement"
     if "award" in lowered or "evaluation" in lowered:
@@ -991,7 +1061,11 @@ def _category_for_sentence(sentence: str) -> str | None:
     return None
 
 
-def _requirement_type_for_sentence(sentence: str) -> RequirementType | None:
+def _requirement_type_for_sentence(
+    sentence: str,
+    *,
+    procurement_document_role: str | None = None,
+) -> RequirementType | None:
     glossary_matches = match_regulatory_glossary(sentence)
     if glossary_matches:
         return glossary_matches[0].requirement_type
@@ -999,7 +1073,30 @@ def _requirement_type_for_sentence(sentence: str) -> RequirementType | None:
     lowered = sentence.casefold()
     for requirement_type, keywords in _REQUIREMENT_TYPE_KEYWORDS:
         if any(keyword in lowered for keyword in keywords):
+            if (
+                procurement_document_role in _ROLE_DOWNWEIGHT_GENERIC_REQUIREMENTS
+                and requirement_type
+                in {
+                    RequirementType.SHALL_REQUIREMENT,
+                    RequirementType.SUBMISSION_DOCUMENT,
+                }
+            ):
+                return None
             return requirement_type
+    return None
+
+
+def _has_pricing_signal(lowered_sentence: str) -> bool:
+    return any(term in lowered_sentence for term in _PRICING_TERMS)
+
+
+def _has_evaluation_signal(lowered_sentence: str) -> bool:
+    return any(term in lowered_sentence for term in _EVALUATION_TERMS)
+
+
+def _normalized_procurement_document_role(value: Any) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
     return None
 
 

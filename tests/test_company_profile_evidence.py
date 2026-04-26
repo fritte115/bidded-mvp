@@ -113,6 +113,211 @@ def test_seeded_revenue_geography_and_economics_convert_to_evidence() -> None:
     assert "minimum acceptable margin is 22%" in margin["normalized_meaning"]
 
 
+def test_public_financial_snapshot_converts_to_financial_standing_evidence() -> None:
+    company_profile = build_demo_company_payload()
+    company_profile["profile_details"] = {
+        **company_profile["profile_details"],
+        "public_financial_snapshot": {
+            "financial_year": 2024,
+            "revenue_ksek": 24901,
+            "result_after_financial_items_ksek": -104,
+            "ebitda_ksek": 580,
+            "total_assets_ksek": 11187,
+            "equity_ksek": 1511,
+            "equity_ratio_percent": 14.9,
+            "cash_liquidity_percent": 52.0,
+            "source_label": "Allabolag/UC public company data",
+        },
+    }
+
+    evidence_items = build_company_profile_evidence_items(
+        company_id=COMPANY_ID,
+        company_profile=company_profile,
+    )
+
+    financial_snapshot = _item_by_path(
+        evidence_items,
+        "profile_details.public_financial_snapshot",
+    )
+
+    assert financial_snapshot["category"] == "financial_standing"
+    assert "2024 public financial snapshot" in financial_snapshot["excerpt"]
+    assert "24,901 KSEK" in financial_snapshot["excerpt"]
+    assert "-104 KSEK" in financial_snapshot["excerpt"]
+    assert "14.9%" in financial_snapshot["excerpt"]
+    assert "public annual-account snapshot" in financial_snapshot["normalized_meaning"]
+    assert financial_snapshot["metadata"]["financial_year"] == 2024
+    assert financial_snapshot["metadata"]["revenue_ksek"] == 24901
+    assert (
+        financial_snapshot["source_metadata"]["source_label"]
+        == "Allabolag/UC public company data"
+    )
+
+
+def test_public_financial_statement_history_converts_to_evidence() -> None:
+    company_profile = build_demo_company_payload()
+    company_profile["profile_details"] = {
+        **company_profile["profile_details"],
+        "public_financial_statement_history": [
+            {
+                "year": 2020,
+                "net_revenue_ksek": 12884,
+                "other_revenue_ksek": 86,
+                "total_revenue_ksek": 12970,
+                "operating_expenses_ksek": -11234,
+                "operating_result_after_depreciation_ksek": 1736,
+                "financial_income_ksek": 0,
+                "financial_expenses_ksek": -5,
+                "result_after_financial_net_ksek": 1731,
+                "result_before_tax_ksek": 1391,
+                "tax_ksek": -225,
+                "net_income_ksek": 1166,
+            },
+            {
+                "year": 2024,
+                "net_revenue_ksek": 24700,
+                "other_revenue_ksek": 201,
+                "total_revenue_ksek": 24901,
+                "operating_expenses_ksek": -24881,
+                "operating_result_after_depreciation_ksek": 21,
+                "financial_income_ksek": 2,
+                "financial_expenses_ksek": -127,
+                "result_after_financial_net_ksek": -104,
+                "result_before_tax_ksek": -104,
+                "tax_ksek": 0,
+                "net_income_ksek": -104,
+            },
+        ],
+    }
+
+    evidence_items = build_company_profile_evidence_items(
+        company_id=COMPANY_ID,
+        company_profile=company_profile,
+    )
+
+    history = _item_by_path(
+        evidence_items,
+        "profile_details.public_financial_statement_history",
+    )
+
+    assert history["category"] == "financial_standing"
+    assert "2020-2024 public financial statement history" in history["excerpt"]
+    assert "2020: revenue 12,970 KSEK" in history["excerpt"]
+    assert "2024: revenue 24,901 KSEK" in history["excerpt"]
+    assert "revenue grew from 12,970 KSEK in 2020 to 24,901 KSEK in 2024" in (
+        history["normalized_meaning"]
+    )
+    assert history["metadata"]["first_year"] == 2020
+    assert history["metadata"]["latest_year"] == 2024
+
+
+def test_imported_website_profile_facts_convert_to_evidence() -> None:
+    company_profile = build_demo_company_payload()
+    company_profile["profile_details"] = {
+        **company_profile["profile_details"],
+        "website_imports": [
+            {
+                "source_url": "https://example.com/",
+                "imported_at": "2026-04-23T12:00:00Z",
+                "pages": [{"url": "https://example.com/", "title": "Example"}],
+                "profile_patch": {
+                    "description": (
+                        "Nordic Digital Delivery builds secure cloud platforms "
+                        "for Swedish public sector buyers."
+                    ),
+                    "capabilities": ["Cloud migration", "Cybersecurity"],
+                    "certifications": [
+                        {
+                            "name": "ISO 27001",
+                            "issuer": "Website",
+                            "validUntil": "Active",
+                        }
+                    ],
+                    "references": [
+                        {
+                            "client": "Region Skåne",
+                            "scope": "Cloud migration programme.",
+                            "value": "—",
+                            "year": 2024,
+                        }
+                    ],
+                    "securityPosture": [
+                        {
+                            "item": "ISO 27001",
+                            "status": "Implemented",
+                            "note": "Listed on the website.",
+                        }
+                    ],
+                },
+                "field_sources": {
+                    "description": {
+                        "page_url": "https://example.com/",
+                        "excerpt": (
+                            "Nordic Digital Delivery builds secure cloud platforms "
+                            "for Swedish public sector buyers."
+                        ),
+                        "source_label": "website:https://example.com/",
+                    },
+                    "capabilities": {
+                        "page_url": "https://example.com/",
+                        "excerpt": (
+                            "Services include cloud migration and cybersecurity."
+                        ),
+                        "source_label": "website:https://example.com/",
+                    },
+                    "certifications": {
+                        "page_url": "https://example.com/",
+                        "excerpt": "We are ISO 27001 certified.",
+                        "source_label": "website:https://example.com/",
+                    },
+                    "references": {
+                        "page_url": "https://example.com/",
+                        "excerpt": (
+                            "Case study: Region Skåne cloud migration programme."
+                        ),
+                        "source_label": "website:https://example.com/",
+                    },
+                    "securityPosture": {
+                        "page_url": "https://example.com/",
+                        "excerpt": "We are ISO 27001 certified.",
+                        "source_label": "website:https://example.com/",
+                    },
+                },
+                "warnings": [],
+            }
+        ],
+    }
+
+    evidence_items = build_company_profile_evidence_items(
+        company_id=COMPANY_ID,
+        company_profile=company_profile,
+    )
+
+    imported = [
+        item
+        for item in evidence_items
+        if item["field_path"].startswith("profile_details.website_imports[0]")
+    ]
+
+    assert {item["category"] for item in imported} >= {
+        "profile_summary",
+        "capability",
+        "certification",
+        "reference",
+        "security",
+    }
+    assert all(
+        item["source_metadata"]["source_label"] == "website:https://example.com/"
+        for item in imported
+    )
+    capability = _item_by_path(
+        evidence_items,
+        "profile_details.website_imports[0].profile_patch.capabilities",
+    )
+    assert "Cloud migration, Cybersecurity" in capability["excerpt"]
+    assert capability["metadata"]["source_url"] == "https://example.com/"
+
+
 class RecordingEvidenceTable:
     def __init__(self) -> None:
         self.upserts: list[tuple[list[dict[str, Any]], str | None]] = []

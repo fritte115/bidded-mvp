@@ -15,8 +15,9 @@ import {
 import { VerdictBadge } from "@/components/VerdictBadge";
 import { ConfidenceBar } from "@/components/ConfidenceBar";
 import { EvidenceBadge } from "@/components/EvidenceBadge";
+import { renderFormattedText } from "@/lib/richText";
 import { cn } from "@/lib/utils";
-import type { AgentMotion, AgentMotionFinding } from "@/data/mock";
+import { type AgentMotion, type AgentMotionFinding } from "@/data/mock";
 import { ChevronDown, ShieldCheck, Trophy, Wallet, Flame } from "lucide-react";
 
 const agentMeta: Record<
@@ -25,7 +26,7 @@ const agentMeta: Record<
 > = {
   "Compliance Officer": { icon: ShieldCheck, tint: "text-info" },
   "Win Strategist": { icon: Trophy, tint: "text-success" },
-  "Delivery/CFO": { icon: Wallet, tint: "text-warning" },
+  "Delivery CFO": { icon: Wallet, tint: "text-warning" },
   "Red Team": { icon: Flame, tint: "text-danger" },
 };
 
@@ -37,7 +38,12 @@ function formatMotionLine(text: string) {
 const EVIDENCE_KEY_TOKEN =
   /^(EVD-\d+|TENDER-[A-Za-z0-9._-]+|COMPANY-[A-Za-z0-9._-]+)$/;
 
-function highlightEvidence(text: string) {
+type CitationClickHandler = (id: string) => void;
+
+function highlightEvidence(
+  text: string,
+  onCitationClick?: CitationClickHandler,
+) {
   const cleaned = formatMotionLine(text);
   const parts = cleaned.split(
     /(EVD-\d+|TENDER-[A-Za-z0-9._-]+|COMPANY-[A-Za-z0-9._-]+)/,
@@ -48,26 +54,37 @@ function highlightEvidence(text: string) {
       <EvidenceBadge
         key={i}
         id={p}
+        onClick={onCitationClick ? () => onCitationClick(p) : undefined}
         className="my-0.5 inline-flex max-w-full align-middle break-all sm:mx-0.5"
       />
     ) : (
       <span key={i} className="break-words [overflow-wrap:anywhere]">
-        {p}
+        {renderFormattedText(p)}
       </span>
     );
   });
 }
 
-function FindingRow({ finding }: { finding: AgentMotionFinding }) {
+function FindingRow({
+  finding,
+  onCitationClick,
+}: {
+  finding: AgentMotionFinding;
+  onCitationClick?: CitationClickHandler;
+}) {
   return (
     <div className="space-y-1.5 rounded-md border border-border bg-secondary/30 px-3 py-2.5">
       <p className="text-sm leading-relaxed break-words text-foreground [overflow-wrap:anywhere]">
-        {highlightEvidence(finding.claim)}
+        {highlightEvidence(finding.claim, onCitationClick)}
       </p>
       {finding.evidenceKeys.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {finding.evidenceKeys.map((k) => (
-            <EvidenceBadge key={k} id={k} />
+            <EvidenceBadge
+              key={k}
+              id={k}
+              onClick={onCitationClick ? () => onCitationClick(k) : undefined}
+            />
           ))}
         </div>
       )}
@@ -78,9 +95,11 @@ function FindingRow({ finding }: { finding: AgentMotionFinding }) {
 export function AgentMotionCard({
   motion,
   highlightDisagreement = false,
+  onCitationClick,
 }: {
   motion: AgentMotion;
   highlightDisagreement?: boolean;
+  onCitationClick?: CitationClickHandler;
 }) {
   const [open, setOpen] = useState(false);
   const meta = agentMeta[motion.agent];
@@ -112,7 +131,7 @@ export function AgentMotionCard({
                   <li key={i} className="flex gap-2.5">
                     <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground" />
                     <div className="min-w-0 flex-1 leading-relaxed [overflow-wrap:anywhere]">
-                      {highlightEvidence(f)}
+                      {highlightEvidence(f, onCitationClick)}
                     </div>
                   </li>
                 ))}
@@ -125,7 +144,7 @@ export function AgentMotionCard({
                   </p>
                   <ul className="space-y-1 text-xs text-foreground">
                     {motion.challenges.map((c, i) => (
-                      <li key={i}>• {highlightEvidence(c)}</li>
+                      <li key={i}>• {highlightEvidence(c, onCitationClick)}</li>
                     ))}
                   </ul>
                 </div>
@@ -179,7 +198,11 @@ export function AgentMotionCard({
               </p>
               <div className="space-y-2">
                 {(motion.findingsWithEvidence ?? []).map((f, i) => (
-                  <FindingRow key={i} finding={f} />
+                  <FindingRow
+                    key={i}
+                    finding={f}
+                    onCitationClick={onCitationClick}
+                  />
                 ))}
               </div>
             </section>
@@ -193,7 +216,7 @@ export function AgentMotionCard({
                   <li key={i} className="flex gap-2.5">
                     <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground" />
                     <div className="min-w-0 flex-1 leading-relaxed [overflow-wrap:anywhere]">
-                      {highlightEvidence(f)}
+                      {highlightEvidence(f, onCitationClick)}
                     </div>
                   </li>
                 ))}
@@ -209,7 +232,11 @@ export function AgentMotionCard({
               </p>
               <div className="space-y-2">
                 {(motion.challengesWithEvidence ?? []).map((c, i) => (
-                  <FindingRow key={i} finding={c} />
+                  <FindingRow
+                    key={i}
+                    finding={c}
+                    onCitationClick={onCitationClick}
+                  />
                 ))}
               </div>
             </section>
@@ -222,7 +249,7 @@ export function AgentMotionCard({
                 Revised stance rationale
               </p>
               <p className="text-sm leading-relaxed text-foreground">
-                {motion.revisedStanceRationale}
+                {renderFormattedText(motion.revisedStanceRationale)}
               </p>
             </section>
           )}

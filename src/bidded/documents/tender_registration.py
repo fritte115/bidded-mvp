@@ -2,16 +2,26 @@ from __future__ import annotations
 
 import hashlib
 import re
+import zipfile
 from collections.abc import Mapping
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Protocol
 
 from bidded.db.seed_demo_company import build_demo_company_payload
 
+PDF_CONTENT_TYPE = "application/pdf"
+DOCX_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+)
 
-class TenderPdfRegistrationError(RuntimeError):
-    """Raised when a local tender PDF cannot be registered."""
+
+class TenderDocumentRegistrationError(RuntimeError):
+    """Raised when a local tender document cannot be registered."""
+
+
+TenderPdfRegistrationError = TenderDocumentRegistrationError
 
 
 class SupabaseUpsertQuery(Protocol):
@@ -48,7 +58,7 @@ class SupabaseTenderRegistrationClient(Protocol):
 
 
 @dataclass(frozen=True)
-class TenderPdfRegistrationResult:
+class TenderDocumentRegistrationResult:
     company_id: str
     tender_id: str
     document_id: str
@@ -56,6 +66,82 @@ class TenderPdfRegistrationResult:
     checksum_sha256: str
     content_type: str
     original_filename: str
+
+
+TenderPdfRegistrationResult = TenderDocumentRegistrationResult
+
+
+@dataclass(frozen=True)
+class ValidatedTenderDocument:
+    path: Path
+    content: bytes
+    content_type: str
+    source_format: str
+
+
+def register_demo_tender_document(
+    client: SupabaseTenderRegistrationClient,
+    *,
+    document_path: Path,
+    bucket_name: str,
+    tender_title: str,
+    issuing_authority: str,
+    procurement_reference: str | None = None,
+    procurement_metadata: Mapping[str, Any] | None = None,
+    source_label: str = "registered tender document",
+    procurement_document_role: str | None = None,
+    created_via: str = "bidded_cli",
+) -> TenderDocumentRegistrationResult:
+    """Upload a local PDF or DOCX and register it as a demo tender document."""
+
+    validated_document = _read_valid_tender_document(Path(document_path))
+    checksum_sha256 = hashlib.sha256(validated_document.content).hexdigest()
+    storage_path = _storage_path(
+        title=tender_title,
+        checksum_sha256=checksum_sha256,
+        original_filename=validated_document.path.name,
+    )
+
+    company_id = _upsert_demo_company(client)
+    tender_id = _upsert_tender(
+        client,
+        tender_title=tender_title,
+        issuing_authority=issuing_authority,
+        procurement_reference=procurement_reference,
+        procurement_metadata=dict(procurement_metadata or {}),
+        demo_company_id=company_id,
+        created_via=created_via,
+    )
+    client.storage.from_(bucket_name).upload(
+        storage_path,
+        validated_document.content,
+        file_options={
+            "content-type": validated_document.content_type,
+            "upsert": "true",
+        },
+    )
+    document_id = _upsert_tender_document(
+        client,
+        tender_id=tender_id,
+        demo_company_id=company_id,
+        storage_path=storage_path,
+        checksum_sha256=checksum_sha256,
+        content_type=validated_document.content_type,
+        original_filename=validated_document.path.name,
+        source_label=source_label,
+        procurement_document_role=procurement_document_role,
+        created_via=created_via,
+    )
+
+    return TenderDocumentRegistrationResult(
+        company_id=company_id,
+        tender_id=tender_id,
+        document_id=document_id,
+        storage_path=storage_path,
+        checksum_sha256=checksum_sha256,
+        content_type=validated_document.content_type,
+        original_filename=validated_document.path.name,
+    )
 
 
 def register_demo_tender_pdf(
@@ -72,65 +158,73 @@ def register_demo_tender_pdf(
     created_via: str = "bidded_cli",
 ) -> TenderPdfRegistrationResult:
     """Upload a local PDF and register it as the demo tender document."""
-    path = Path(pdf_path)
-    pdf_bytes = _read_valid_pdf(path)
-    checksum_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
-    storage_path = _storage_path(
-        title=tender_title,
-        checksum_sha256=checksum_sha256,
-        original_filename=path.name,
-    )
-
-    company_id = _upsert_demo_company(client)
-    tender_id = _upsert_tender(
+    if Path(pdf_path).suffix.lower() != ".pdf":
+        raise TenderDocumentRegistrationError(f"Input file is not a PDF: {pdf_path}")
+    return register_demo_tender_document(
         client,
+        document_path=pdf_path,
+        bucket_name=bucket_name,
         tender_title=tender_title,
         issuing_authority=issuing_authority,
         procurement_reference=procurement_reference,
-        procurement_metadata=dict(procurement_metadata or {}),
-        demo_company_id=company_id,
-        created_via=created_via,
-    )
-    client.storage.from_(bucket_name).upload(
-        storage_path,
-        pdf_bytes,
-        file_options={"content-type": "application/pdf", "upsert": "true"},
-    )
-    document_id = _upsert_tender_document(
-        client,
-        tender_id=tender_id,
-        demo_company_id=company_id,
-        storage_path=storage_path,
-        checksum_sha256=checksum_sha256,
-        original_filename=path.name,
+        procurement_metadata=procurement_metadata,
         source_label=source_label,
         procurement_document_role=procurement_document_role,
         created_via=created_via,
     )
 
-    return TenderPdfRegistrationResult(
-        company_id=company_id,
-        tender_id=tender_id,
-        document_id=document_id,
-        storage_path=storage_path,
-        checksum_sha256=checksum_sha256,
-        content_type="application/pdf",
-        original_filename=path.name,
+
+def _read_valid_tender_document(path: Path) -> ValidatedTenderDocument:
+    if not path.exists():
+        raise TenderDocumentRegistrationError(
+            f"Tender document file does not exist: {path}"
+        )
+    if not path.is_file():
+        raise TenderDocumentRegistrationError(
+            f"Tender document path is not a file: {path}"
+        )
+
+    suffix = path.suffix.lower()
+    if suffix == ".pdf":
+        document_bytes = path.read_bytes()
+        if not document_bytes.startswith(b"%PDF-"):
+            raise TenderDocumentRegistrationError(f"Input file is not a PDF: {path}")
+        return ValidatedTenderDocument(
+            path=path,
+            content=document_bytes,
+            content_type=PDF_CONTENT_TYPE,
+            source_format="pdf",
+        )
+
+    if suffix == ".docx":
+        document_bytes = path.read_bytes()
+        if not _is_valid_docx(document_bytes):
+            raise TenderDocumentRegistrationError(f"Input file is not a DOCX: {path}")
+        return ValidatedTenderDocument(
+            path=path,
+            content=document_bytes,
+            content_type=DOCX_CONTENT_TYPE,
+            source_format="docx",
+        )
+
+    raise TenderDocumentRegistrationError(
+        f"Unsupported document type: {path}. Supported types are PDF and DOCX."
     )
 
 
 def _read_valid_pdf(path: Path) -> bytes:
-    if not path.exists():
-        raise TenderPdfRegistrationError(f"PDF file does not exist: {path}")
-    if not path.is_file():
-        raise TenderPdfRegistrationError(f"PDF path is not a file: {path}")
-    if path.suffix.lower() != ".pdf":
-        raise TenderPdfRegistrationError(f"Input file is not a PDF: {path}")
+    validated_document = _read_valid_tender_document(path)
+    if validated_document.content_type != PDF_CONTENT_TYPE:
+        raise TenderDocumentRegistrationError(f"Input file is not a PDF: {path}")
+    return validated_document.content
 
-    pdf_bytes = path.read_bytes()
-    if not pdf_bytes.startswith(b"%PDF-"):
-        raise TenderPdfRegistrationError(f"Input file is not a PDF: {path}")
-    return pdf_bytes
+
+def _is_valid_docx(document_bytes: bytes) -> bool:
+    try:
+        with zipfile.ZipFile(BytesIO(document_bytes)) as archive:
+            return "word/document.xml" in archive.namelist()
+    except zipfile.BadZipFile:
+        return False
 
 
 def _upsert_demo_company(client: SupabaseTenderRegistrationClient) -> str:
@@ -182,6 +276,7 @@ def _upsert_tender_document(
     demo_company_id: str,
     storage_path: str,
     checksum_sha256: str,
+    content_type: str,
     original_filename: str,
     source_label: str,
     procurement_document_role: str | None,
@@ -189,7 +284,7 @@ def _upsert_tender_document(
 ) -> str:
     metadata: dict[str, Any] = {
         "registered_via": created_via,
-        "source_label": source_label.strip() or "registered tender PDF",
+        "source_label": source_label.strip() or "registered tender document",
         "demo_company_id": demo_company_id,
     }
     if procurement_document_role is not None:
@@ -200,7 +295,7 @@ def _upsert_tender_document(
         "company_id": None,
         "storage_path": storage_path,
         "checksum_sha256": checksum_sha256,
-        "content_type": "application/pdf",
+        "content_type": content_type,
         "document_role": "tender_document",
         "parse_status": "pending",
         "original_filename": original_filename,
@@ -231,14 +326,17 @@ def _storage_path(
     original_filename: str,
 ) -> str:
     title_slug = _slugify(title) or "tender"
-    filename = _safe_pdf_filename(original_filename)
+    filename = _safe_document_filename(original_filename)
     return f"demo/procurements/{title_slug}/{checksum_sha256[:12]}-{filename}"
 
 
-def _safe_pdf_filename(filename: str) -> str:
+def _safe_document_filename(filename: str) -> str:
     path = Path(filename)
     stem = _slugify(path.stem) or "document"
-    return f"{stem}.pdf"
+    suffix = path.suffix.lower()
+    if suffix not in {".pdf", ".docx"}:
+        suffix = ".pdf"
+    return f"{stem}{suffix}"
 
 
 def _slugify(value: str) -> str:

@@ -8,6 +8,7 @@ import pytest
 
 from bidded.documents import (
     TenderPdfRegistrationError,
+    register_demo_tender_document,
     register_demo_tender_pdf,
 )
 
@@ -86,6 +87,36 @@ def _write_pdf(path: Path) -> bytes:
     return content
 
 
+def _write_docx(path: Path) -> bytes:
+    import zipfile
+
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            (
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+                '<Default Extension="xml" ContentType="application/xml"/>'
+                '<Override PartName="/word/document.xml" '
+                'ContentType="application/vnd.openxmlformats-officedocument.'
+                'wordprocessingml.document.main+xml"/>'
+                "</Types>"
+            ),
+        )
+        archive.writestr(
+            "word/document.xml",
+            (
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                '<w:document xmlns:w="http://schemas.openxmlformats.org/'
+                'wordprocessingml/2006/main">'
+                "<w:body><w:p><w:r><w:t>Mandatory DOCX requirement</w:t></w:r>"
+                "</w:p></w:body>"
+                "</w:document>"
+            ),
+        )
+    return path.read_bytes()
+
+
 def test_register_demo_tender_pdf_uploads_and_persists_document(
     tmp_path: Path,
 ) -> None:
@@ -153,6 +184,52 @@ def test_register_demo_tender_pdf_uploads_and_persists_document(
     assert document_conflict == "storage_path"
 
 
+def test_register_demo_tender_document_uploads_and_persists_docx(
+    tmp_path: Path,
+) -> None:
+    docx_path = tmp_path / "Bilaga Kravspec.docx"
+    docx_bytes = _write_docx(docx_path)
+    client = RecordingSupabaseClient()
+
+    result = register_demo_tender_document(
+        client,
+        document_path=docx_path,
+        bucket_name="procurement-fixtures",
+        tender_title="DOCX procurement",
+        issuing_authority="Example Municipality",
+        source_label="DOCX requirements appendix",
+    )
+
+    checksum = hashlib.sha256(docx_bytes).hexdigest()
+    assert result.checksum_sha256 == checksum
+    assert result.content_type == (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    assert result.original_filename == "Bilaga Kravspec.docx"
+    assert result.storage_path.endswith("bilaga-kravspec.docx")
+    assert client.storage.bucket.uploads == [
+        (
+            result.storage_path,
+            docx_bytes,
+            {
+                "content-type": (
+                    "application/vnd.openxmlformats-officedocument."
+                    "wordprocessingml.document"
+                ),
+                "upsert": "true",
+            },
+        )
+    ]
+
+    document_payload, document_conflict = client.tables["documents"].upserts[0]
+    assert document_payload["content_type"] == (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    assert document_payload["original_filename"] == "Bilaga Kravspec.docx"
+    assert document_payload["metadata"]["source_label"] == "DOCX requirements appendix"
+    assert document_conflict == "storage_path"
+
+
 def test_register_demo_tender_pdf_persists_manifest_metadata(tmp_path: Path) -> None:
     pdf_path = tmp_path / "01 Administrativa foreskrifter.pdf"
     _write_pdf(pdf_path)
@@ -204,6 +281,20 @@ def test_register_demo_tender_pdf_rejects_non_pdf(tmp_path: Path) -> None:
         register_demo_tender_pdf(
             RecordingSupabaseClient(),
             pdf_path=text_file,
+            bucket_name="procurement-fixtures",
+            tender_title="Skakrav",
+            issuing_authority="Example Municipality",
+        )
+
+
+def test_register_demo_tender_document_rejects_legacy_doc(tmp_path: Path) -> None:
+    doc_path = tmp_path / "requirements.doc"
+    doc_path.write_bytes(b"legacy doc")
+
+    with pytest.raises(TenderPdfRegistrationError, match="Unsupported document type"):
+        register_demo_tender_document(
+            RecordingSupabaseClient(),
+            document_path=doc_path,
             bucket_name="procurement-fixtures",
             tender_title="Skakrav",
             issuing_authority="Example Municipality",

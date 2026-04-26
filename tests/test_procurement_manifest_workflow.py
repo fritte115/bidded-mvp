@@ -33,7 +33,7 @@ def _write_manifest(procurement_dir: Path, documents: list[dict[str, str]]) -> P
     return manifest_path
 
 
-def test_prepare_procurement_manifest_registers_and_prepares_seven_pdfs(
+def test_prepare_procurement_manifest_registers_and_prepares_documents(
     tmp_path: Path,
 ) -> None:
     procurement_dir = tmp_path / "data" / "demo" / "incoming" / "seven-pdf-demo"
@@ -49,8 +49,12 @@ def test_prepare_procurement_manifest_registers_and_prepares_seven_pdfs(
     ]
     documents = []
     for index, role in enumerate(roles, start=1):
-        filename = f"{index:02d}-{role}.pdf"
-        _write_pdf(procurement_dir / filename)
+        suffix = ".docx" if index == 4 else ".pdf"
+        filename = f"{index:02d}-{role}{suffix}"
+        if suffix == ".pdf":
+            _write_pdf(procurement_dir / filename)
+        else:
+            (procurement_dir / filename).write_bytes(b"docx fixture")
         documents.append(
             {
                 "path": filename,
@@ -99,7 +103,7 @@ def test_prepare_procurement_manifest_registers_and_prepares_seven_pdfs(
     assert result.document_ids == tuple(
         f"44444444-4444-4444-8444-44444444444{index}" for index in range(1, 8)
     )
-    assert [call["pdf_path"] for call in registrations] == [
+    assert [call["document_path"] for call in registrations] == [
         procurement_dir / document["path"] for document in documents
     ]
     assert [call["source_label"] for call in registrations] == [
@@ -146,7 +150,7 @@ def test_prepare_procurement_manifest_requires_exactly_seven_pdfs(
             bucket_name="procurement-fixtures",
         )
     except ProcurementManifestError as exc:
-        assert "exactly 7 PDFs" in str(exc)
+        assert "exactly 7 documents" in str(exc)
     else:  # pragma: no cover - assertion guard
         raise AssertionError("Manifest with fewer than seven PDFs should fail.")
 

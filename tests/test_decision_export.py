@@ -22,6 +22,26 @@ def test_export_succeeded_decision_bundle_writes_markdown_and_json(
     client = InMemorySupabaseClient()
     seed_demo_states(client)
     succeeded_run = _run_by_state(client, "succeeded")
+    decision_row = _decision_by_run(client, succeeded_run["id"])
+    decision_row["metadata"]["decision_evidence_audit"] = {
+        "schema_version": "2026-04-23.decision-evidence-audit.v1",
+        "gate_verdict": "flagged",
+        "structural_score": 0.54,
+        "judge_confidence": 0.74,
+        "unsupported_claim_count": 1,
+        "source_unverified_count": 1,
+        "source_type_mismatch_count": 1,
+        "findings": [
+            {
+                "kind": "source_type_mismatch",
+                "severity": "warning",
+                "message": "Company proof is missing.",
+                "claim_id": "claim-001",
+                "field_path": "compliance_matrix[0]",
+                "evidence_keys": ["DEMO-REPLAY-TENDER-ISO-27001"],
+            }
+        ],
+    }
 
     markdown_path = tmp_path / "decision.md"
     json_path = tmp_path / "decision.json"
@@ -52,6 +72,9 @@ def test_export_succeeded_decision_bundle_writes_markdown_and_json(
     assert "Named security-cleared lead CV." in markdown
     assert "## Recommended Actions" in markdown
     assert "Attach named security-cleared lead CV." in markdown
+    assert "## Decision Evidence Audit" in markdown
+    assert "Gate verdict: flagged" in markdown
+    assert "Source type mismatches: 1" in markdown
     assert "## Evidence" in markdown
     assert "DEMO-REPLAY-TENDER-NAMED-LEAD" in markdown
     assert "Supplier must name a security-cleared delivery lead" in markdown
@@ -93,6 +116,10 @@ def test_export_succeeded_decision_bundle_writes_markdown_and_json(
         "Attach named security-cleared lead CV.",
         "Confirm liability cap before final bid approval.",
     ]
+    assert payload["decision"]["decision_evidence_audit"]["gate_verdict"] == "flagged"
+    assert payload["decision"]["decision_evidence_audit"]["findings"][0]["kind"] == (
+        "source_type_mismatch"
+    )
     assert [item["evidence_key"] for item in payload["evidence"]] == sorted(
         item["evidence_key"] for item in payload["evidence"]
     )
@@ -141,6 +168,53 @@ def test_export_needs_human_review_decision_preserves_review_context(
     ]
     assert payload["decision"]["potential_evidence_gaps"] == [
         "Critical named-lead proof is absent from fixture evidence."
+    ]
+
+
+def test_export_uses_decision_snapshot_when_cited_evidence_was_deleted(
+    tmp_path: Path,
+) -> None:
+    client = InMemorySupabaseClient()
+    seed_demo_states(client)
+    succeeded_run = _run_by_state(client, "succeeded")
+    decision = next(
+        row
+        for row in client.rows["bid_decisions"]
+        if row["agent_run_id"] == succeeded_run["id"]
+    )
+    deleted_evidence = next(
+        row
+        for row in client.rows["evidence_items"]
+        if row["evidence_key"] == "DEMO-REPLAY-COMPANY-CAPACITY"
+    )
+    decision["metadata"] = {
+        **decision.get("metadata", {}),
+        "evidence_snapshot": [deepcopy(deleted_evidence)],
+    }
+    client.rows["evidence_items"] = [
+        row
+        for row in client.rows["evidence_items"]
+        if row["evidence_key"] != "DEMO-REPLAY-COMPANY-CAPACITY"
+    ]
+
+    export_decision_bundle(
+        client,
+        run_id=succeeded_run["id"],
+        markdown_path=tmp_path / "decision.md",
+        json_path=tmp_path / "decision.json",
+    )
+
+    markdown = (tmp_path / "decision.md").read_text(encoding="utf-8")
+    assert "DEMO-REPLAY-COMPANY-CAPACITY" in markdown
+    assert deleted_evidence["excerpt"] in markdown
+
+    payload = json.loads((tmp_path / "decision.json").read_text(encoding="utf-8"))
+    assert "DEMO-REPLAY-COMPANY-CAPACITY" in {
+        row["evidence_key"] for row in payload["evidence"]
+    }
+    assert payload["decision"]["risk_register"][0]["evidence_keys"] == [
+        "DEMO-REPLAY-TENDER-LIABILITY",
+        "DEMO-REPLAY-COMPANY-CAPACITY",
     ]
 
 
@@ -378,6 +452,12 @@ def _run_by_state(client: InMemorySupabaseClient, state: str) -> dict[str, Any]:
         row
         for row in client.rows["agent_runs"]
         if row["metadata"].get("fixture", {}).get("state") == state
+    )
+
+
+def _decision_by_run(client: InMemorySupabaseClient, run_id: str) -> dict[str, Any]:
+    return next(
+        row for row in client.rows["bid_decisions"] if row["agent_run_id"] == run_id
     )
 
 

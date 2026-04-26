@@ -19,7 +19,7 @@ export type EvidenceCategory =
   | "Contract Risks"
   | "Required Submission Documents";
 
-export type AgentName = "Compliance Officer" | "Win Strategist" | "Delivery/CFO" | "Red Team";
+export type AgentName = "Compliance Officer" | "Win Strategist" | "Delivery CFO" | "Red Team";
 
 export interface Evidence {
   id: string; // EVD-012
@@ -64,6 +64,21 @@ export interface RiskRow {
   mitigation: string;
 }
 
+export interface CompanyWebsiteFieldSource {
+  page_url: string;
+  excerpt: string;
+  source_label: string;
+}
+
+export interface CompanyWebsiteImportRecord {
+  source_url: string;
+  imported_at: string;
+  pages: Array<{ url: string; title?: string | null; text_excerpt?: string }>;
+  profile_patch: Record<string, unknown>;
+  field_sources: Record<string, CompanyWebsiteFieldSource>;
+  warnings: string[];
+}
+
 export interface JudgeOutput {
   verdict: Verdict;
   confidence: number;
@@ -89,7 +104,7 @@ export interface Procurement {
   chunks: number;
   status: TenderStatus;
   description?: string;
-  // Comparison metrics (mock — surfaced on the Compare page)
+  // Decision summary metrics used by post-analysis views.
   estimatedValueMSEK: number;
   winProbability: number; // 0–1
   strategicFit: "Low" | "Medium" | "High";
@@ -105,6 +120,7 @@ export type Tender = Procurement;
 export interface Run {
   id: string;
   tenderId: string;
+  runNumber?: number | null;
   tenderName: string;
   company: string;
   startedAt: string;
@@ -185,41 +201,81 @@ export interface Company {
     winRatePct: number;
     avgContractMSEK: number;
   };
+  websiteImports?: CompanyWebsiteImportRecord[];
 }
 
 export const company: Company = {
-  name: "Acme IT Consulting AB",
-  orgNumber: "556677-1122",
-  size: "85 employees",
-  hq: "Stockholm, Sweden",
+  name: "Impact Solution Scandinavia AB",
+  legalName: "Impact Solution Scandinavia AB",
+  orgNumber: "556925-0516",
+  vatNumber: "SE556925051601",
+  founded: 2013,
+  size: "7 employees",
+  headcount: 7,
+  hq: "Uppsala, Sweden",
+  offices: ["Tiundagatan 59, 752 30 Uppsala"],
+  website: "https://www.impactsolution.se",
+  description:
+    "Impact Solution Scandinavia AB is an Uppsala-based company focused on IT-based retail solutions and rental vending concepts for workplaces, gyms, golf courses and events.",
+  leadership: [
+    { name: "Bernt Tore Jonsson", title: "CEO" },
+    { name: "Johan Michael Green", title: "Chair / board member" },
+    { name: "Lars Erik Magnus Nilsson", title: "Board member" },
+  ],
+  industries: [
+    "IT-based retail solutions",
+    "Vending and unattended retail",
+    "Workplace food and beverage service",
+    "Events and leisure",
+  ],
   capabilities: [
-    "Cloud (AWS, Azure)",
-    "Cybersecurity",
-    "Agile delivery",
-    "DevOps",
-    "Identity & Access Management",
-    "Public sector integrations",
-    "Data engineering",
-    "Microsoft 365",
-    "Kubernetes",
-    "Zero Trust",
+    "IT-based retail solutions",
+    "cashless vending and payment flows",
+    "connected unattended retail concepts",
+    "food vending machines",
+    "beverage vending machines",
+    "energy drink vending",
+    "ice cream freezer vending",
+    "workplace, gym, golf and event vending",
+    "machine rental",
+    "installation",
+    "scheduled restocking",
+    "machine maintenance",
+    "event pop-up vending",
   ],
-  certifications: [
-    { name: "ISO 27001", issuer: "DNV", validUntil: "2026-09-30" },
-    { name: "ISO 9001", issuer: "DNV", validUntil: "2026-09-30" },
-    { name: "ISO 14001", issuer: "DNV", validUntil: "2027-02-15" },
-    { name: "SKL Framework Agreement — IT-konsulttjänster", issuer: "SKL Kommentus", validUntil: "2026-12-31" },
-  ],
+  certifications: [],
   references: [
-    { client: "Region Skåne", scope: "Cloud migration & IAM", value: "12 MSEK", year: 2024 },
-    { client: "Trafikverket", scope: "DevOps platform engineering", value: "8 MSEK", year: 2023 },
-    { client: "Försäkringskassan", scope: "Secure file exchange platform", value: "18 MSEK", year: 2024 },
+    {
+      client: "Companies and offices",
+      scope: "Rental vending-machine concepts for workplace food, drink and energy products.",
+      value: "not publicly disclosed",
+      year: 2024,
+      sector: "Workplaces",
+    },
+    {
+      client: "Gyms, golf courses and event venues",
+      scope: "Vending-machine rental for gyms, golf courses and event environments.",
+      value: "not publicly disclosed",
+      year: 2024,
+      sector: "Fitness, golf and events",
+    },
   ],
   financialAssumptions: {
-    revenueRange: "120–150 MSEK / year",
-    targetMargin: "12%",
-    maxContractSize: "40 MSEK",
+    revenueRange: "12.970–24.901 MSEK / year (2020–2024)",
+    targetMargin: "0.1% operating margin 2024",
+    maxContractSize: "Not publicly disclosed",
   },
+  financials: [
+    { year: 2020, revenueMSEK: 12.970, ebitMarginPct: 13.4, headcount: 1 },
+    { year: 2021, revenueMSEK: 18.376, ebitMarginPct: 13.2, headcount: 3 },
+    { year: 2022, revenueMSEK: 20.093, ebitMarginPct: -4.1, headcount: 5 },
+    { year: 2023, revenueMSEK: 22.112, ebitMarginPct: -2.1, headcount: 6 },
+    { year: 2024, revenueMSEK: 24.901, ebitMarginPct: 0.1, headcount: 7 },
+  ],
+  teamComposition: [
+    { role: "Service and operations", count: 5, avgYears: 6 },
+    { role: "Management and administration", count: 2, avgYears: 10 },
+  ],
 };
 
 export const procurements: Procurement[] = [
@@ -360,7 +416,7 @@ const evidence: Evidence[] = [
       "Personal som arbetar i uppdraget ska kunna säkerhetsprövas enligt säkerhetsskyddslagen (2018:585), placering i säkerhetsklass 2.",
     source: "polismyndigheten-it-modernisation-2026.pdf",
     page: 12,
-    referencedBy: ["Compliance Officer", "Delivery/CFO", "Red Team"],
+    referencedBy: ["Compliance Officer", "Delivery CFO", "Red Team"],
   },
   {
     id: "EVD-005",
@@ -369,7 +425,7 @@ const evidence: Evidence[] = [
     excerpt: "Anbudsgivaren ska ha en årsomsättning om minst 80 MSEK under vart och ett av de senaste två räkenskapsåren.",
     source: "polismyndigheten-it-modernisation-2026.pdf",
     page: 14,
-    referencedBy: ["Delivery/CFO"],
+    referencedBy: ["Delivery CFO"],
   },
   {
     id: "EVD-006",
@@ -379,7 +435,7 @@ const evidence: Evidence[] = [
       "Minst tre (3) referensuppdrag av motsvarande omfattning hos statlig myndighet under de senaste fem åren ska redovisas.",
     source: "polismyndigheten-it-modernisation-2026.pdf",
     page: 15,
-    referencedBy: ["Win Strategist", "Delivery/CFO"],
+    referencedBy: ["Win Strategist", "Delivery CFO"],
   },
   {
     id: "EVD-007",
@@ -398,7 +454,7 @@ const evidence: Evidence[] = [
     excerpt: "Takpris för ramavtalet är 1500 SEK/timme exkl. moms för seniora konsulter.",
     source: "polismyndigheten-it-modernisation-2026.pdf",
     page: 23,
-    referencedBy: ["Delivery/CFO", "Red Team"],
+    referencedBy: ["Delivery CFO", "Red Team"],
   },
   {
     id: "EVD-009",
@@ -408,7 +464,7 @@ const evidence: Evidence[] = [
       "Leverantörens skadeståndsansvar är begränsat till 200% av årligt avropsvärde. Vid säkerhetsincident gäller obegränsat ansvar.",
     source: "polismyndigheten-it-modernisation-2026.pdf",
     page: 31,
-    referencedBy: ["Delivery/CFO", "Red Team"],
+    referencedBy: ["Delivery CFO", "Red Team"],
   },
   {
     id: "EVD-010",
@@ -417,7 +473,7 @@ const evidence: Evidence[] = [
     excerpt: "Vite om 0,5% av månadsersättning per påbörjad förseningsdag, högst 15% av kontraktsvärdet.",
     source: "polismyndigheten-it-modernisation-2026.pdf",
     page: 32,
-    referencedBy: ["Delivery/CFO"],
+    referencedBy: ["Delivery CFO"],
   },
   {
     id: "EVD-011",
@@ -436,39 +492,41 @@ const evidence: Evidence[] = [
     excerpt: "All dokumentation och leverans ska ske på svenska. Kommunikation med beställaren sker på svenska.",
     source: "polismyndigheten-it-modernisation-2026.pdf",
     page: 13,
-    referencedBy: ["Win Strategist", "Delivery/CFO"],
+    referencedBy: ["Win Strategist", "Delivery CFO"],
   },
-  // ---- Company profile evidence (seeded from Acme IT Consulting AB) ----
+  // ---- Company profile evidence (seeded from Impact Solution Scandinavia AB) ----
   {
     id: "EVD-013",
-    key: "COMPANY.CERTIFICATION.ISO27001",
-    category: "Mandatory Requirements",
-    excerpt: "ISO 27001 — issued by DNV, valid until 2026-09-30.",
-    source: "Acme IT Consulting AB · company profile",
+    key: "COMPANY.IDENTITY.REGISTRATION",
+    category: "Qualification Criteria",
+    excerpt: "Impact Solution Scandinavia AB is registered under organization number 556925-0516.",
+    source: "Impact Solution Scandinavia AB · company profile",
     page: 0,
     referencedBy: ["Compliance Officer"],
     kind: "company_profile",
-    companyFieldPath: "certifications[0]",
+    companyFieldPath: "orgNumber",
   },
   {
     id: "EVD-014",
-    key: "COMPANY.REFERENCE.FORSAKRINGSKASSAN",
+    key: "COMPANY.REFERENCE.WORKPLACES",
     category: "Qualification Criteria",
-    excerpt: "Försäkringskassan — Secure file exchange platform, 18 MSEK, 2024.",
-    source: "Acme IT Consulting AB · company profile",
+    excerpt:
+      "Companies and offices — rental vending-machine concepts for workplace food, drink and energy products.",
+    source: "Impact Solution Scandinavia AB · company profile",
     page: 0,
-    referencedBy: ["Win Strategist", "Delivery/CFO"],
+    referencedBy: ["Win Strategist", "Delivery CFO"],
     kind: "company_profile",
-    companyFieldPath: "references[2]",
+    companyFieldPath: "references[0]",
   },
   {
     id: "EVD-015",
     key: "COMPANY.FINANCIAL.TURNOVER",
     category: "Qualification Criteria",
-    excerpt: "Annual revenue range 120–150 MSEK; clears the 80 MSEK threshold.",
-    source: "Acme IT Consulting AB · company profile",
+    excerpt:
+      "Public financial history shows 2024 total revenue of 24.901 MSEK and result after financial net of -104 KSEK.",
+    source: "Impact Solution Scandinavia AB · company profile",
     page: 0,
-    referencedBy: ["Delivery/CFO"],
+    referencedBy: ["Delivery CFO"],
     kind: "company_profile",
     companyFieldPath: "financialAssumptions.revenueRange",
   },
@@ -498,7 +556,7 @@ const round1: AgentMotion[] = [
     ],
   },
   {
-    agent: "Delivery/CFO",
+    agent: "Delivery CFO",
     verdict: "CONDITIONAL_BID",
     confidence: 64,
     findings: [
@@ -550,7 +608,7 @@ const round2: AgentMotion[] = [
     ],
   },
   {
-    agent: "Delivery/CFO",
+    agent: "Delivery CFO",
     verdict: "CONDITIONAL_BID",
     confidence: 68,
     findings: [
@@ -584,7 +642,7 @@ const judge: JudgeOutput = {
   disagreement:
     "Round 1 surfaced one NO BID (Red Team) on liability and clearance risk. After rebuttals, Red Team converged to CONDITIONAL BID provided liability is clarified, leaving residual disagreement on clearance schedule between Compliance and Red Team.",
   citedMemo:
-    "Acme should submit a CONDITIONAL BID. The opportunity is strategically aligned and quality-weighted evaluation favours our delivery profile, but two contractual conditions must be resolved pre-submission: (1) clarification of unlimited liability for security incidents, and (2) a documented clearance plan with the customer. Margins are acceptable under a blended delivery model. Without resolution of (1), the recommendation reverts to NO BID.",
+    "Impact Solution should submit a CONDITIONAL BID. The opportunity is strategically aligned and quality-weighted evaluation favours our delivery profile, but two contractual conditions must be resolved pre-submission: (1) clarification of unlimited liability for security incidents, and (2) a documented clearance plan with the customer. Margins are acceptable under a blended delivery model. Without resolution of (1), the recommendation reverts to NO BID.",
   complianceMatrix: [
     { requirement: "ISO 27001 certification valid at submission", status: "Met", evidence: ["EVD-003"] },
     { requirement: "Personnel can be cleared to security class 2", status: "Partial", evidence: ["EVD-004"] },
@@ -636,7 +694,7 @@ export const runs: Run[] = [
     id: "run_8f42b1c3",
     tenderId: "tender-001",
     tenderName: "National Police IT Modernisation 2026",
-    company: "Acme IT Consulting AB",
+    company: "Impact Solution Scandinavia AB",
     startedAt: "2026-04-15T08:12:00Z",
     completedAt: "2026-04-15T08:23:42Z",
     durationSec: 702,
@@ -653,7 +711,7 @@ export const runs: Run[] = [
     id: "run_5d9e4a7b",
     tenderId: "tender-002",
     tenderName: "Swedish Tax Agency Cloud Migration",
-    company: "Acme IT Consulting AB",
+    company: "Impact Solution Scandinavia AB",
     startedAt: "2026-04-18T09:02:00Z",
     durationSec: 184,
     status: "running",
@@ -673,7 +731,7 @@ export const runs: Run[] = [
     id: "run_a1b2c3d4",
     tenderId: "tender-003",
     tenderName: "Region Stockholm EHR Integration Platform",
-    company: "Acme IT Consulting AB",
+    company: "Impact Solution Scandinavia AB",
     startedAt: "2026-04-17T15:10:00Z",
     completedAt: "2026-04-17T15:18:22Z",
     durationSec: 502,
@@ -690,14 +748,14 @@ export const runs: Run[] = [
       confidence: 64,
       voteSummary: { BID: 0, NO_BID: 3, CONDITIONAL_BID: 1 },
       citedMemo:
-        "Acme should NOT bid. Healthcare domain depth is thin and the clinical safety classification adds delivery risk that is not offset by the contract value or strategic fit. Recommend re-evaluating only if a credible clinical partner can be secured.",
+        "Impact Solution should NOT bid. Healthcare domain depth is thin and the clinical safety classification adds delivery risk that is not offset by the contract value or strategic fit. Recommend re-evaluating only if a credible clinical partner can be secured.",
     },
   },
   {
     id: "run_e5f6a7b8",
     tenderId: "tender-004",
     tenderName: "Trafikverket DevOps Platform Renewal",
-    company: "Acme IT Consulting AB",
+    company: "Impact Solution Scandinavia AB",
     startedAt: "2026-04-17T11:02:00Z",
     completedAt: "2026-04-17T11:14:08Z",
     durationSec: 728,
@@ -714,14 +772,14 @@ export const runs: Run[] = [
       confidence: 76,
       voteSummary: { BID: 3, NO_BID: 0, CONDITIONAL_BID: 1 },
       citedMemo:
-        "Acme should BID. Strong incumbent position from the 2023 contract, well-understood scope, and acceptable margins under the blended delivery model. Pricing pressure on senior rates is the main concern but is manageable with the proposed rate card.",
+        "Impact Solution should BID. Strong incumbent position from the 2023 contract, well-understood scope, and acceptable margins under the blended delivery model. Pricing pressure on senior rates is the main concern but is manageable with the proposed rate card.",
     },
   },
   {
     id: "run_9d3e2f1a",
     tenderId: "tender-002",
     tenderName: "Swedish Tax Agency Cloud Migration",
-    company: "Acme IT Consulting AB",
+    company: "Impact Solution Scandinavia AB",
     startedAt: "2026-04-16T13:45:00Z",
     completedAt: "2026-04-16T13:49:11Z",
     durationSec: 251,
@@ -742,7 +800,7 @@ export const runs: Run[] = [
     id: "run_b2e19c3f",
     tenderId: "tender-005",
     tenderName: "Försäkringskassan Identity Platform 2026",
-    company: "Acme IT Consulting AB",
+    company: "Impact Solution Scandinavia AB",
     startedAt: "2026-04-18T07:10:00Z",
     completedAt: "2026-04-18T07:18:55Z",
     durationSec: 525,
@@ -774,12 +832,67 @@ export function findRun(id: string) {
   return runs.find((r) => r.id === id);
 }
 
-/** Friendly run label, e.g. "Run #1042". Stable for a given run id. */
-export function runDisplayId(run: Pick<Run, "id">) {
-  // Sum char codes → 4-digit number in [1000, 9999]
-  let sum = 0;
-  for (let i = 0; i < run.id.length; i++) sum = (sum + run.id.charCodeAt(i) * (i + 1)) % 9000;
-  return `#${1000 + sum}`;
+export interface RunSequenceRow {
+  id: string;
+  tenderId: string;
+  startedAt?: string | null;
+  createdAt?: string | null;
+}
+
+type RunLabelTarget = {
+  id: string;
+  runNumber?: number | null;
+};
+
+function runSequenceTimeMs(run: RunSequenceRow) {
+  const value = run.startedAt ?? run.createdAt ?? null;
+  if (!value) return 0;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+export function buildRunNumberMap(runsToNumber: RunSequenceRow[]) {
+  const grouped = new Map<string, RunSequenceRow[]>();
+  for (const run of runsToNumber) {
+    const bucket = grouped.get(run.tenderId) ?? [];
+    bucket.push(run);
+    grouped.set(run.tenderId, bucket);
+  }
+
+  const runNumbers = new Map<string, number>();
+  for (const group of grouped.values()) {
+    group
+      .slice()
+      .sort((left, right) => {
+        const timeDiff = runSequenceTimeMs(left) - runSequenceTimeMs(right);
+        if (timeDiff !== 0) return timeDiff;
+        return left.id.localeCompare(right.id);
+      })
+      .forEach((run, index) => {
+        runNumbers.set(run.id, index + 1);
+      });
+  }
+
+  return runNumbers;
+}
+
+/** Friendly run label, e.g. "Run 1". Uses a real per-procurement run order when known. */
+export function runDisplayId(run: RunLabelTarget | string) {
+  if (typeof run !== "string" && typeof run.runNumber === "number" && run.runNumber > 0) {
+    return `Run ${run.runNumber}`;
+  }
+
+  const id = typeof run === "string" ? run : run.id;
+  const mockRunNumber = buildRunNumberMap(
+    runs.map((mockRun) => ({
+      id: mockRun.id,
+      tenderId: mockRun.tenderId,
+      startedAt: mockRun.startedAt,
+      createdAt: mockRun.startedAt,
+    })),
+  ).get(id);
+
+  return typeof mockRunNumber === "number" ? `Run ${mockRunNumber}` : "Run";
 }
 
 /** Latest run for a procurement, by startedAt (desc). */
@@ -812,16 +925,32 @@ export function findProcurement(id: string) {
 export const findTender = findProcurement;
 
 export const verdictLabel: Record<Verdict, string> = {
-  BID: "BID",
-  NO_BID: "NO BID",
-  CONDITIONAL_BID: "CONDITIONAL BID",
+  BID: "Bid",
+  NO_BID: "No bid",
+  CONDITIONAL_BID: "Conditional bid",
 };
 
 export const verdictLabelShort: Record<Verdict, string> = {
-  BID: "BID",
-  NO_BID: "NO BID",
-  CONDITIONAL_BID: "COND.",
+  BID: "Bid",
+  NO_BID: "No bid",
+  CONDITIONAL_BID: "Cond.",
 };
+
+export function humanizeVerdictText(text: string) {
+  const normalized = text
+    .replace(/\bNOT\s+BID\b/gi, "not bid")
+    .replace(/\bCONDITIONAL[_\s-]+BID\b/gi, "conditional bid")
+    .replace(/\bNO[_\s-]+BID\b/gi, "no bid")
+    .replace(/\bCOMPLIANCE[_\s-]+OFFICER\b/gi, "Compliance Officer")
+    .replace(/\bWIN[_\s-]+STRATEGIST\b/gi, "Win Strategist")
+    .replace(/\bDELIVERY(?:[_/\s-]+)CFO\b/gi, "Delivery CFO")
+    .replace(/\bRED[_\s-]+TEAM\b/gi, "Red Team")
+    .replace(/\bBID\b/g, "bid");
+
+  return normalized.replace(/^(bid|no bid|conditional bid)\b/, (match) =>
+    match.charAt(0).toUpperCase() + match.slice(1),
+  );
+}
 
 export function formatDate(iso: string) {
   return new Date(iso).toLocaleString("sv-SE", {
@@ -884,6 +1013,97 @@ export interface Bid {
   /** Optional decision/run that seeded this bid. */
   runId?: string;
 }
+
+export type BidDraftAnswerStatus = "drafted" | "needs_input" | "blocked" | "not_applicable";
+export type BidDraftAttachmentStatus = "attached" | "suggested" | "missing" | "needs_review";
+
+export interface BidDraftPricing {
+  source: "bid_row" | "estimator";
+  rateSEK: number;
+  marginPct: number;
+  hoursEstimated: number;
+  totalValueSEK: number;
+  bidId?: string;
+}
+
+export interface BidDraftAnswer {
+  questionId: string;
+  prompt: string;
+  answer: string;
+  status: BidDraftAnswerStatus;
+  evidenceKeys: string[];
+  requiredAttachmentTypes: string[];
+}
+
+export interface BidDraftAttachment {
+  filename: string;
+  storagePath?: string;
+  checksumSha256?: string;
+  attachmentType: string;
+  requiredByEvidenceKey: string;
+  status: BidDraftAttachmentStatus;
+  sourceEvidenceKeys: string[];
+  packetPath?: string;
+  publicUrl?: string;
+}
+
+export interface BidResponseDraft {
+  schemaVersion: string;
+  runId: string;
+  tenderId: string;
+  bidId?: string;
+  language: string;
+  status: "draft" | "needs_review" | "blocked";
+  verdict: Verdict;
+  confidence: number | null;
+  pricing: BidDraftPricing;
+  answers: BidDraftAnswer[];
+  attachments: BidDraftAttachment[];
+  missingInfo: string[];
+  sourceEvidenceKeys: string[];
+}
+
+export const bidDrafts: BidResponseDraft[] = [
+  {
+    schemaVersion: "2026-04-23.bid_response_draft.v1",
+    runId: "run_8f42b1c3",
+    tenderId: "tender-001",
+    language: "sv",
+    status: "needs_review",
+    verdict: "CONDITIONAL_BID",
+    confidence: 76,
+    pricing: {
+      source: "bid_row",
+      rateSEK: 1330,
+      marginPct: 14,
+      hoursEstimated: 800,
+      totalValueSEK: 1_064_000,
+    },
+    answers: [
+      {
+        questionId: "TENDER-ISO-CERT",
+        prompt: "The tender requires an ISO 27001 certificate.",
+        answer: "Bifoga ISO 27001-certifikat. Kravet adresseras med bifogad evidens.",
+        status: "drafted",
+        evidenceKeys: ["TENDER-ISO-CERT", "COMPANY-KB-ISO-27001"],
+        requiredAttachmentTypes: ["certificate"],
+      },
+    ],
+    attachments: [
+      {
+        filename: "iso-27001.pdf",
+        storagePath: "demo/company-kb/iso-27001.pdf",
+        checksumSha256: "demo-checksum",
+        attachmentType: "certificate",
+        requiredByEvidenceKey: "TENDER-ISO-CERT",
+        status: "attached",
+        sourceEvidenceKeys: ["TENDER-ISO-CERT", "COMPANY-KB-ISO-27001"],
+      },
+    ],
+    missingInfo: ["Confirm named project manager."],
+    sourceEvidenceKeys: ["TENDER-ISO-CERT", "COMPANY-KB-ISO-27001"],
+  },
+];
 
 export const bidStatusOrder: BidStatus[] = ["draft", "review", "submitted", "won", "lost"];
 

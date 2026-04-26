@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import type { DragEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -15,7 +16,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { fetchBids, updateBidStatus, fetchProcurements } from "@/lib/api";
+import { fetchBids, updateBidStatus, fetchProcurements, deleteBid } from "@/lib/api";
+import { usePermissions } from "@/lib/auth";
 import { summarizeBidPipeline } from "@/lib/bidIntegrationMapping";
 import {
   bidStatusLabel,
@@ -34,9 +36,21 @@ import {
   Send,
   Target,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 
 type SortKey = "updated" | "rate" | "margin";
+
+const BID_DRAG_MIME = "application/x-bidded-bid-id";
 
 const statusDot: Record<BidStatus, string> = {
   draft: "bg-muted-foreground/50",
@@ -49,13 +63,18 @@ const statusDot: Record<BidStatus, string> = {
 export default function Bids() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const permissions = usePermissions();
 
   const [filter, setFilter] = useState<string>("all");
   const [query, setQuery] = useState<string>("");
   const [sort, setSort] = useState<SortKey>("updated");
+  const [draggedBid, setDraggedBid] = useState<{ id: string; status: BidStatus } | null>(null);
+  const [dropTargetStatus, setDropTargetStatus] = useState<BidStatus | null>(null);
   const [expandedColumns, setExpandedColumns] = useState<Record<BidStatus, boolean>>({
     draft: false, review: false, submitted: false, won: false, lost: false,
   });
+  const [deletingBidId, setDeletingBidId] = useState<string | null>(null);
+  const [pendingDeleteBid, setPendingDeleteBid] = useState<{ id: string; name: string } | null>(null);
 
   const { data: bids = [], isLoading } = useQuery({
     queryKey: ["bids"],
@@ -110,6 +129,12 @@ export default function Bids() {
   };
 
   const handleMove = async (id: string, status: BidStatus) => {
+    if (!permissions.canManageBids) {
+      toast.error("Admin access required", {
+        description: "Only admins can change bid status.",
+      });
+      return;
+    }
     try {
       await updateBidStatus(id, status);
       queryClient.invalidateQueries({ queryKey: ["bids"] });
@@ -119,8 +144,73 @@ export default function Bids() {
     }
   };
 
+  const handleDragStart = (event: DragEvent<HTMLDivElement>, bid: Bid) => {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(BID_DRAG_MIME, bid.id);
+    event.dataTransfer.setData("text/plain", bid.id);
+    setDraggedBid({ id: bid.id, status: bid.status });
+  };
+
+  const clearDragState = () => {
+    setDraggedBid(null);
+    setDropTargetStatus(null);
+  };
+
+  const handleColumnDragOver = (event: DragEvent<HTMLElement>, status: BidStatus) => {
+    if (!draggedBid || draggedBid.status === status) return;
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDropTargetStatus(status);
+  };
+
+  const handleColumnDragLeave = (event: DragEvent<HTMLElement>, status: BidStatus) => {
+    const nextTarget = event.relatedTarget as Node | null;
+    if (nextTarget && event.currentTarget.contains(nextTarget)) return;
+
+    setDropTargetStatus((current) => (current === status ? null : current));
+  };
+
+  const handleColumnDrop = (event: DragEvent<HTMLElement>, status: BidStatus) => {
+    event.preventDefault();
+
+    const bidId =
+      event.dataTransfer.getData(BID_DRAG_MIME) ||
+      event.dataTransfer.getData("text/plain") ||
+      draggedBid?.id;
+    const sourceStatus =
+      draggedBid?.id === bidId
+        ? draggedBid.status
+        : bids.find((bid) => bid.id === bidId)?.status;
+
+    clearDragState();
+
+    if (!bidId || sourceStatus === status) return;
+
+    void handleMove(bidId, status);
+  };
+
   const handleEdit = (id: string) => {
+    if (!permissions.canManageBids) return;
     navigate(`/bids/${id}/edit`);
+  };
+
+  const handleDeleteBid = async () => {
+    if (!pendingDeleteBid) return;
+    const { id, name } = pendingDeleteBid;
+    setPendingDeleteBid(null);
+    setDeletingBidId(id);
+    try {
+      await deleteBid(id);
+      await queryClient.invalidateQueries({ queryKey: ["bids"] });
+      toast.success("Bid deleted", { description: name });
+    } catch (err) {
+      toast.error("Delete failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setDeletingBidId(null);
+    }
   };
 
   return (
@@ -128,12 +218,14 @@ export default function Bids() {
       <PageHeader
         title="Bids"
         actions={
-          <Button asChild>
-            <Link to="/bids/new">
-              <Plus className="h-4 w-4" />
-              New Bid
-            </Link>
-          </Button>
+          permissions.canManageBids ? (
+            <Button asChild>
+              <Link to="/bids/new">
+                <Plus className="h-4 w-4" />
+                New Bid
+              </Link>
+            </Button>
+          ) : undefined
         }
       />
 
@@ -196,11 +288,13 @@ export default function Bids() {
             title="No bids match"
             description="Try clearing the search or filter, or start a new bid."
             action={
-              <Button asChild>
-                <Link to="/bids/new">
-                  <Plus className="h-4 w-4" /> New Bid
-                </Link>
-              </Button>
+              permissions.canManageBids ? (
+                <Button asChild>
+                  <Link to="/bids/new">
+                    <Plus className="h-4 w-4" /> New Bid
+                  </Link>
+                </Button>
+              ) : undefined
             }
           />
         </div>
@@ -215,7 +309,18 @@ export default function Bids() {
                 : items.slice(0, COLLAPSED_LIMIT);
             const hiddenCount = items.length - COLLAPSED_LIMIT;
             return (
-              <section key={status} className="flex min-h-[280px] flex-col rounded-lg bg-muted/30">
+              <section
+                key={status}
+                role="region"
+                aria-label={`${bidStatusLabel[status]} bids`}
+                onDragOver={(event) => handleColumnDragOver(event, status)}
+                onDragLeave={(event) => handleColumnDragLeave(event, status)}
+                onDrop={(event) => handleColumnDrop(event, status)}
+                className={cn(
+                  "flex min-h-[280px] flex-col rounded-lg bg-muted/30 transition-colors",
+                  dropTargetStatus === status && "bg-primary/5 ring-2 ring-inset ring-primary/30",
+                )}
+              >
                 <header className="sticky top-0 z-10 flex items-center justify-between gap-2 rounded-t-lg border-b border-border/60 bg-muted/30 px-3 py-2 backdrop-blur">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", statusDot[status])} />
@@ -239,7 +344,17 @@ export default function Bids() {
                   ) : (
                     <>
                       {visibleItems.map((b) => (
-                        <BidCard key={b.id} bid={b} onMove={handleMove} onEdit={handleEdit} />
+                        <BidCard
+                          key={b.id}
+                          bid={b}
+                          canManage={permissions.canManageBids}
+                          onMove={handleMove}
+                          onEdit={handleEdit}
+                          onDelete={(id, name) => setPendingDeleteBid({ id, name })}
+                          onDragStart={handleDragStart}
+                          onDragEnd={clearDragState}
+                          isDragging={draggedBid?.id === b.id}
+                        />
                       ))}
                       {items.length > COLLAPSED_LIMIT && (
                         <Button
@@ -263,6 +378,31 @@ export default function Bids() {
           })}
         </div>
       )}
+
+      <AlertDialog
+        open={!!pendingDeleteBid}
+        onOpenChange={(open) => { if (!open) setPendingDeleteBid(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete bid?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The bid for{" "}
+              <span className="font-medium text-foreground">{pendingDeleteBid?.name}</span>{" "}
+              will be permanently removed. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleDeleteBid}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

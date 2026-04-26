@@ -1,8 +1,11 @@
+import { Fragment } from "react";
 import { ConfidenceBar } from "@/components/ConfidenceBar";
+import { EvidenceBadge } from "@/components/EvidenceBadge";
 import { VerdictBadge } from "@/components/VerdictBadge";
 import { formatJudgeMemo } from "@/lib/judgeMemo";
+import { renderFormattedText } from "@/lib/richText";
 import { cn } from "@/lib/utils";
-import type { Verdict } from "@/data/mock";
+import { verdictLabel, type Verdict } from "@/data/mock";
 
 type VoteSummary = {
   BID: number;
@@ -10,21 +13,49 @@ type VoteSummary = {
   CONDITIONAL_BID: number;
 };
 
+type CitationClickHandler = (id: string) => void;
+
+const EVIDENCE_KEY_TOKEN =
+  /^(EVD-\d+|TENDER-[A-Za-z0-9._-]+|COMPANY-[A-Za-z0-9._-]+)$/;
+
+function renderMemoText(text: string, onCitationClick?: CitationClickHandler) {
+  const parts = text.split(
+    /(EVD-\d+|TENDER-[A-Za-z0-9._-]+|COMPANY-[A-Za-z0-9._-]+)/,
+  );
+
+  return parts.map((part, index) => {
+    if (part === "") return null;
+    if (EVIDENCE_KEY_TOKEN.test(part)) {
+      return (
+        <EvidenceBadge
+          key={index}
+          id={part}
+          onClick={onCitationClick ? () => onCitationClick(part) : undefined}
+          className="my-0.5 inline-flex max-w-full align-middle break-all sm:mx-0.5"
+        />
+      );
+    }
+    return <Fragment key={index}>{renderFormattedText(part)}</Fragment>;
+  });
+}
+
 export function JudgeMemo({
   memo,
   verdict,
   className,
+  onCitationClick,
 }: {
   memo: string;
   verdict: Verdict;
   className?: string;
+  onCitationClick?: CitationClickHandler;
 }) {
   const { title, blocks } = formatJudgeMemo(memo, verdict);
 
   return (
     <div className={cn("space-y-3", className)}>
       <h3 className="text-base font-semibold leading-snug text-foreground">
-        {title}
+        {renderMemoText(title, onCitationClick)}
       </h3>
       {blocks.length > 0 && (
         <div className="space-y-3 text-sm leading-relaxed text-foreground">
@@ -32,11 +63,11 @@ export function JudgeMemo({
             block.type === "list" ? (
               <ol key={index} className="list-decimal space-y-1.5 pl-5">
                 {block.items.map((item, itemIndex) => (
-                  <li key={itemIndex}>{item}</li>
+                  <li key={itemIndex}>{renderMemoText(item, onCitationClick)}</li>
                 ))}
               </ol>
             ) : (
-              <p key={index}>{block.text}</p>
+              <p key={index}>{renderMemoText(block.text, onCitationClick)}</p>
             ),
           )}
         </div>
@@ -51,12 +82,14 @@ export function JudgeVerdictSummary({
   citedMemo,
   voteSummary,
   className,
+  onCitationClick,
 }: {
   verdict: Verdict;
   confidence: number;
   citedMemo: string;
   voteSummary?: VoteSummary;
   className?: string;
+  onCitationClick?: CitationClickHandler;
 }) {
   return (
     <section
@@ -94,6 +127,7 @@ export function JudgeVerdictSummary({
         memo={citedMemo}
         verdict={verdict}
         className="mt-4 border-t border-border pt-4"
+        onCitationClick={onCitationClick}
       />
     </section>
   );
@@ -102,10 +136,10 @@ export function JudgeVerdictSummary({
 function VoteSummaryChips({ voteSummary }: { voteSummary: VoteSummary }) {
   return (
     <div className="flex flex-wrap gap-1.5 sm:justify-end">
-      <VoteChip label="BID" count={voteSummary.BID} tone="success" />
-      <VoteChip label="NO BID" count={voteSummary.NO_BID} tone="danger" />
+      <VoteChip label={verdictLabel.BID} count={voteSummary.BID} tone="success" />
+      <VoteChip label={verdictLabel.NO_BID} count={voteSummary.NO_BID} tone="danger" />
       <VoteChip
-        label="COND."
+        label={verdictLabel.CONDITIONAL_BID}
         count={voteSummary.CONDITIONAL_BID}
         tone="warning"
       />
@@ -137,7 +171,7 @@ function VoteChip({
       )}
     >
       <span className="font-mono tabular-nums">{count}</span>
-      <span className="uppercase tracking-wide">{label}</span>
+      <span>{label}</span>
     </div>
   );
 }
