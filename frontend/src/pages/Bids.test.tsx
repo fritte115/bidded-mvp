@@ -13,10 +13,24 @@ import {
 import type { Bid } from "@/data/mock";
 
 vi.mock("@/lib/api", () => ({
+  deleteBid: vi.fn(),
   fetchBids: vi.fn(),
   fetchCompany: vi.fn(),
   fetchProcurements: vi.fn(),
   updateBidStatus: vi.fn(),
+}));
+
+vi.mock("@/lib/auth", () => ({
+  usePermissions: () => ({
+    isSuperadmin: false,
+    canRegisterProcurements: true,
+    canStartRuns: true,
+    canManageCompany: true,
+    canManageBids: true,
+    canDeleteProcurements: true,
+    canDeleteRuns: true,
+    canManageTeam: true,
+  }),
 }));
 
 vi.mock("sonner", () => ({

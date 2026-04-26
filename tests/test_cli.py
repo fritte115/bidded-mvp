@@ -67,6 +67,9 @@ def test_cli_help_prints_without_external_services() -> None:
     assert "retry-run" in result.stdout
     assert "reset-stale-runs" in result.stdout
     assert "export-decision" in result.stdout
+    assert "register-company-kb-pdf" in result.stdout
+    assert "ingest-company-kb-pdf" in result.stdout
+    assert "generate-bid-draft" in result.stdout
     assert "eval-golden" in result.stdout
     assert "diff-decisions" in result.stdout
 
@@ -133,6 +136,7 @@ def test_cli_register_demo_tender_help_prints_demo_pdf_hint_without_services() -
 
     assert result.returncode == 0, result.stderr
     assert "register-demo-tender" in result.stdout
+    assert "PDF or DOCX" in result.stdout
     assert "data/demo/incoming/Bilaga Skakrav.pdf" in result.stdout
 
 
@@ -268,6 +272,97 @@ def test_cli_export_decision_help_prints_without_external_services() -> None:
     assert "--run-id" in result.stdout
     assert "--markdown-path" in result.stdout
     assert "--json-path" in result.stdout
+
+
+def test_cli_generate_bid_draft_help_prints_without_external_services() -> None:
+    env = os.environ.copy()
+    env.pop("ANTHROPIC_API_KEY", None)
+    env.pop("SUPABASE_URL", None)
+    env.pop("SUPABASE_SERVICE_ROLE_KEY", None)
+    env["PYTHONPATH"] = str(PROJECT_ROOT / "src")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "bidded.cli", "generate-bid-draft", "--help"],
+        cwd=PROJECT_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "generate-bid-draft" in result.stdout
+    assert "--run-id" in result.stdout
+    assert "--packet-dir" in result.stdout
+
+
+def test_cli_generate_bid_draft_delegates_and_writes_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client = object()
+    json_path = tmp_path / "draft.json"
+    captured_generate: dict[str, Any] = {}
+    monkeypatch.setattr(
+        cli,
+        "load_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {
+                "supabase_url": "https://example.supabase.co",
+                "supabase_service_role_key": "service-role",
+                "supabase_storage_bucket": "public-procurements",
+            },
+        )(),
+    )
+    monkeypatch.setattr(cli, "_create_supabase_client", lambda _settings: client)
+
+    def record_generate(supabase_client: object, **kwargs: Any) -> object:
+        captured_generate["client"] = supabase_client
+        captured_generate.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(cli, "generate_bid_response_draft", record_generate)
+    monkeypatch.setattr(
+        cli,
+        "bid_response_draft_to_payload",
+        lambda _draft: {
+            "run_id": "11111111-1111-4111-8111-111111111111",
+            "status": "needs_review",
+            "pricing": {"rate_sek": 1330},
+            "attachments": [{"status": "attached"}],
+        },
+    )
+
+    result = cli.main(
+        [
+            "generate-bid-draft",
+            "--run-id",
+            "11111111-1111-4111-8111-111111111111",
+            "--bid-id",
+            "22222222-2222-4222-8222-222222222222",
+            "--packet-dir",
+            str(tmp_path / "packet"),
+            "--json-path",
+            str(json_path),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Generated bid draft" in captured.out
+    assert json.loads(json_path.read_text(encoding="utf-8"))["pricing"] == {
+        "rate_sek": 1330
+    }
+    assert captured_generate == {
+        "client": client,
+        "run_id": "11111111-1111-4111-8111-111111111111",
+        "bid_id": "22222222-2222-4222-8222-222222222222",
+        "storage_bucket": "public-procurements",
+        "packet_dir": tmp_path / "packet",
+    }
 
 
 def test_cli_eval_golden_help_prints_without_external_services() -> None:
@@ -511,7 +606,7 @@ def test_cli_register_demo_tender_accepts_metadata(
             storage_path="demo/tenders/skakrav/tender.pdf",
         )
 
-    monkeypatch.setattr(cli, "register_demo_tender_pdf", record_registration)
+    monkeypatch.setattr(cli, "register_demo_tender_document", record_registration)
 
     result = cli.main(
         [
@@ -535,7 +630,7 @@ def test_cli_register_demo_tender_accepts_metadata(
     assert "Registered demo tender Skakrav" in captured.out
     assert captured_registration == {
         "client": client,
-        "pdf_path": pdf_path,
+        "document_path": pdf_path,
         "bucket_name": "procurement-fixtures",
         "tender_title": "Skakrav",
         "issuing_authority": "Example Municipality",

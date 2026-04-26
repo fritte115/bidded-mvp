@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from bidded.documents import register_demo_tender_pdf
+from bidded.documents import register_demo_tender_document
 from bidded.orchestration.prepare_run import PrepareRunResult, prepare_procurement_run
 
 DEFAULT_MANIFEST_CREATED_VIA = "bidded_procurement_manifest"
@@ -20,7 +20,7 @@ class ProcurementManifestError(RuntimeError):
 
 
 class ProcurementManifestDocument(BaseModel):
-    """One local procurement PDF described by a manifest."""
+    """One local procurement PDF or DOCX described by a manifest."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -30,12 +30,12 @@ class ProcurementManifestDocument(BaseModel):
 
     @field_validator("path")
     @classmethod
-    def validate_relative_pdf_path(cls, value: str) -> str:
+    def validate_relative_document_path(cls, value: str) -> str:
         path = Path(value)
         if path.is_absolute() or ".." in path.parts:
             raise ValueError("document path must stay inside the manifest directory")
-        if path.suffix.lower() != ".pdf":
-            raise ValueError("document path must point to a PDF")
+        if path.suffix.lower() not in {".pdf", ".docx"}:
+            raise ValueError("document path must point to a PDF or DOCX")
         return value
 
 
@@ -56,7 +56,7 @@ class ProcurementManifest(BaseModel):
         if len(self.documents) != EXPECTED_MANIFEST_DOCUMENT_COUNT:
             raise ValueError(
                 "procurement manifest must list exactly "
-                f"{EXPECTED_MANIFEST_DOCUMENT_COUNT} PDFs"
+                f"{EXPECTED_MANIFEST_DOCUMENT_COUNT} documents"
             )
         return self
 
@@ -138,11 +138,11 @@ def prepare_procurement_manifest_run(
     *,
     manifest_path: Path,
     bucket_name: str,
-    register_document: Callable[..., Any] = register_demo_tender_pdf,
+    register_document: Callable[..., Any] = register_demo_tender_document,
     prepare_run: Callable[..., PrepareRunResult] = prepare_procurement_run,
     created_via: str = DEFAULT_MANIFEST_CREATED_VIA,
 ) -> ProcurementManifestRunResult:
-    """Register a seven-PDF local procurement fixture and prepare one agent run."""
+    """Register a seven-document local procurement fixture and prepare one run."""
 
     normalized_manifest_path = Path(manifest_path)
     procurement_directory = normalized_manifest_path.parent
@@ -153,10 +153,10 @@ def prepare_procurement_manifest_run(
     tender_id: str | None = None
     company_id: str | None = None
     for manifest_document in manifest.documents:
-        pdf_path = procurement_directory / manifest_document.path
+        document_path = procurement_directory / manifest_document.path
         registration = register_document(
             client,
-            pdf_path=pdf_path,
+            document_path=document_path,
             bucket_name=bucket_name,
             tender_title=manifest.tender_title,
             issuing_authority=manifest.issuing_authority,
@@ -181,7 +181,7 @@ def prepare_procurement_manifest_run(
 
         registered_documents.append(
             RegisteredManifestDocument(
-                path=pdf_path,
+                path=document_path,
                 source_label=manifest_document.source_label,
                 document_role=manifest_document.document_role,
                 document_id=str(registration.document_id),
@@ -216,8 +216,12 @@ def _validate_manifest_files(
     documents: Sequence[ProcurementManifestDocument],
 ) -> None:
     for document in documents:
-        pdf_path = procurement_directory / document.path
-        if not pdf_path.exists():
-            raise ProcurementManifestError(f"Manifest PDF does not exist: {pdf_path}")
-        if not pdf_path.is_file():
-            raise ProcurementManifestError(f"Manifest PDF is not a file: {pdf_path}")
+        document_path = procurement_directory / document.path
+        if not document_path.exists():
+            raise ProcurementManifestError(
+                f"Manifest document does not exist: {document_path}"
+            )
+        if not document_path.is_file():
+            raise ProcurementManifestError(
+                f"Manifest document is not a file: {document_path}"
+            )

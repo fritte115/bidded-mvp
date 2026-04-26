@@ -37,8 +37,10 @@ core domain tables, agent audit tables, chunk/evidence tables, nullable
 does not require Supabase Auth or RLS.
 
 Create the Storage bucket named by `SUPABASE_STORAGE_BUCKET`. The service role
-key must be able to upload and download tender PDFs from that bucket. Demo input
-PDFs must be text-based; OCR and DOCX import are out of scope.
+key must be able to upload and download tender documents from that bucket. Demo
+input PDFs must be text-based; DOCX input requires LibreOffice/`soffice` on the
+worker PATH so Bidded can convert it to PDF for page references. OCR, legacy DOC,
+and RTF import are out of scope.
 
 Use the preferred local PDF path when the file exists:
 
@@ -152,7 +154,7 @@ export without asking Claude to produce a fresh result:
 
 | Scenario | Operator Action |
 | --- | --- |
-| Missing PDF | Run `demo-smoke` without relying on the preferred PDF path; it will create a temporary text-PDF fixture. For the real tender, put the text-PDF under `data/demo/incoming/` and rerun smoke or registration. |
+| Missing PDF | Run `demo-smoke` without relying on the preferred PDF path; it will create a temporary text-PDF fixture. For the real tender, put the text-PDF or DOCX under `data/demo/incoming/` and rerun smoke or registration. |
 | Claude unavailable | Use default `demo-smoke` without `--live-llm`, or use `seed-demo-states` replay. After fixing `ANTHROPIC_API_KEY` or model access, create a retry run and execute the worker. |
 | Supabase failure | Run `doctor` to isolate URL, service key, table, or Storage bucket failures. Fix migrations/bucket/env first; do not patch audit rows manually. Use seeded replay if the live project is unavailable during the talk track. |
 | Stuck `running` run | Inspect `run-status --verbose`. If the worker heartbeat is stale, reset it with `reset-stale-runs`, then create a retry run. |

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Company } from "@/data/mock";
-import { mergeCompanyIntoDb, type DbCompany } from "./api";
+import {
+  applyCompanyWebsiteImportPreview,
+  mergeCompanyIntoDb,
+  type CompanyWebsiteImportPreview,
+  type DbCompany,
+} from "./api";
 
 function seededDbCompany(): DbCompany {
   return {
@@ -319,5 +324,114 @@ describe("mergeCompanyIntoDb", () => {
     expect(refs[0].outcome).toBe("Zero unplanned downtime");
     // Seeded fields outside UI surface still intact
     expect(refs[0].capabilities_used).toEqual(["UX", "Mobile"]);
+  });
+
+  it("applies website import previews to the editable draft without saving", () => {
+    const draft = uiCompany();
+    draft.capabilities = ["AWS"];
+    draft.certifications = [];
+    draft.references = [];
+    const preview: CompanyWebsiteImportPreview = {
+      source_url: "https://example.com/",
+      pages: [{ url: "https://example.com/", title: "Example" }],
+      profile_patch: {
+        website: "https://example.com/",
+        description: "Imported company description.",
+        capabilities: ["AWS", "Cybersecurity"],
+        certifications: [
+          { name: "ISO 27001", issuer: "Website", validUntil: "Active" },
+        ],
+        references: [
+          {
+            client: "Region Skåne",
+            scope: "Cloud migration programme.",
+            value: "—",
+            year: 2024,
+          },
+        ],
+        securityPosture: [
+          { item: "ISO 27001", status: "Implemented", note: "Website listed." },
+        ],
+      },
+      field_sources: {
+        capabilities: {
+          page_url: "https://example.com/",
+          excerpt: "Cloud and cybersecurity services.",
+          source_label: "website:https://example.com/",
+        },
+      },
+      warnings: ["Review imported facts before save."],
+    };
+
+    const next = applyCompanyWebsiteImportPreview(
+      draft,
+      preview,
+      "2026-04-23T12:00:00.000Z",
+    );
+
+    expect(next.website).toBe("https://example.com/");
+    expect(next.description).toBe("Imported company description.");
+    expect(next.capabilities).toEqual(["AWS", "Cybersecurity"]);
+    expect(next.certifications).toEqual(preview.profile_patch.certifications);
+    expect(next.references).toEqual(preview.profile_patch.references);
+    expect(next.securityPosture).toEqual(preview.profile_patch.securityPosture);
+    expect(next.websiteImports?.[0]).toEqual({
+      ...preview,
+      imported_at: "2026-04-23T12:00:00.000Z",
+    });
+  });
+
+  it("persists website import provenance under profile_details only", () => {
+    const prev = seededDbCompany();
+    const ui = uiCompany();
+    ui.websiteImports = [
+      {
+        source_url: "https://example.com/",
+        imported_at: "2026-04-23T12:00:00.000Z",
+        pages: [{ url: "https://example.com/", title: "Example" }],
+        profile_patch: { capabilities: ["Cybersecurity"] },
+        field_sources: {},
+        warnings: [],
+      },
+    ];
+
+    const payload = mergeCompanyIntoDb(ui, prev);
+    const pd = payload.profile_details as Record<string, unknown>;
+
+    expect(pd.website_imports).toEqual(ui.websiteImports);
+    expect(pd.cv_summaries).toEqual(prev.profile_details.cv_summaries);
+  });
+
+  it("does not overwrite existing reviewed array items when applying imports", () => {
+    const draft = uiCompany();
+    const preview: CompanyWebsiteImportPreview = {
+      source_url: "https://example.com/",
+      pages: [],
+      profile_patch: {
+        certifications: [
+          { name: "ISO 27001", issuer: "Website", validUntil: "Active" },
+        ],
+        references: [
+          {
+            client: "Swedish Municipality",
+            scope: "Imported scope.",
+            value: "—",
+            year: 2022,
+          },
+        ],
+      },
+      field_sources: {},
+      warnings: [],
+    };
+
+    const next = applyCompanyWebsiteImportPreview(
+      draft,
+      preview,
+      "2026-04-23T12:00:00.000Z",
+    );
+
+    expect(next.certifications[0]).toEqual(draft.certifications[0]);
+    expect(next.references[0]).toEqual(draft.references[0]);
+    expect(next.websiteImports?.[0].profile_patch).toEqual(preview.profile_patch);
   });
 });
