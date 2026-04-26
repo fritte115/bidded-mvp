@@ -8,6 +8,57 @@ FRONTEND_DIR="${WORKTREE_ROOT}/frontend"
 FRONTEND_STAMP_FILE="${FRONTEND_DIR}/node_modules/.codex-npm-install.stamp"
 
 
+bidded_config_dir() {
+  if [ -n "${XDG_CONFIG_HOME:-}" ]; then
+    printf '%s\n' "${XDG_CONFIG_HOME}/bidded"
+    return 0
+  fi
+
+  printf '%s\n' "${HOME}/.config/bidded"
+}
+
+
+git_config_path() {
+  local key="$1"
+
+  if ! command -v git >/dev/null 2>&1; then
+    return 1
+  fi
+
+  git config --path --get "${key}" 2>/dev/null
+}
+
+
+copy_backend_env_from_known_sources() {
+  local source_path
+
+  for source_path in \
+    "${ENV_SOURCE:-}" \
+    "$(git_config_path "bidded.backend-env-source" || true)" \
+    "$(bidded_config_dir)/backend.env"; do
+    [ -n "${source_path}" ] || continue
+    copy_backend_env_if_valid "${source_path}" && return 0
+  done
+
+  return 1
+}
+
+
+copy_frontend_env_from_known_sources() {
+  local source_path
+
+  for source_path in \
+    "${FRONTEND_ENV_SOURCE:-}" \
+    "$(git_config_path "bidded.frontend-env-source" || true)" \
+    "$(bidded_config_dir)/frontend.env"; do
+    [ -n "${source_path}" ] || continue
+    copy_frontend_env_if_valid "${source_path}" && return 0
+  done
+
+  return 1
+}
+
+
 python_version_ok() {
   local candidate="$1"
 
@@ -134,11 +185,229 @@ ensure_editable_install() {
 
 
 ensure_env_file() {
-  if [ -f "${WORKTREE_ROOT}/.env" ] || [ ! -f "${WORKTREE_ROOT}/.env.example" ]; then
+  if [ ! -f "${WORKTREE_ROOT}/.env.example" ]; then
     return 0
   fi
 
-  cp "${WORKTREE_ROOT}/.env.example" "${WORKTREE_ROOT}/.env"
+  if backend_env_has_live_credentials "${WORKTREE_ROOT}/.env"; then
+    return 0
+  fi
+
+  copy_backend_env_from_known_sources && return 0
+
+  copy_backend_env_from_worktrees && return 0
+
+  if [ ! -f "${WORKTREE_ROOT}/.env" ]; then
+    cp "${WORKTREE_ROOT}/.env.example" "${WORKTREE_ROOT}/.env"
+  fi
+}
+
+
+backend_env_has_live_credentials() {
+  local env_path="$1"
+
+  [ -f "${env_path}" ] || return 1
+
+  awk -F= '
+    /^[[:space:]]*(#|$)/ { next }
+    $1 == "SUPABASE_URL" {
+      url=$2
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", url)
+    }
+    $1 == "SUPABASE_SERVICE_ROLE_KEY" {
+      service_role=$2
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", service_role)
+    }
+    END {
+      if (url != "" && service_role != "") {
+        exit 0
+      }
+      exit 1
+    }
+  ' "${env_path}"
+}
+
+
+copy_backend_env_if_valid() {
+  local source_path="$1"
+
+  if [ "${source_path}" = "${WORKTREE_ROOT}/.env" ]; then
+    return 1
+  fi
+
+  if backend_env_has_live_credentials "${source_path}"; then
+    cp "${source_path}" "${WORKTREE_ROOT}/.env"
+    echo "Wrote .env from backend credentials in ${source_path}"
+    return 0
+  fi
+
+  return 1
+}
+
+
+copy_backend_env_from_worktrees() {
+  local worktree_path
+  local source_path
+
+  if ! command -v git >/dev/null 2>&1; then
+    return 1
+  fi
+
+  while IFS= read -r worktree_path; do
+    source_path="${worktree_path}/.env"
+    copy_backend_env_if_valid "${source_path}" && return 0
+  done < <(git -C "${WORKTREE_ROOT}" worktree list --porcelain 2>/dev/null | awk '/^worktree / { sub(/^worktree /, ""); print }')
+
+  return 1
+}
+
+
+frontend_env_has_live_supabase() {
+  local env_path="$1"
+
+  [ -f "${env_path}" ] || return 1
+
+  awk -F= '
+    /^[[:space:]]*(#|$)/ { next }
+    $1 == "VITE_SUPABASE_URL" || $1 == "SUPABASE_URL" || $1 == "NEXT_PUBLIC_SUPABASE_URL" {
+      url=$2
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", url)
+    }
+    $1 == "VITE_SUPABASE_ANON_KEY" || $1 == "SUPABASE_ANON_KEY" || $1 == "SUPABASE_PUBLISHABLE_KEY" || $1 == "PUBLIC_SUPABASE_PUBLISHABLE_KEY" || $1 == "NEXT_PUBLIC_SUPABASE_ANON_KEY" || $1 == "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY" {
+      anon=$2
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", anon)
+    }
+    END {
+      if (url != "" && anon != "" && url !~ /your-project-ref/ && anon !~ /replace-with-your-supabase-anon-key/) {
+        exit 0
+      }
+      exit 1
+    }
+  ' "${env_path}"
+}
+
+
+copy_frontend_env_if_valid() {
+  local source_path="$1"
+
+  if [ "${source_path}" = "${FRONTEND_DIR}/.env" ]; then
+    return 1
+  fi
+
+  if frontend_env_has_live_supabase "${source_path}"; then
+    write_frontend_env_from_source "${source_path}"
+    echo "Wrote frontend/.env from public Supabase credentials in ${source_path}"
+    return 0
+  fi
+
+  return 1
+}
+
+
+extract_env_value() {
+  local env_path="$1"
+  local key="$2"
+
+  awk -v key="${key}" '
+    BEGIN { prefix = key "=" }
+    index($0, prefix) == 1 {
+      value = substr($0, length(prefix) + 1)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      print value
+      exit
+    }
+  ' "${env_path}"
+}
+
+
+extract_first_env_value() {
+  local env_path="$1"
+  shift
+
+  local key
+  local value
+
+  for key in "$@"; do
+    value="$(extract_env_value "${env_path}" "${key}")"
+    if [ -n "${value}" ]; then
+      printf '%s\n' "${value}"
+      return 0
+    fi
+  done
+}
+
+
+write_frontend_env_from_source() {
+  local source_path="$1"
+  local vite_supabase_url
+  local vite_supabase_anon_key
+  local vite_agent_api_url
+
+  vite_supabase_url="$(
+    extract_first_env_value \
+      "${source_path}" \
+      "VITE_SUPABASE_URL" \
+      "SUPABASE_URL" \
+      "NEXT_PUBLIC_SUPABASE_URL"
+  )"
+  vite_supabase_anon_key="$(
+    extract_first_env_value \
+      "${source_path}" \
+      "VITE_SUPABASE_ANON_KEY" \
+      "SUPABASE_ANON_KEY" \
+      "SUPABASE_PUBLISHABLE_KEY" \
+      "PUBLIC_SUPABASE_PUBLISHABLE_KEY" \
+      "NEXT_PUBLIC_SUPABASE_ANON_KEY" \
+      "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
+  )"
+  vite_agent_api_url="$(extract_env_value "${source_path}" "VITE_AGENT_API_URL")"
+  vite_agent_api_url="${vite_agent_api_url:-http://localhost:8000}"
+
+  cat > "${FRONTEND_DIR}/.env" <<EOF
+# Supabase project credentials (anon/public key only - never the service role key)
+VITE_SUPABASE_URL=${vite_supabase_url}
+VITE_SUPABASE_ANON_KEY=${vite_supabase_anon_key}
+VITE_AGENT_API_URL=${vite_agent_api_url}
+EOF
+}
+
+
+copy_frontend_env_from_worktrees() {
+  local worktree_path
+  local source_path
+
+  if ! command -v git >/dev/null 2>&1; then
+    return 1
+  fi
+
+  while IFS= read -r worktree_path; do
+    for source_path in "${worktree_path}/frontend/.env" "${worktree_path}/.env"; do
+      copy_frontend_env_if_valid "${source_path}" && return 0
+    done
+  done < <(git -C "${WORKTREE_ROOT}" worktree list --porcelain 2>/dev/null | awk '/^worktree / { sub(/^worktree /, ""); print }')
+
+  return 1
+}
+
+
+ensure_frontend_env_file() {
+  if [ ! -f "${FRONTEND_DIR}/.env.example" ]; then
+    return 0
+  fi
+
+  if frontend_env_has_live_supabase "${FRONTEND_DIR}/.env"; then
+    return 0
+  fi
+
+  copy_frontend_env_from_known_sources && return 0
+
+  copy_frontend_env_if_valid "${WORKTREE_ROOT}/.env" && return 0
+
+  copy_frontend_env_from_worktrees && return 0
+
+  if [ ! -f "${FRONTEND_DIR}/.env" ]; then
+    cp "${FRONTEND_DIR}/.env.example" "${FRONTEND_DIR}/.env"
+  fi
 }
 
 
@@ -179,8 +448,8 @@ print_optional_tool_notes() {
     echo "Note: cargo is missing; brain-in-the-fish tests will be unavailable."
   fi
 
-  if [ ! -f "${FRONTEND_DIR}/.env" ]; then
-    echo "Note: frontend/.env is absent; the UI will use mock data until live Supabase anon credentials are provided."
+  if ! frontend_env_has_live_supabase "${FRONTEND_DIR}/.env"; then
+    echo "Note: frontend/.env is missing live Supabase Vite credentials; login will not work until VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set."
   fi
 }
 
@@ -193,10 +462,13 @@ main() {
   ensure_venv "${python_bin}"
   ensure_editable_install
   ensure_env_file
+  ensure_frontend_env_file
   ensure_worktree_dirs
   ensure_frontend_deps
   print_optional_tool_notes
 }
 
 
-main "$@"
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  main "$@"
+fi
