@@ -47,6 +47,13 @@ const run: RunDetailModel = {
       parseNote: null,
       publicUrl: "https://example.supabase.co/storage/v1/object/public/public-procurements/city-crm-appendix.pdf",
     },
+    {
+      originalFilename: "city-crm-map.pdf",
+      parseStatus: "parsed",
+      parseNote:
+        "No extractable text layer found. The document was kept as a visual/reference attachment and skipped for text evidence; OCR is a non-goal for Bidded v1.",
+      publicUrl: "https://example.supabase.co/storage/v1/object/public/public-procurements/city-crm-map.pdf",
+    },
   ],
   evidence: [],
   round1: [],
@@ -115,6 +122,10 @@ describe("RunDetail", () => {
       "https://example.supabase.co/storage/v1/object/public/public-procurements/city-crm-appendix.pdf",
     );
     expect(screen.getAllByLabelText("Parsed")).toHaveLength(2);
+    expect(screen.getByText("Reference")).toHaveAttribute(
+      "title",
+      expect.stringContaining("visual/reference attachment"),
+    );
     expect(screen.queryByText("Parsed")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Re-run/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Export/i })).toBeInTheDocument();

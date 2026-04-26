@@ -74,9 +74,22 @@ const severityToneMap = {
 
 function DocumentParseIndicator({
   status,
+  note,
 }: {
   status: "pending" | "parsing" | "parsed" | "parser_failed";
+  note?: string | null;
 }) {
+  if (status === "parsed" && note) {
+    return (
+      <span
+        className="inline-flex items-center rounded-sm border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+        title={note}
+      >
+        Reference
+      </span>
+    );
+  }
+
   if (status === "parsed") {
     return (
       <span
@@ -374,7 +387,10 @@ export default function RunDetail() {
                     </a>
                   )}
                 </div>
-                <DocumentParseIndicator status={document.parseStatus} />
+                <DocumentParseIndicator
+                  status={document.parseStatus}
+                  note={document.parseNote}
+                />
               </li>
             ))}
           </ul>

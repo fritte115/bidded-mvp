@@ -110,13 +110,27 @@ class FakeSupabaseClient:
                     "id": DOCUMENT_ID_1,
                     "tenant_key": "demo",
                     "tender_id": TENDER_ID,
+                    "document_role": "tender_document",
                     "parse_status": "parsed",
                 },
                 {
                     "id": DOCUMENT_ID_2,
                     "tenant_key": "demo",
                     "tender_id": TENDER_ID,
+                    "document_role": "tender_document",
                     "parse_status": "pending",
+                },
+            ],
+            "document_chunks": [
+                {
+                    "id": "chunk-1",
+                    "tenant_key": "demo",
+                    "document_id": DOCUMENT_ID_1,
+                },
+                {
+                    "id": "chunk-2",
+                    "tenant_key": "demo",
+                    "document_id": DOCUMENT_ID_2,
                 },
             ],
         }
@@ -229,6 +243,105 @@ def test_start_run_parses_pending_documents_and_starts_worker(
         "document_ids": [DOCUMENT_ID_1, DOCUMENT_ID_2],
     }
     assert captured["workers"] == [(client, RUN_ID, print, {"graph": "handlers"})]
+
+
+def test_start_run_skips_visual_reference_documents_without_chunks(
+    monkeypatch: Any,
+) -> None:
+    client = FakeSupabaseClient()
+    client.rows["document_chunks"] = [
+        {
+            "id": "chunk-1",
+            "tenant_key": "demo",
+            "document_id": DOCUMENT_ID_1,
+        }
+    ]
+    settings = SimpleNamespace(
+        supabase_url="https://example.supabase.co",
+        supabase_service_role_key="service-role",
+        supabase_storage_bucket="public-procurements",
+    )
+    captured: dict[str, Any] = {
+        "evidence_materialized": [],
+        "ingested": [],
+    }
+
+    monkeypatch.setattr(api_server, "load_settings", lambda: settings)
+    monkeypatch.setitem(
+        sys.modules,
+        "supabase",
+        SimpleNamespace(create_client=lambda _url, _key: client),
+    )
+    monkeypatch.setattr(api_server.threading, "Thread", ImmediateThread)
+
+    def record_ingestion(
+        supabase_client: object,
+        *,
+        document_id: str,
+        bucket_name: str,
+    ) -> None:
+        captured["ingested"].append((supabase_client, document_id, bucket_name))
+        for row in client.rows["documents"]:
+            if row["id"] == document_id:
+                row["parse_status"] = "parsed"
+                row["metadata"] = {
+                    "parser": {
+                        "status": "parsed_skipped",
+                        "reason": "no_text_layer",
+                        "visual_document": True,
+                    }
+                }
+
+    def record_evidence_materialization(
+        supabase_client: object,
+        *,
+        document_id: str,
+    ) -> None:
+        captured["evidence_materialized"].append((supabase_client, document_id))
+
+    def record_pending_run(
+        supabase_client: object,
+        **kwargs: Any,
+    ) -> SimpleNamespace:
+        captured["pending_kwargs"] = kwargs
+        return SimpleNamespace(run_id=RUN_ID)
+
+    monkeypatch.setattr(api_server, "ingest_tender_document", record_ingestion)
+    monkeypatch.setattr(
+        api_server,
+        "ensure_tender_evidence_items_for_document",
+        record_evidence_materialization,
+    )
+    monkeypatch.setattr(
+        api_server,
+        "resolve_graph_handlers",
+        lambda _settings: {"graph": "handlers"},
+    )
+    monkeypatch.setattr(
+        api_server,
+        "require_tender_member",
+        lambda *_args, **_kwargs: "00000000-0000-4000-8000-000000000001",
+    )
+    monkeypatch.setattr(api_server, "create_pending_run_context", record_pending_run)
+    monkeypatch.setattr(api_server, "run_worker_once", lambda *_args, **_kwargs: None)
+
+    result = api_server.start_run(
+        api_server.StartRunRequest(tender_id=TENDER_ID),
+        user=AuthenticatedUser(user_id=USER_ID, email="user@example.com"),
+    )
+
+    assert result == {"run_id": RUN_ID}
+    assert captured["ingested"] == [
+        (client, DOCUMENT_ID_2, "public-procurements"),
+    ]
+    assert captured["evidence_materialized"] == [
+        (client, DOCUMENT_ID_1),
+    ]
+    assert captured["pending_kwargs"] == {
+        "tender_id": TENDER_ID,
+        "company_id": COMPANY_ID,
+        "document_ids": [DOCUMENT_ID_1],
+    }
 
 def test_import_company_website_returns_preview_without_supabase_write(
     monkeypatch: Any,

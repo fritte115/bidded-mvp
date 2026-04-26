@@ -1541,10 +1541,37 @@ export interface ProcurementRow {
   hasRunHistory: boolean;
 }
 
+function recordFromUnknown(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") return null;
+  return value as Record<string, unknown>;
+}
+
 function metadataParseNote(metadata: unknown): string | null {
-  if (!metadata || typeof metadata !== "object") return null;
-  const m = metadata as Record<string, unknown>;
-  if (typeof m.parse_error === "string" && m.parse_error.length > 0) return m.parse_error;
+  const m = recordFromUnknown(metadata);
+  if (!m) return null;
+  if (typeof m.parse_error === "string" && m.parse_error.length > 0) {
+    return m.parse_error;
+  }
+  const parser = recordFromUnknown(m.parser);
+  if (!parser) return null;
+  if (
+    typeof parser.skip_message === "string" &&
+    parser.skip_message.length > 0
+  ) {
+    return parser.skip_message;
+  }
+  if (
+    parser.status === "parsed_skipped" &&
+    parser.reason === "no_text_layer"
+  ) {
+    return "Visual/reference attachment without an extractable text layer.";
+  }
+  if (
+    typeof parser.error_message === "string" &&
+    parser.error_message.length > 0
+  ) {
+    return parser.error_message;
+  }
   return null;
 }
 
