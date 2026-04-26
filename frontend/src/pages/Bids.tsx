@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import type { DragEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -49,6 +50,8 @@ import { cn } from "@/lib/utils";
 
 type SortKey = "updated" | "rate" | "margin";
 
+const BID_DRAG_MIME = "application/x-bidded-bid-id";
+
 const statusDot: Record<BidStatus, string> = {
   draft: "bg-muted-foreground/50",
   review: "bg-warning",
@@ -65,6 +68,8 @@ export default function Bids() {
   const [filter, setFilter] = useState<string>("all");
   const [query, setQuery] = useState<string>("");
   const [sort, setSort] = useState<SortKey>("updated");
+  const [draggedBid, setDraggedBid] = useState<{ id: string; status: BidStatus } | null>(null);
+  const [dropTargetStatus, setDropTargetStatus] = useState<BidStatus | null>(null);
   const [expandedColumns, setExpandedColumns] = useState<Record<BidStatus, boolean>>({
     draft: false, review: false, submitted: false, won: false, lost: false,
   });
@@ -137,6 +142,52 @@ export default function Bids() {
     } catch {
       toast.error("Failed to update bid status");
     }
+  };
+
+  const handleDragStart = (event: DragEvent<HTMLDivElement>, bid: Bid) => {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(BID_DRAG_MIME, bid.id);
+    event.dataTransfer.setData("text/plain", bid.id);
+    setDraggedBid({ id: bid.id, status: bid.status });
+  };
+
+  const clearDragState = () => {
+    setDraggedBid(null);
+    setDropTargetStatus(null);
+  };
+
+  const handleColumnDragOver = (event: DragEvent<HTMLElement>, status: BidStatus) => {
+    if (!draggedBid || draggedBid.status === status) return;
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDropTargetStatus(status);
+  };
+
+  const handleColumnDragLeave = (event: DragEvent<HTMLElement>, status: BidStatus) => {
+    const nextTarget = event.relatedTarget as Node | null;
+    if (nextTarget && event.currentTarget.contains(nextTarget)) return;
+
+    setDropTargetStatus((current) => (current === status ? null : current));
+  };
+
+  const handleColumnDrop = (event: DragEvent<HTMLElement>, status: BidStatus) => {
+    event.preventDefault();
+
+    const bidId =
+      event.dataTransfer.getData(BID_DRAG_MIME) ||
+      event.dataTransfer.getData("text/plain") ||
+      draggedBid?.id;
+    const sourceStatus =
+      draggedBid?.id === bidId
+        ? draggedBid.status
+        : bids.find((bid) => bid.id === bidId)?.status;
+
+    clearDragState();
+
+    if (!bidId || sourceStatus === status) return;
+
+    void handleMove(bidId, status);
   };
 
   const handleEdit = (id: string) => {
@@ -258,7 +309,18 @@ export default function Bids() {
                 : items.slice(0, COLLAPSED_LIMIT);
             const hiddenCount = items.length - COLLAPSED_LIMIT;
             return (
-              <section key={status} className="flex min-h-[280px] flex-col rounded-lg bg-muted/30">
+              <section
+                key={status}
+                role="region"
+                aria-label={`${bidStatusLabel[status]} bids`}
+                onDragOver={(event) => handleColumnDragOver(event, status)}
+                onDragLeave={(event) => handleColumnDragLeave(event, status)}
+                onDrop={(event) => handleColumnDrop(event, status)}
+                className={cn(
+                  "flex min-h-[280px] flex-col rounded-lg bg-muted/30 transition-colors",
+                  dropTargetStatus === status && "bg-primary/5 ring-2 ring-inset ring-primary/30",
+                )}
+              >
                 <header className="sticky top-0 z-10 flex items-center justify-between gap-2 rounded-t-lg border-b border-border/60 bg-muted/30 px-3 py-2 backdrop-blur">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", statusDot[status])} />
@@ -289,6 +351,9 @@ export default function Bids() {
                           onMove={handleMove}
                           onEdit={handleEdit}
                           onDelete={(id, name) => setPendingDeleteBid({ id, name })}
+                          onDragStart={handleDragStart}
+                          onDragEnd={clearDragState}
+                          isDragging={draggedBid?.id === b.id}
                         />
                       ))}
                       {items.length > COLLAPSED_LIMIT && (
