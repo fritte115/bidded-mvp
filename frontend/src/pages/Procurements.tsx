@@ -1,4 +1,4 @@
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -6,7 +6,6 @@ import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -38,7 +37,6 @@ import {
   Search,
   Play,
   Files,
-  GitCompareArrows,
   RefreshCw,
   Eye,
   Zap,
@@ -65,11 +63,9 @@ function shortRunId(id: string): string {
 }
 
 export default function Procurements() {
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [q, setQ] = useState("");
   const [runFilter, setRunFilter] = useState<RunFilter>("all");
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
 
@@ -112,23 +108,6 @@ export default function Procurements() {
     [rows],
   );
 
-  const allSelected = filtered.length > 0 && filtered.every(({ procurement: p }) => selectedIds.includes(p.id));
-  const someSelected = filtered.some(({ procurement: p }) => selectedIds.includes(p.id)) && !allSelected;
-
-  const toggleAll = () => {
-    if (allSelected) {
-      setSelectedIds((prev) => prev.filter((id) => !filtered.some(({ procurement: p }) => p.id === id)));
-    } else {
-      setSelectedIds((prev) =>
-        Array.from(new Set([...prev, ...filtered.map(({ procurement: p }) => p.id)])),
-      );
-    }
-  };
-
-  const toggleOne = (id: string) => {
-    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  };
-
   const startRuns = async (ids: string[], label: "start" | "rerun" = "start") => {
     if (ids.length === 0) return;
     const verb = label === "rerun" ? "Re-run" : "Run";
@@ -149,11 +128,6 @@ export default function Procurements() {
     }
   };
 
-  const goCompare = () => {
-    if (selectedIds.length < 2) return;
-    navigate(`/compare?ids=${selectedIds.join(",")}`);
-  };
-
   const handleDelete = async () => {
     if (!pendingDelete) return;
     const { id, name } = pendingDelete;
@@ -161,7 +135,6 @@ export default function Procurements() {
     setDeletingId(id);
     try {
       await deleteProcurement(id);
-      setSelectedIds((prev) => prev.filter((x) => x !== id));
       await queryClient.invalidateQueries({ queryKey: ["procurements"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
       toast.success("Procurement deleted", { description: name });
@@ -172,20 +145,12 @@ export default function Procurements() {
     }
   };
 
-  const selectedCount = selectedIds.length;
-
   return (
     <>
       <PageHeader
         title="Procurements"
         actions={
           <>
-            {selectedCount >= 2 && (
-              <Button variant="outline" onClick={goCompare}>
-                <GitCompareArrows className="h-4 w-4" />
-                Compare ({selectedCount})
-              </Button>
-            )}
             {neverRunIds.length > 0 && (
               <Button variant="outline" onClick={() => startRuns(neverRunIds)}>
                 <Zap className="h-4 w-4" />
@@ -259,13 +224,6 @@ export default function Procurements() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-10">
-                      <Checkbox
-                        checked={allSelected ? true : someSelected ? "indeterminate" : false}
-                        onCheckedChange={toggleAll}
-                        aria-label="Select all"
-                      />
-                    </TableHead>
                     <TableHead>Procurement</TableHead>
                     <TableHead>Documents</TableHead>
                     <TableHead className="whitespace-nowrap">Latest run</TableHead>
@@ -277,21 +235,13 @@ export default function Procurements() {
                 </TableHeader>
                 <TableBody>
                   {filtered.map(({ procurement: t, run }) => {
-                    const checked = selectedIds.includes(t.id);
                     const isActiveRun = run?.status === "running" || run?.status === "pending";
                     const isFinishedRun =
                       run?.status === "succeeded" ||
                       run?.status === "failed" ||
                       run?.status === "needs_human_review";
                     return (
-                      <TableRow key={t.id} data-state={checked ? "selected" : undefined}>
-                        <TableCell>
-                          <Checkbox
-                            checked={checked}
-                            onCheckedChange={() => toggleOne(t.id)}
-                            aria-label={`Select ${t.name}`}
-                          />
-                        </TableCell>
+                      <TableRow key={t.id}>
                         <TableCell className="font-medium">{t.name}</TableCell>
                         <TableCell className="align-top">
                           <div className="max-w-[240px] space-y-1.5">

@@ -11,7 +11,6 @@ import RunDetail from "./pages/RunDetail";
 import EvidenceBoard from "./pages/EvidenceBoard";
 import Decisions from "./pages/Decisions";
 import DecisionDetail from "./pages/DecisionDetail";
-import Compare from "./pages/Compare";
 import CompanyProfile from "./pages/CompanyProfile";
 import Bids from "./pages/Bids";
 import BidEditor from "./pages/BidEditor";
@@ -35,7 +34,6 @@ const App = () => (
             <Route path="/runs/:id/evidence" element={<EvidenceBoard />} />
             <Route path="/decisions" element={<Decisions />} />
             <Route path="/decisions/:id" element={<DecisionDetail />} />
-            <Route path="/compare" element={<Compare />} />
             <Route path="/bids" element={<Bids />} />
             <Route path="/bids/new" element={<BidEditor />} />
             <Route path="/bids/:bidId/edit" element={<BidEditor />} />

@@ -1654,7 +1654,7 @@ export async function fetchEvidenceBoard(runId: string): Promise<Evidence[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Tenders with decisions (Compare page)
+// Tenders with decisions
 // ---------------------------------------------------------------------------
 
 export type TenderDecisionRow = DecisionSummary;
