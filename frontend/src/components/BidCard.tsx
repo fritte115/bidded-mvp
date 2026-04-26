@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import type { DragEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,6 +37,9 @@ interface Props {
   bid: Bid;
   onMove: (id: string, status: BidStatus) => void;
   onEdit?: (id: string) => void;
+  onDragEnd?: () => void;
+  onDragStart?: (event: DragEvent<HTMLDivElement>, bid: Bid) => void;
+  isDragging?: boolean;
   onDelete?: (id: string, name: string) => void;
   canManage?: boolean;
 }
@@ -77,7 +81,16 @@ function relativeDeadline(d: Date): { label: string; tone: string } {
   return { label: `in ${days}d`, tone: "text-muted-foreground" };
 }
 
-export function BidCard({ bid, onMove, onEdit, onDelete, canManage = true }: Props) {
+export function BidCard({
+  bid,
+  onMove,
+  onEdit,
+  onDragEnd,
+  onDragStart,
+  isDragging,
+  onDelete,
+  canManage = true,
+}: Props) {
   const { data: companyData } = useQuery({
     queryKey: ["company"],
     queryFn: fetchCompany,
@@ -98,7 +111,18 @@ export function BidCard({ bid, onMove, onEdit, onDelete, canManage = true }: Pro
   const marginFill = Math.min(100, Math.max(0, (bid.marginPct / 20) * 100));
 
   return (
-    <div className="group flex h-[370px] flex-col rounded-lg border border-border/60 bg-card p-4 transition-colors hover:border-border hover:bg-card/80">
+    <div
+      role="article"
+      aria-label={`Bid ${bid.procurementName}`}
+      draggable={Boolean(onDragStart)}
+      onDragStart={(event) => onDragStart?.(event, bid)}
+      onDragEnd={onDragEnd}
+      className={cn(
+        "group flex h-[370px] flex-col rounded-lg border border-border/60 bg-card p-4 transition-colors hover:border-border hover:bg-card/80",
+        onDragStart && "cursor-grab active:cursor-grabbing",
+        isDragging && "opacity-50 ring-2 ring-primary/40",
+      )}
+    >
       {/* Header: title + deadline */}
       <div className="flex items-start justify-between gap-2">
         <p className="line-clamp-2 h-10 flex-1 text-sm font-semibold leading-5 text-foreground">
