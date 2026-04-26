@@ -104,7 +104,7 @@ export interface Procurement {
   chunks: number;
   status: TenderStatus;
   description?: string;
-  // Comparison metrics (mock — surfaced on the Compare page)
+  // Decision summary metrics used by post-analysis views.
   estimatedValueMSEK: number;
   winProbability: number; // 0–1
   strategicFit: "Low" | "Medium" | "High";

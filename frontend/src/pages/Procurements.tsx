@@ -222,7 +222,6 @@ export default function Procurements() {
   const [q, setQ] = useState("");
   const [runFilter, setRunFilter] = useState<RunFilter>("all");
   const [sortKey, setSortKey] = useState<SortKey>("recent");
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
   const [page, setPage] = useState(0);
@@ -362,10 +361,6 @@ export default function Procurements() {
     [rows],
   );
 
-  const toggleOne = (id: string) => {
-    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  };
-
   const startRuns = async (ids: string[], label: "start" | "rerun" = "start") => {
     if (ids.length === 0) return;
     if (!permissions.canStartRuns) {
@@ -397,7 +392,6 @@ export default function Procurements() {
     setDeletingId(id);
     try {
       await deleteProcurement(id);
-      setSelectedIds((prev) => prev.filter((x) => x !== id));
       setAllProcurements((prev) => prev.filter((p) => p.id !== id));
       await queryClient.invalidateQueries({ queryKey: ["procurements"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
@@ -544,7 +538,6 @@ export default function Procurements() {
                 </TableHeader>
                 <TableBody>
                   {filtered.map(({ procurement: t, run }) => {
-                    const checked = selectedIds.includes(t.id);
                     const isActiveRun =
                       !!run && !run.isStale && (run.status === "running" || run.status === "pending");
                     const isFinishedRun =
@@ -557,31 +550,18 @@ export default function Procurements() {
                     return (
                       <TableRow
                         key={t.id}
-                        data-state={checked ? "selected" : undefined}
                         onClick={() => run && navigate(`/runs/${run.id}`)}
                         className={cn(
                           "group relative border-l-2 border-l-transparent transition-colors",
                           run && "cursor-pointer",
                           "hover:bg-muted/40",
-                          checked && "border-l-primary bg-primary/5 hover:bg-primary/10",
                         )}
                       >
-                        <TableCell
-                          className="py-3.5"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <button
-                            type="button"
-                            className="inline-flex rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                            onClick={() => toggleOne(t.id)}
-                            aria-label={`${checked ? "Deselect" : "Select"} ${t.name}`}
-                          >
-                            <RunStatusDot
-                              status={run?.status}
-                              isStale={run?.isStale}
-                              selected={checked}
-                            />
-                          </button>
+                        <TableCell className="py-3.5">
+                          <RunStatusDot
+                            status={run?.status}
+                            isStale={run?.isStale}
+                          />
                         </TableCell>
 
                         {/* Procurement name + doc meta */}
