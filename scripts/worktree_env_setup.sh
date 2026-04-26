@@ -273,7 +273,7 @@ frontend_env_has_live_supabase() {
       url=$2
       gsub(/^[[:space:]]+|[[:space:]]+$/, "", url)
     }
-    $1 == "VITE_SUPABASE_ANON_KEY" || $1 == "SUPABASE_ANON_KEY" || $1 == "NEXT_PUBLIC_SUPABASE_ANON_KEY" || $1 == "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY" {
+    $1 == "VITE_SUPABASE_ANON_KEY" || $1 == "SUPABASE_ANON_KEY" || $1 == "SUPABASE_PUBLISHABLE_KEY" || $1 == "PUBLIC_SUPABASE_PUBLISHABLE_KEY" || $1 == "NEXT_PUBLIC_SUPABASE_ANON_KEY" || $1 == "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY" {
       anon=$2
       gsub(/^[[:space:]]+|[[:space:]]+$/, "", anon)
     }
@@ -355,6 +355,8 @@ write_frontend_env_from_source() {
       "${source_path}" \
       "VITE_SUPABASE_ANON_KEY" \
       "SUPABASE_ANON_KEY" \
+      "SUPABASE_PUBLISHABLE_KEY" \
+      "PUBLIC_SUPABASE_PUBLISHABLE_KEY" \
       "NEXT_PUBLIC_SUPABASE_ANON_KEY" \
       "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
   )"

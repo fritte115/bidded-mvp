@@ -114,9 +114,28 @@ def test_ensure_frontend_env_file_copies_from_default_config_dir(
         "VITE_SUPABASE_ANON_KEY=test-anon-key\n"
         "VITE_AGENT_API_URL=http://localhost:8000\n"
     )
-    assert (worktree / "frontend" / ".env").read_text() == (
-        expected_env
+    assert (worktree / "frontend" / ".env").read_text() == expected_env
+
+
+def test_ensure_frontend_env_file_accepts_root_public_publishable_key(
+    tmp_path: Path,
+) -> None:
+    worktree = _prepare_worktree(tmp_path)
+    home = tmp_path / "home"
+    (worktree / ".env").write_text(
+        "SUPABASE_URL=https://example.supabase.co\n"
+        "PUBLIC_SUPABASE_PUBLISHABLE_KEY=publishable-public-key\n"
+        "SUPABASE_SERVICE_ROLE_KEY=service-role-secret\n",
     )
+
+    result = _run_setup_function(worktree, "ensure_frontend_env_file", home=home)
+
+    assert result.returncode == 0, result.stderr
+    frontend_env = (worktree / "frontend" / ".env").read_text()
+    assert "VITE_SUPABASE_URL=https://example.supabase.co" in frontend_env
+    assert "VITE_SUPABASE_ANON_KEY=publishable-public-key" in frontend_env
+    assert "service-role-secret" not in frontend_env
+    assert "SUPABASE_SERVICE_ROLE_KEY" not in frontend_env
 
 
 def test_ensure_env_file_prefers_git_configured_source(tmp_path: Path) -> None:
