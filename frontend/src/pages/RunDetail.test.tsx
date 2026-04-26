@@ -234,14 +234,14 @@ describe("RunDetail", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("hides judge disagreement when it repeats the verdict memo", async () => {
+  it("hides judge disagreement text below the verdict memo", async () => {
     vi.mocked(fetchRunDetail).mockResolvedValue({
       ...run,
       judge: {
         verdict: "CONDITIONAL_BID",
         confidence: 82,
         voteSummary: { BID: 1, NO_BID: 0, CONDITIONAL_BID: 3 },
-        disagreement: "All four agents unanimously recommend CONDITIONAL_BID.",
+        disagreement: "Residual disagreement remains on liability risk.",
         citedMemo: "All four agents unanimously recommend conditional bid.",
         complianceMatrix: [],
         complianceBlockers: [],
@@ -257,5 +257,8 @@ describe("RunDetail", () => {
 
     expect(await screen.findByText("Final verdict")).toBeInTheDocument();
     expect(screen.queryByText("Disagreement")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Residual disagreement remains on liability risk."),
+    ).not.toBeInTheDocument();
   });
 });
