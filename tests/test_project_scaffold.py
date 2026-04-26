@@ -74,6 +74,7 @@ def test_env_example_documents_required_runtime_settings() -> None:
         "ANTHROPIC_API_KEY",
         "OPENAI_API_KEY",
         "SUPABASE_URL",
+        "SUPABASE_ANON_KEY",
         "SUPABASE_SERVICE_ROLE_KEY",
         "SUPABASE_STORAGE_BUCKET",
         "EMBEDDING_MODE",
