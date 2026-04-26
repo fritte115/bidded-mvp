@@ -17,33 +17,42 @@ const labels: Record<RunStatus, string> = {
   needs_human_review: "Review",
 };
 
-export function StatusBadge({ status, className }: { status: RunStatus; className?: string }) {
+export function StatusBadge({
+  status,
+  className,
+  isStale = false,
+}: {
+  status: RunStatus;
+  className?: string;
+  isStale?: boolean;
+}) {
+  const toneStatus = isStale ? "failed" : status;
   return (
     <span
       className={cn(
         "inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs font-medium",
-        styles[status],
+        styles[toneStatus],
         className,
       )}
     >
-      {status === "running" && (
+      {status === "running" && !isStale && (
         <span className="relative flex h-2 w-2">
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-info opacity-60" />
           <span className="relative inline-flex h-2 w-2 rounded-full bg-info" />
         </span>
       )}
-      {status !== "running" && (
+      {(status !== "running" || isStale) && (
         <span
           className={cn(
             "h-1.5 w-1.5 rounded-full",
-            status === "pending" && "bg-muted-foreground",
-            status === "succeeded" && "bg-success",
-            status === "failed" && "bg-danger",
-            status === "needs_human_review" && "bg-warning",
+            toneStatus === "pending" && "bg-muted-foreground",
+            toneStatus === "succeeded" && "bg-success",
+            toneStatus === "failed" && "bg-danger",
+            toneStatus === "needs_human_review" && "bg-warning",
           )}
         />
       )}
-      {labels[status]}
+      {isStale ? "Stale" : labels[status]}
     </span>
   );
 }

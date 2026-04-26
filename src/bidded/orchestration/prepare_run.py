@@ -15,7 +15,7 @@ from bidded.db.schema_compat import (
 from bidded.documents import ChunkEmbeddingAdapter, PdfIngestionError
 from bidded.documents.pdf_ingestion import (
     DEFAULT_MAX_CHUNK_CHARS,
-    ingest_tender_pdf_document,
+    ingest_tender_document,
 )
 from bidded.evidence.company_profile import upsert_company_profile_evidence
 from bidded.evidence.contract_clause_classifier import ContractClauseClassifier
@@ -117,7 +117,7 @@ def prepare_procurement_run(
     embedding_adapter: ChunkEmbeddingAdapter | None = None,
     require_embeddings: bool = False,
     clause_classifier: ContractClauseClassifier | None = None,
-    ingest_document: Callable[..., Any] = ingest_tender_pdf_document,
+    ingest_document: Callable[..., Any] = ingest_tender_document,
 ) -> PrepareRunResult:
     """Prepare an uploaded tender document set and create one pending run."""
 
