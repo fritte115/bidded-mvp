@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+import os
+import subprocess
 import tomllib
 from pathlib import Path
 
@@ -112,3 +114,46 @@ def test_settings_load_from_environment(monkeypatch: pytest.MonkeyPatch) -> None
     assert settings.embedding_provider == "openai"
     assert settings.embedding_model == "text-embedding-3-small"
     assert settings.embedding_dimensions == 1536
+
+
+def test_worktree_setup_writes_frontend_env_from_public_supabase_source(
+    tmp_path: Path,
+) -> None:
+    worktree = tmp_path / "worktree"
+    frontend = worktree / "frontend"
+    frontend.mkdir(parents=True)
+    (frontend / ".env.example").write_text(
+        "VITE_SUPABASE_URL=https://your-project-ref.supabase.co\n"
+        "VITE_SUPABASE_ANON_KEY=replace-with-your-supabase-anon-key\n"
+        "VITE_AGENT_API_URL=http://localhost:8000\n"
+    )
+    source_env = tmp_path / "public-frontend.env"
+    source_env.write_text(
+        "VITE_SUPABASE_URL=https://example.supabase.co\n"
+        "SUPABASE_ANON_KEY=test-anon-key\n"
+        "SUPABASE_SERVICE_ROLE_KEY=must-not-be-copied\n"
+        "VITE_AGENT_API_URL=http://127.0.0.1:8002\n"
+    )
+
+    subprocess.run(
+        [
+            "bash",
+            "-c",
+            (
+                f"source {PROJECT_ROOT / 'scripts/worktree_env_setup.sh'}; "
+                "ensure_frontend_env_file"
+            ),
+        ],
+        check=True,
+        env={
+            **os.environ,
+            "WORKTREE_ROOT": str(worktree),
+            "FRONTEND_ENV_SOURCE": str(source_env),
+        },
+    )
+
+    frontend_env = (frontend / ".env").read_text()
+    assert "VITE_SUPABASE_URL=https://example.supabase.co" in frontend_env
+    assert "VITE_SUPABASE_ANON_KEY=test-anon-key" in frontend_env
+    assert "VITE_AGENT_API_URL=http://127.0.0.1:8002" in frontend_env
+    assert "SUPABASE_SERVICE_ROLE_KEY" not in frontend_env
