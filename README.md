@@ -651,8 +651,8 @@ The demo UI lives in `frontend/`. It is a React + Vite + TypeScript app (Lovable
 
 ```bash
 cd frontend
-cp .env.example .env
-# Fill in VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
+# Or run scripts/worktree_env_setup.sh from the repo root after filling
+# SUPABASE_URL and SUPABASE_ANON_KEY in .env; it creates frontend/.env.
 npm install
 npm run dev   # starts on the first available local port from 8080
 npm run build # production build to frontend/dist/
