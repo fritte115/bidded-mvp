@@ -590,7 +590,6 @@ export default function CompanyProfile() {
             label="Revenue (latest FY)"
             value={latestFinancial ? `${latestFinancial.revenueMSEK} MSEK` : "—"}
             sub={latestFinancial ? `${latestFinancial.ebitMarginPct}% EBIT margin` : undefined}
-            tone="positive"
           />
           <KpiCard
             icon={<Award className="h-4 w-4" />}
@@ -699,8 +698,8 @@ export default function CompanyProfile() {
                 {company.bidStats ? (
                   <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
                     <PipelineStat label="Total bids" value={company.bidStats.totalBids} />
-                    <PipelineStat label="Won" value={company.bidStats.won} tone="positive" />
-                    <PipelineStat label="Lost" value={company.bidStats.lost} tone="negative" />
+                    <PipelineStat label="Won" value={company.bidStats.won} />
+                    <PipelineStat label="Lost" value={company.bidStats.lost} />
                     <PipelineStat label="In progress" value={company.bidStats.inProgress} />
                     <PipelineStat label="Avg. contract" value={`${company.bidStats.avgContractMSEK} MSEK`} />
                   </div>
