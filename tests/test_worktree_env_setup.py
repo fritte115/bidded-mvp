@@ -34,6 +34,8 @@ def _run_setup_function(
     env["WORKTREE_ROOT"] = str(worktree)
     if xdg_config_home is not None:
         env["XDG_CONFIG_HOME"] = str(xdg_config_home)
+    else:
+        env.pop("XDG_CONFIG_HOME", None)
 
     return subprocess.run(
         [
@@ -61,6 +63,29 @@ def test_ensure_env_file_copies_from_default_config_dir(tmp_path: Path) -> None:
     )
 
     result = _run_setup_function(worktree, "ensure_env_file", home=home)
+
+    assert result.returncode == 0, result.stderr
+    assert (worktree / ".env").read_text() == backend_source.read_text()
+
+
+def test_ensure_env_file_copies_from_xdg_config_dir(tmp_path: Path) -> None:
+    worktree = _prepare_worktree(tmp_path)
+    home = tmp_path / "home"
+    xdg_config_home = tmp_path / "xdg-config"
+    config_dir = xdg_config_home / "bidded"
+    config_dir.mkdir(parents=True)
+    backend_source = config_dir / "backend.env"
+    backend_source.write_text(
+        "SUPABASE_URL=https://xdg.supabase.co\n"
+        "SUPABASE_SERVICE_ROLE_KEY=xdg-service-role\n",
+    )
+
+    result = _run_setup_function(
+        worktree,
+        "ensure_env_file",
+        home=home,
+        xdg_config_home=xdg_config_home,
+    )
 
     assert result.returncode == 0, result.stderr
     assert (worktree / ".env").read_text() == backend_source.read_text()
