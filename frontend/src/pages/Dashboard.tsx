@@ -268,7 +268,7 @@ export default function Dashboard() {
                               </span>
                               <span className="text-muted-foreground/40">·</span>
                               <span className="font-mono text-[11px] text-muted-foreground tabular-nums">
-                                {runDisplayId(r.id)}
+                                {runDisplayId(r)}
                               </span>
                             </div>
                           </div>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Protocol
 from uuid import UUID
@@ -289,7 +290,10 @@ def _coerce_validation_error_item(item: Any) -> Any:
 
 def _normalize_agent_role(value: Any) -> Any:
     if isinstance(value, str):
-        return value.strip().lower().replace(" ", "_")
+        normalized = re.sub(r"[^a-z0-9]+", "_", value.strip().lower()).strip("_")
+        if normalized.startswith("evidence_scout"):
+            return "evidence_scout"
+        return normalized
     return value
 
 

@@ -47,6 +47,13 @@ const run: RunDetailModel = {
       parseNote: null,
       publicUrl: "https://example.supabase.co/storage/v1/object/public/public-procurements/city-crm-appendix.pdf",
     },
+    {
+      originalFilename: "city-crm-map.pdf",
+      parseStatus: "parsed",
+      parseNote:
+        "No extractable text layer found. The document was kept as a visual/reference attachment and skipped for text evidence; OCR is a non-goal for Bidded v1.",
+      publicUrl: "https://example.supabase.co/storage/v1/object/public/public-procurements/city-crm-map.pdf",
+    },
   ],
   evidence: [],
   round1: [],
@@ -115,6 +122,10 @@ describe("RunDetail", () => {
       "https://example.supabase.co/storage/v1/object/public/public-procurements/city-crm-appendix.pdf",
     );
     expect(screen.getAllByLabelText("Parsed")).toHaveLength(2);
+    expect(screen.getByText("Reference")).toHaveAttribute(
+      "title",
+      expect.stringContaining("visual/reference attachment"),
+    );
     expect(screen.queryByText("Parsed")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Re-run/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Export/i })).toBeInTheDocument();
@@ -197,14 +208,40 @@ describe("RunDetail", () => {
     expect(within(sidebar).getByText("EVD-404")).toBeInTheDocument();
   });
 
-  it("hides judge disagreement when it repeats the verdict memo", async () => {
+  it("shows the persisted failure reason when a run fails", async () => {
+    vi.mocked(fetchRunDetail).mockResolvedValue({
+      ...run,
+      status: "failed",
+      stage: "Evidence Scout",
+      decision: null,
+      confidence: null,
+      failureReason:
+        "Anthropic API credit balance is too low. Add credits or switch to deterministic mode, then re-run.",
+    });
+
+    renderRunDetail();
+
+    expect(await screen.findByText("Run failed at: Evidence Scout")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Anthropic API credit balance is too low. Add credits or switch to deterministic mode, then re-run.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "The orchestrator stopped before a decision could be reached. Review inputs and re-run.",
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it("hides judge disagreement text below the verdict memo", async () => {
     vi.mocked(fetchRunDetail).mockResolvedValue({
       ...run,
       judge: {
         verdict: "CONDITIONAL_BID",
         confidence: 82,
         voteSummary: { BID: 1, NO_BID: 0, CONDITIONAL_BID: 3 },
-        disagreement: "All four agents unanimously recommend CONDITIONAL_BID.",
+        disagreement: "Residual disagreement remains on liability risk.",
         citedMemo: "All four agents unanimously recommend conditional bid.",
         complianceMatrix: [],
         complianceBlockers: [],
@@ -220,5 +257,8 @@ describe("RunDetail", () => {
 
     expect(await screen.findByText("Final verdict")).toBeInTheDocument();
     expect(screen.queryByText("Disagreement")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Residual disagreement remains on liability risk."),
+    ).not.toBeInTheDocument();
   });
 });

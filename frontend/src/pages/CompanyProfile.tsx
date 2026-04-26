@@ -64,6 +64,32 @@ const kbDocumentTypes: Array<{ value: CompanyKbDocumentType; label: string }> = 
   { value: "legal_insurance", label: "Legal/insurance" },
 ];
 
+function inferCompanyKbDocumentType(filename: string): CompanyKbDocumentType {
+  const normalized = filename
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  if (/\b(iso|cert|certifikat|intyg)\b/.test(normalized)) {
+    return "certification";
+  }
+  if (/referens|case|kundcase/.test(normalized)) {
+    return "case_study";
+  }
+  if (/\b(cv|profil)\b/.test(normalized)) {
+    return "cv_profile";
+  }
+  if (/miljo|kvalitet|policy|process|rutin|hallbar/.test(normalized)) {
+    return "policy_process";
+  }
+  if (/pris|kostnad|finans|ekonomi|budget|marginal/.test(normalized)) {
+    return "financial_pricing";
+  }
+  if (/avtal|forsakring|jurid|legal/.test(normalized)) {
+    return "legal_insurance";
+  }
+  return "capability_statement";
+}
+
 const COMPLETENESS_FIELDS: {
   key: string;
   label: string;
@@ -241,7 +267,7 @@ export default function CompanyProfile() {
       .filter((file) => allowed.has(file.name.split(".").pop()?.toLowerCase() ?? ""))
       .map((file) => ({
         file,
-        kbDocumentType: "certification" as CompanyKbDocumentType,
+        kbDocumentType: inferCompanyKbDocumentType(file.name),
       }));
     const zippedPdfFiles = await normalizeDocumentUploads(
       allFiles.filter(
@@ -252,7 +278,7 @@ export default function CompanyProfile() {
       ...directFiles,
       ...zippedPdfFiles.accepted.map((item) => ({
         file: item.file,
-        kbDocumentType: "certification" as CompanyKbDocumentType,
+        kbDocumentType: inferCompanyKbDocumentType(item.file.name),
       })),
     ];
 
@@ -379,6 +405,11 @@ export default function CompanyProfile() {
     .slice(0, 2)
     .map((w) => w[0])
     .join("");
+  const legalName = company.legalName?.trim();
+  const legalNameToDisplay =
+    legalName && legalName.toLowerCase() !== company.name.trim().toLowerCase()
+      ? legalName
+      : null;
 
   const latestFinancial = company.financials?.[company.financials.length - 1];
   const firstFinancial = company.financials?.[0];
@@ -447,8 +478,8 @@ export default function CompanyProfile() {
                 </div>
                 <div className="min-w-0 pb-1.5">
                   <h2 className="truncate text-2xl font-bold tracking-tight">{company.name}</h2>
-                  {company.legalName && (
-                    <p className="text-sm text-muted-foreground">{company.legalName}</p>
+                  {legalNameToDisplay && (
+                    <p className="text-sm text-muted-foreground">{legalNameToDisplay}</p>
                   )}
                   <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                     <span className="inline-flex items-center gap-1.5">
@@ -531,7 +562,6 @@ export default function CompanyProfile() {
                     </div>
                   </PopoverContent>
                 </Popover>
-                <Badge variant="outline">Last reviewed 2 weeks ago</Badge>
               </div>
             </div>
 
@@ -560,7 +590,6 @@ export default function CompanyProfile() {
             label="Revenue (latest FY)"
             value={latestFinancial ? `${latestFinancial.revenueMSEK} MSEK` : "—"}
             sub={latestFinancial ? `${latestFinancial.ebitMarginPct}% EBIT margin` : undefined}
-            tone="positive"
           />
           <KpiCard
             icon={<Award className="h-4 w-4" />}
@@ -669,8 +698,8 @@ export default function CompanyProfile() {
                 {company.bidStats ? (
                   <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
                     <PipelineStat label="Total bids" value={company.bidStats.totalBids} />
-                    <PipelineStat label="Won" value={company.bidStats.won} tone="positive" />
-                    <PipelineStat label="Lost" value={company.bidStats.lost} tone="negative" />
+                    <PipelineStat label="Won" value={company.bidStats.won} />
+                    <PipelineStat label="Lost" value={company.bidStats.lost} />
                     <PipelineStat label="In progress" value={company.bidStats.inProgress} />
                     <PipelineStat label="Avg. contract" value={`${company.bidStats.avgContractMSEK} MSEK`} />
                   </div>

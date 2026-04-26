@@ -103,6 +103,60 @@ describe("company knowledge base API", () => {
     expect(payload.certifications).toEqual([]);
   });
 
+  it("imports company website through the authenticated agent API", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        source_url: "https://impactsolution.se/",
+        imported_at: "2026-04-24T18:00:00Z",
+        pages: [],
+        profile_patch: { website: "https://impactsolution.se/" },
+        field_sources: {},
+        warnings: [],
+      }),
+    });
+    const { importCompanyWebsite } = await import("./api");
+
+    await expect(importCompanyWebsite("https://impactsolution.se/")).resolves
+      .toEqual(expect.objectContaining({
+        source_url: "https://impactsolution.se/",
+      }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://agent.example/api/company/import-website",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token-123",
+        },
+        body: JSON.stringify({
+          url: "https://impactsolution.se/",
+          max_pages: 5,
+        }),
+      },
+    );
+  });
+
+  it("normalizes email-like website import input before calling the agent API", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        source_url: "https://impactsolution.se/",
+        pages: [],
+        profile_patch: { website: "https://impactsolution.se/" },
+        field_sources: {},
+        warnings: [],
+      }),
+    });
+    const { importCompanyWebsite } = await import("./api");
+
+    await importCompanyWebsite("https://info@impactsolution.se/");
+
+    const payload = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(payload.url).toBe("https://impactsolution.se/");
+  });
+
   it("reads and deletes company KB documents through the backend", async () => {
     fetchMock
       .mockResolvedValueOnce({

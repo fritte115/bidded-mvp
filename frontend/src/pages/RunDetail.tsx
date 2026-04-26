@@ -32,7 +32,6 @@ import { PipelineStep, type StepState } from "@/components/PipelineStep";
 import { ParseStatusBadge } from "@/components/ParseStatusBadge";
 import { archiveAgentRun, downloadBidDocument, fetchRunDetail } from "@/lib/api";
 import { usePermissions } from "@/lib/auth";
-import { isDuplicateJudgeDisagreement } from "@/lib/judgeMemo";
 import { renderFormattedText } from "@/lib/richText";
 import { runDisplayId, type EvidenceCategory } from "@/data/mock";
 import {
@@ -74,9 +73,22 @@ const severityToneMap = {
 
 function DocumentParseIndicator({
   status,
+  note,
 }: {
   status: "pending" | "parsing" | "parsed" | "parser_failed";
+  note?: string | null;
 }) {
+  if (status === "parsed" && note) {
+    return (
+      <span
+        className="inline-flex items-center rounded-sm border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+        title={note}
+      >
+        Reference
+      </span>
+    );
+  }
+
   if (status === "parsed") {
     return (
       <span
@@ -187,10 +199,6 @@ export default function RunDetail() {
     cat,
     items: run.evidence.filter((e) => e.category === cat),
   }));
-  const showJudgeDisagreement =
-    !!run.judge?.disagreement &&
-    !isDuplicateJudgeDisagreement(run.judge.disagreement, run.judge.citedMemo);
-
   async function handleArchiveRun() {
     if (!permissions.canDeleteRuns) return;
     setIsArchiving(true);
@@ -291,7 +299,8 @@ export default function RunDetail() {
                 <p className="text-xs text-muted-foreground">
                   {run.isStale
                     ? "The worker is no longer updating this run. Archive it or start a fresh run."
-                    : "The orchestrator stopped before a decision could be reached. Review inputs and re-run."}
+                    : run.failureReason ??
+                      "The orchestrator stopped before a decision could be reached. Review inputs and re-run."}
                 </p>
               </div>
             </div>
@@ -373,7 +382,10 @@ export default function RunDetail() {
                     </a>
                   )}
                 </div>
-                <DocumentParseIndicator status={document.parseStatus} />
+                <DocumentParseIndicator
+                  status={document.parseStatus}
+                  note={document.parseNote}
+                />
               </li>
             ))}
           </ul>
@@ -474,15 +486,6 @@ export default function RunDetail() {
                     voteSummary={run.judge.voteSummary}
                     onCitationClick={handleCitationClick}
                   />
-
-                  {showJudgeDisagreement && (
-                    <div className="rounded-md border border-warning/30 bg-warning/5 p-3 text-sm">
-                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-warning">
-                        Disagreement
-                      </p>
-                      {renderFormattedText(run.judge.disagreement)}
-                    </div>
-                  )}
 
                   <CollapsibleSection title="Compliance Matrix" defaultOpen>
                     <Table>

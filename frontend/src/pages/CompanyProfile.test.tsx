@@ -102,6 +102,16 @@ describe("CompanyProfile Knowledge Base", () => {
     vi.mocked(updateCompany).mockResolvedValue();
   });
 
+  it("does not duplicate the company name or stale review metadata in the identity header", async () => {
+    renderCompanyProfile();
+
+    expect(
+      await screen.findByRole("heading", { name: mockCompany.name }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Last reviewed 2 weeks ago")).not.toBeInTheDocument();
+    expect(screen.getAllByText(mockCompany.name)).toHaveLength(1);
+  });
+
   it("renders KB document status, evidence preview, and delete action", async () => {
     renderCompanyProfile();
 
@@ -128,7 +138,7 @@ describe("CompanyProfile Knowledge Base", () => {
     );
   });
 
-  it("queues uploaded files with a per-file document type", async () => {
+  it("queues uploaded files with inferred per-file document types", async () => {
     vi.mocked(fetchCompanyKbDocuments).mockResolvedValue({ documents: [] });
     const { container } = renderCompanyProfile();
 
@@ -138,14 +148,29 @@ describe("CompanyProfile Knowledge Base", () => {
 
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(["ISO 27001"], "iso.txt", { type: "text/plain" });
-    fireEvent.change(input, { target: { files: [file] } });
+    const referenceFile = new File(
+      ["Reference assignment"],
+      "Referensuppdrag.docx",
+      { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
+    );
+    const capacityFile = new File(
+      ["Capacity"],
+      "1.5 Andra företags kapacitet.pdf",
+      { type: "application/pdf" },
+    );
+    fireEvent.change(input, { target: { files: [file, referenceFile, capacityFile] } });
 
     expect(await screen.findByText("iso.txt")).toBeInTheDocument();
+    expect(await screen.findByText("Referensuppdrag.docx")).toBeInTheDocument();
+    expect(await screen.findByText("1.5 Andra företags kapacitet.pdf"))
+      .toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Upload to KB/i }));
 
     await waitFor(() =>
       expect(uploadCompanyKbDocuments).toHaveBeenCalledWith([
         { file, kbDocumentType: "certification" },
+        { file: referenceFile, kbDocumentType: "case_study" },
+        { file: capacityFile, kbDocumentType: "capability_statement" },
       ]),
     );
   });
