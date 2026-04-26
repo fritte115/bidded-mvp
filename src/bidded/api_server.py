@@ -396,10 +396,11 @@ def start_run(
     # version of a scanned PDF). If the retry also fails, we skip that doc
     # for *this* run and continue with whatever else parses.
     #
-    # If a run ends up with *zero* parseable documents we abort — there's no
+    # If a run ends up with *zero* analyzable documents we abort — there's no
     # material for the swarm to analyse. Otherwise `document_ids` excludes
-    # failed docs so downstream evidence materialization and pending-run
-    # creation only reference documents that actually parsed.
+    # failed docs and visual/reference attachments that have no extracted text
+    # chunks, so downstream evidence materialization and pending-run creation
+    # only reference documents that can contribute evidence.
     skipped_failed: list[str] = []
     for row in doc_rows:
         status = row.get("parse_status")
@@ -421,17 +422,34 @@ def start_run(
                 f"{retry_note}: {exc}"
             )
 
-    document_ids = [row["id"] for row in doc_rows if row["id"] not in skipped_failed]
+    document_ids: list[str] = []
+    skipped_without_chunks: list[str] = []
+    for row in doc_rows:
+        document_id = str(row["id"])
+        if document_id in skipped_failed:
+            continue
+        if _document_has_chunks(client, document_id):
+            document_ids.append(document_id)
+        else:
+            skipped_without_chunks.append(document_id)
+            print(
+                "[runs/start] skipping document without parsed chunks "
+                f"{document_id}; keeping it as a reference attachment."
+            )
 
     if not document_ids:
+        detail = (
+            "No analyzable documents in this tender — all documents failed to "
+            "parse or were visual/reference attachments without an extractable "
+            "text layer. v1 supports text PDFs and DOCX; re-upload text-layer "
+            "versions and try again."
+        )
+        if skipped_without_chunks:
+            skipped_ids = ", ".join(skipped_without_chunks)
+            detail += f" Skipped no-text documents: {skipped_ids}."
         raise HTTPException(
             status_code=422,
-            detail=(
-                "No parseable documents in this tender — all documents failed to "
-                "parse (likely image-only/scanned PDFs or DOCX conversion "
-                "failures). v1 supports text PDFs and DOCX; re-upload "
-                "text-layer versions and try again."
-            ),
+            detail=detail,
         )
 
     # Tender evidence_items are derived from chunks; ensure rows exist even for
@@ -481,6 +499,18 @@ def start_run(
     threading.Thread(target=_run_worker, daemon=True).start()
 
     return {"run_id": run_id}
+
+
+def _document_has_chunks(client: Any, document_id: str) -> bool:
+    response = (
+        client.table("document_chunks")
+        .select("id")
+        .eq("tenant_key", "demo")
+        .eq("document_id", document_id)
+        .limit(1)
+        .execute()
+    )
+    return bool(getattr(response, "data", None))
 
 
 class EnrichCompanyRequest(BaseModel):

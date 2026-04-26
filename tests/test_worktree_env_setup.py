@@ -137,6 +137,7 @@ def test_ensure_env_file_prefers_git_configured_source(tmp_path: Path) -> None:
 
     git_env = os.environ.copy()
     git_env["HOME"] = str(home)
+    git_env.pop("XDG_CONFIG_HOME", None)
     subprocess.run(
         [
             "git",

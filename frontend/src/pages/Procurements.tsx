@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -31,7 +30,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
-  Activity,
   Archive,
   ArrowUpDown,
   CheckCircle2,
@@ -41,8 +39,6 @@ import {
   Eye,
   FileText,
   Files,
-  Hourglass,
-  Layers,
   Loader2,
   Play,
   Plus,
@@ -81,14 +77,6 @@ const RUN_STATUS_LABELS = {
   needs_human_review: "Review",
 } as const;
 
-const STATUS_DOT: Record<RunStatus, string> = {
-  pending: "bg-muted-foreground",
-  running: "bg-info",
-  succeeded: "bg-success",
-  failed: "bg-danger",
-  needs_human_review: "bg-warning",
-};
-
 const RUN_STATUS_DOT_CLASSES = {
   pending: "bg-muted-foreground",
   running: "bg-info",
@@ -123,72 +111,6 @@ function stageProgress(stage?: string | null): number {
     if (key.includes(k)) return STAGE_PROGRESS[k];
   }
   return 1;
-}
-
-function StatTile({
-  icon: Icon,
-  label,
-  value,
-  hint,
-  tone = "default",
-  pulse = false,
-  onClick,
-  active = false,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: number | string;
-  hint?: string;
-  tone?: "default" | "info" | "success" | "warning";
-  pulse?: boolean;
-  onClick?: () => void;
-  active?: boolean;
-}) {
-  const toneStyles = {
-    default: "text-foreground",
-    info: "text-info",
-    success: "text-success",
-    warning: "text-warning",
-  }[tone];
-  const iconBg = {
-    default: "bg-muted text-muted-foreground",
-    info: "bg-info/10 text-info",
-    success: "bg-success/10 text-success",
-    warning: "bg-warning/10 text-warning",
-  }[tone];
-  const interactive = !!onClick;
-  const Comp = interactive ? "button" : "div";
-  return (
-    <Comp
-      {...(interactive ? { onClick } : {})}
-      className={cn(
-        "group relative flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 text-left transition-all",
-        interactive && "cursor-pointer hover:border-foreground/20 hover:shadow-sm",
-        active && "border-primary/40 bg-primary/5 ring-1 ring-primary/20",
-      )}
-    >
-      <div className={cn("relative flex h-9 w-9 items-center justify-center rounded-md", iconBg)}>
-        <Icon className="h-4 w-4" />
-        {pulse && (
-          <span className="absolute -right-0.5 -top-0.5 flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-info opacity-70" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-info" />
-          </span>
-        )}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          {label}
-        </p>
-        <div className="mt-0.5 flex items-baseline gap-2">
-          <p className={cn("text-xl font-semibold tabular-nums tracking-tight", toneStyles)}>
-            {value}
-          </p>
-          {hint && <p className="truncate text-[11px] text-muted-foreground">{hint}</p>}
-        </div>
-      </div>
-    </Comp>
-  );
 }
 
 function FilterPill({
@@ -382,7 +304,6 @@ export default function Procurements() {
     let notRun = 0;
     let running = 0;
     let done = 0;
-    let ready = 0;
     for (const { run } of rows) {
       if (!run || run.isArchived) {
         notRun++;
@@ -391,9 +312,8 @@ export default function Procurements() {
       const isActive = !run.isStale && (run.status === "running" || run.status === "pending");
       if (isActive) running++;
       else done++;
-      if (run.status === "succeeded" || run.status === "needs_human_review") ready++;
     }
-    return { total: rows.length, notRun, running, done, ready };
+    return { total: rows.length, notRun, running, done };
   }, [rows]);
 
   const filtered = useMemo(() => {
@@ -489,8 +409,6 @@ export default function Procurements() {
     }
   };
 
-  const selectedCount = selectedIds.length;
-
   return (
     <>
       <PageHeader
@@ -521,46 +439,7 @@ export default function Procurements() {
         }
       />
 
-      {/* Stat strip */}
-      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatTile
-          icon={Layers}
-          label="Total"
-          value={isLoading ? "…" : counts.total}
-          hint="procurements"
-        />
-        <StatTile
-          icon={Activity}
-          label="In flight"
-          value={isLoading ? "…" : counts.running}
-          hint={counts.running > 0 ? "auto-refresh 10s" : "all idle"}
-          tone="info"
-          pulse={counts.running > 0}
-          onClick={counts.running > 0 ? () => setRunFilter("running") : undefined}
-          active={runFilter === "running"}
-        />
-        <StatTile
-          icon={Hourglass}
-          label="Awaiting first run"
-          value={isLoading ? "…" : counts.notRun}
-          hint={counts.notRun > 0 ? "click to filter" : "—"}
-          tone="warning"
-          onClick={counts.notRun > 0 ? () => setRunFilter("not_run") : undefined}
-          active={runFilter === "not_run"}
-        />
-        <StatTile
-          icon={CheckCircle2}
-          label="Decision ready"
-          value={isLoading ? "…" : counts.ready}
-          hint="succeeded + review"
-          tone="success"
-          onClick={counts.ready > 0 ? () => setRunFilter("done") : undefined}
-          active={runFilter === "done" && counts.ready > 0}
-        />
-      </div>
-
-      <Card>
-        <CardContent className="p-4">
+      <div className="space-y-4">
           {/* Toolbar */}
           <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center">
@@ -584,7 +463,7 @@ export default function Procurements() {
                 )}
               </div>
 
-              <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-muted/40 p-1">
+              <div className="inline-flex flex-wrap items-center gap-1">
                 <FilterPill
                   label="All"
                   count={counts.total}
@@ -712,50 +591,10 @@ export default function Procurements() {
                               {t.name}
                             </span>
                             <span className="mt-0.5 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                              {(() => {
-                                const docs = t.documents;
-                                const failed = docs.filter((d) => d.parseStatus === "parser_failed");
-                                const parsing = docs.filter((d) => d.parseStatus === "parsing" || d.parseStatus === "pending");
-                                const hasIssues = failed.length > 0 || parsing.length > 0;
-                                const tooltipLines = [
-                                  ...docs.map((d) => {
-                                    const icon = d.parseStatus === "parsed" ? "✓" : d.parseStatus === "parser_failed" ? "✗" : "…";
-                                    return `${icon} ${d.originalFilename}${d.parseNote ? ` — ${d.parseNote}` : ""}`;
-                                  }),
-                                ].join("\n");
-                                const statusLabel = failed.length > 0
-                                  ? `${failed.length} failed`
-                                  : parsing.length > 0
-                                  ? "parsing…"
-                                  : "parsed";
-                                return (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <span className="inline-flex cursor-help items-center gap-1">
-                                        <Files className="h-3 w-3" />
-                                        <span>
-                                          {t.documentCount} {t.documentCount === 1 ? "PDF" : "PDFs"}
-                                        </span>
-                                        <span
-                                          className={cn(
-                                            "rounded-sm px-1 py-px text-[10px] font-medium",
-                                            hasIssues
-                                              ? failed.length > 0
-                                                ? "bg-destructive/10 text-destructive"
-                                                : "bg-info/10 text-info"
-                                              : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-                                          )}
-                                        >
-                                          {statusLabel}
-                                        </span>
-                                      </span>
-                                    </TooltipTrigger>
-                                    <TooltipContent className="max-w-xs whitespace-pre-line text-xs">
-                                      {tooltipLines}
-                                    </TooltipContent>
-                                  </Tooltip>
-                                );
-                              })()}
+                              <Files className="h-3 w-3" />
+                              <span>
+                                {t.documentCount} {t.documentCount === 1 ? "PDF" : "PDFs"}
+                              </span>
                               <span className="text-muted-foreground/40">·</span>
                               <span>registered {formatRelativeTime(t.uploadedAt)}</span>
                             </span>
@@ -765,22 +604,16 @@ export default function Procurements() {
                         {/* Latest run */}
                         <TableCell className="py-3.5 text-sm">
                           {run ? (
-                            <div className="flex items-center gap-2">
-                              <span
-                                className={cn("h-2 w-2 shrink-0 rounded-full", STATUS_DOT[run.status])}
-                                aria-hidden
-                              />
-                              <div className="flex flex-col leading-tight">
-                                <span className="font-medium tabular-nums text-foreground group-hover:text-primary group-hover:underline">
-                                  {runDisplayId(run)}
-                                </span>
-                                <span className="text-xs text-muted-foreground">
-                                  {formatRelativeTime(run.startedAt)}
-                                </span>
-                              </div>
+                            <div className="flex flex-col leading-tight">
+                              <span className="font-medium tabular-nums text-foreground group-hover:text-primary group-hover:underline">
+                                {runDisplayId(run)}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {formatRelativeTime(run.startedAt)}
+                              </span>
                             </div>
                           ) : (
-                            <span className="text-muted-foreground">—</span>
+                            null
                           )}
                         </TableCell>
 
@@ -797,14 +630,14 @@ export default function Procurements() {
                               <StageProgressDots stage={isFinishedRun ? "finished" : run.stage} status={run.status} />
                             </div>
                           ) : (
-                            <span className="text-muted-foreground">—</span>
+                            null
                           )}
                         </TableCell>
 
                         {/* Decision */}
                         <TableCell className="py-3.5">
                           {run?.needsJudgeReview ? (
-                            <span className="inline-flex items-center rounded-sm border border-warning/30 bg-warning/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-warning">
+                            <span className="inline-flex items-center rounded-sm border border-warning/30 bg-warning/10 px-2 py-0.5 text-[11px] font-semibold text-warning">
                               Review
                             </span>
                           ) : run?.decision ? (
@@ -944,15 +777,7 @@ export default function Procurements() {
               </Button>
             </div>
           )}
-
-          {!isLoading && allProcurements.length > 0 && (
-            <p className="mt-2 text-center text-xs text-muted-foreground tabular-nums">
-              Showing {procurements.length} procurement{procurements.length !== 1 ? "s" : ""}
-              {hasMore ? "" : " — all loaded"}
-            </p>
-          )}
-        </CardContent>
-      </Card>
+      </div>
 
       {/* Archived runs */}
       <div className="mt-4">
@@ -1012,7 +837,7 @@ export default function Procurements() {
                           <td className="px-4 py-2.5">
                             <div className="flex flex-col leading-tight">
                               <span className="font-medium text-foreground">{r.tenderName}</span>
-                              <span className="font-mono text-[11px] text-muted-foreground">{runDisplayId(r.id)}</span>
+                              <span className="font-mono text-[11px] text-muted-foreground">{runDisplayId(r)}</span>
                             </div>
                           </td>
                           <td className="px-4 py-2.5">
@@ -1030,7 +855,7 @@ export default function Procurements() {
                           </td>
                           <td className="px-4 py-2.5 text-xs text-muted-foreground">{formatRelativeTime(r.startedAt)}</td>
                           <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
-                            {r.durationSec ? `${Math.round(r.durationSec)}s` : "—"}
+                            {r.durationSec ? `${Math.round(r.durationSec)}s` : null}
                           </td>
                           <td className="px-4 py-2.5 text-right">
                             <div className="flex items-center justify-end gap-1">

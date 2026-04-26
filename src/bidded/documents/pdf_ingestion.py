@@ -35,6 +35,11 @@ UNSUPPORTED_DOCUMENT_MESSAGE = (
 DEFAULT_MAX_CHUNK_CHARS = 1800
 CHUNKING_STRATEGY = "page_text_char_budget_v1"
 DEFAULT_DOCX_CONVERSION_TIMEOUT_SECONDS = 30
+NO_TEXT_LAYER_SKIP_MESSAGE = (
+    "No extractable text layer found. The document was kept as a "
+    "visual/reference attachment and skipped for text evidence; OCR is a "
+    "non-goal for Bidded v1."
+)
 
 
 class PdfIngestionError(RuntimeError):
@@ -206,10 +211,31 @@ def ingest_tender_document(
             max_chunk_chars=max_chunk_chars,
         )
         if not chunks:
-            raise PdfIngestionError(
-                "No extractable text found in document. Text-based PDFs or "
-                "convertible DOCX files are required; OCR is a non-goal for "
-                "Bidded v1."
+            _replace_document_chunks(client, normalized_document_id, [])
+            _update_document_parse_status(
+                client,
+                document_id=normalized_document_id,
+                parse_status="parsed",
+                metadata={
+                    **source_metadata,
+                    "parser": _parser_metadata(
+                        status="parsed_skipped",
+                        document_format=document_format,
+                        page_count=len(pages),
+                        chunk_count=0,
+                        chunking_strategy=CHUNKING_STRATEGY,
+                        reason="no_text_layer",
+                        visual_document=True,
+                        skip_message=NO_TEXT_LAYER_SKIP_MESSAGE,
+                    ),
+                },
+            )
+            return PdfIngestionResult(
+                document_id=normalized_document_id,
+                page_count=len(pages),
+                chunk_count=0,
+                chunks=[],
+                embedding_result=None,
             )
 
         _replace_document_chunks(client, normalized_document_id, chunks)
@@ -734,6 +760,8 @@ def _replace_document_chunks(
         .eq("document_id", str(document_id))
         .execute()
     )
+    if not chunks:
+        return
     client.table("document_chunks").insert(
         [chunk.to_payload() for chunk in chunks]
     ).execute()

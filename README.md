@@ -654,8 +654,15 @@ cd frontend
 cp .env.example .env
 # Fill in VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
 npm install
-npm run dev   # starts on localhost:8080
+npm run dev   # starts on the first available local port from 8080
 npm run build # production build to frontend/dist/
 ```
+
+For a fresh worktree, `bash scripts/worktree_env_setup.sh` bootstraps Python and
+frontend dependencies and tries to copy safe frontend env values from sibling
+worktrees. The frontend also has a local mock-auth fallback in dev/test when
+Supabase env vars are missing, so it remains usable without secrets. Use the
+exact URL printed by Vite; if another worktree already owns `8080`, Vite will
+choose the next available port instead of shadowing `localhost`.
 
 See `frontend/INTEGRATION.md` for Supabase schema and data shape contracts that align with the Python backend.

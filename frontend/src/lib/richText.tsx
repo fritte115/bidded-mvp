@@ -1,8 +1,14 @@
 import { Fragment, type ReactNode } from "react";
 import { humanizeVerdictText } from "@/data/mock";
 
-const EMPHASIZED_TOKENS = /(Compliance Officer|Delivery CFO|\bnot bid\b)/gi;
-const ITALIC_AGENT_NAMES = new Set(["Compliance Officer", "Delivery CFO"]);
+const EMPHASIZED_TOKENS =
+  /(Compliance Officer|Delivery CFO|Red Team|Win Strategist|\bnot bid\b)/gi;
+const ITALIC_AGENT_NAMES = new Set([
+  "Compliance Officer",
+  "Delivery CFO",
+  "Red Team",
+  "Win Strategist",
+]);
 
 export function renderFormattedText(text: string): ReactNode {
   const normalized = humanizeVerdictText(text);

@@ -110,12 +110,46 @@ const emptyMembership: MembershipState = {
   displayName: null,
 };
 
+const localMockAuthEnabled = !isSupabaseConfigured && import.meta.env.MODE !== "production";
+
+const localDemoUser = {
+  id: "local-demo-user",
+  aud: "authenticated",
+  email: "demo@bidded.local",
+  app_metadata: { provider: "email", providers: ["email"] },
+  user_metadata: { name: "Demo Operator" },
+  created_at: "2026-04-01T00:00:00.000Z",
+} as User;
+
+const localDemoSession = {
+  access_token: "local-demo-access-token",
+  refresh_token: "local-demo-refresh-token",
+  token_type: "bearer",
+  expires_in: 60 * 60 * 24,
+  expires_at: 1_804_000_000,
+  user: localDemoUser,
+} as Session;
+
+const localDemoMembership: MembershipState = {
+  role: "admin",
+  organizationId: "local-demo-organization",
+  organizationName: "Bidded Demo",
+  displayName: "Demo Operator",
+};
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [membership, setMembership] = useState<MembershipState>(emptyMembership);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const loadLocalDemoAuth = useCallback(() => {
+    setSession(localDemoSession);
+    setUser(localDemoUser);
+    setMembership(localDemoMembership);
+    setError(null);
+  }, []);
 
   const loadMembership = useCallback(async (nextSession: Session | null) => {
     setSession(nextSession);
@@ -182,16 +216,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshMembership = useCallback(async () => {
+    if (localMockAuthEnabled) {
+      loadLocalDemoAuth();
+      return;
+    }
     if (!supabase) return;
     const { data, error: sessionError } = await supabase.auth.getSession();
     if (sessionError) throw sessionError;
     await loadMembership(data.session);
-  }, [loadMembership]);
+  }, [loadLocalDemoAuth, loadMembership]);
 
   useEffect(() => {
     let active = true;
 
     async function boot() {
+      if (localMockAuthEnabled) {
+        if (active) {
+          loadLocalDemoAuth();
+          setLoading(false);
+        }
+        return;
+      }
+
       if (!isSupabaseConfigured || !supabase) {
         if (active) {
           setError(SUPABASE_ENV_MISSING_MESSAGE);
@@ -231,9 +277,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       active = false;
       data.subscription.unsubscribe();
     };
-  }, [loadMembership]);
+  }, [loadLocalDemoAuth, loadMembership]);
 
   const signIn = useCallback(async (email: string, password: string) => {
+    if (localMockAuthEnabled) {
+      loadLocalDemoAuth();
+      return;
+    }
     if (!supabase) {
       throw new Error(SUPABASE_ENV_MISSING_MESSAGE);
     }
@@ -242,9 +292,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       password,
     });
     if (signInError) throw signInError;
-  }, []);
+  }, [loadLocalDemoAuth]);
 
   const signOut = useCallback(async () => {
+    if (localMockAuthEnabled) {
+      setSession(null);
+      setUser(null);
+      setMembership(emptyMembership);
+      return;
+    }
     if (!supabase) return;
     const { error: signOutError } = await supabase.auth.signOut();
     if (signOutError) throw signOutError;
