@@ -56,6 +56,7 @@ class GoldenExpectedOutcome(StrictStateModel):
     required_evidence_refs: tuple[EvidenceRef, ...] = Field(min_length=1)
     unsupported_claims_rejected: tuple[str, ...] = ()
     validation_errors: tuple[str, ...] = ()
+    requires_strict_decision_evidence_audit: bool = False
     decision_rules: tuple[DecisionRule, ...] = Field(min_length=1)
     rationale: str = Field(min_length=1)
 

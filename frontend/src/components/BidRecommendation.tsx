@@ -12,7 +12,7 @@ import type { DecisionSummary } from "@/data/mock";
 
 interface Props {
   decision: DecisionSummary;
-  /** Optional title shown above the card (used on the Compare page grid). */
+  /** Optional title shown above the card. */
   heading?: string;
   className?: string;
 }

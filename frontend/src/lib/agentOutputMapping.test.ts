@@ -60,6 +60,21 @@ describe("mapRound1Output", () => {
     expect(m?.findings[0]).toBe("The evidence board is available for specialist review.");
     expect(m?.findingsWithEvidence?.[0].evidenceKeys).toEqual(["EVD-X"]);
   });
+
+  it("formats delivery_cfo with the UI label", () => {
+    const m = mapRound1Output({
+      agent_role: "delivery_cfo",
+      verdict: "conditional_bid",
+      confidence: 0.72,
+      summary: "Margin assumptions need review.",
+      evidence_refs: [{ evidence_key: "EVD-CFO", source_type: "tender_document" }],
+      findings: ["Delivery review is needed."],
+      risks: [],
+      blockers: [],
+    });
+
+    expect(m?.agent).toBe("Delivery CFO");
+  });
 });
 
 describe("mapRound2Output", () => {

@@ -7,6 +7,8 @@ import fitz
 import pytest
 
 from bidded.documents import PdfIngestionError, ingest_tender_pdf_document
+from bidded.documents.pdf_ingestion import ingest_tender_document
+from bidded.documents.tender_registration import DOCX_CONTENT_TYPE
 from bidded.embeddings import (
     DOCUMENT_CHUNK_EMBEDDING_DIMENSIONS,
     EMBEDDING_CONTRACT_VERSION,
@@ -42,6 +44,30 @@ class FailingEmbeddingAdapter(RecordingEmbeddingAdapter):
     def embed_text(self, text: str) -> list[float]:
         self.calls.append(text)
         raise RuntimeError("provider unavailable")
+
+
+class RecordingDocxPdfConverter:
+    name = "test-libreoffice"
+
+    def __init__(self, pdf_bytes: bytes) -> None:
+        self.pdf_bytes = pdf_bytes
+        self.calls: list[bytes] = []
+
+    def convert_docx_to_pdf(self, docx_bytes: bytes) -> bytes:
+        self.calls.append(docx_bytes)
+        return self.pdf_bytes
+
+
+class FailingDocxPdfConverter:
+    name = "test-libreoffice"
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+        self.calls: list[bytes] = []
+
+    def convert_docx_to_pdf(self, docx_bytes: bytes) -> bytes:
+        self.calls.append(docx_bytes)
+        raise PdfIngestionError(self.message)
 
 
 class RecordingStorageBucket:
@@ -216,6 +242,102 @@ def _text_pdf(page_texts: list[str]) -> bytes:
         document.close()
 
 
+def test_ingest_tender_document_converts_docx_and_persists_page_chunks() -> None:
+    docx_bytes = b"fake docx bytes"
+    converter = RecordingDocxPdfConverter(
+        _text_pdf(
+            [
+                "Mandatory DOCX requirement: Supplier must provide ISO 27001.",
+                "DOCX award criterion: Delivery model quality.",
+            ]
+        )
+    )
+    client = RecordingSupabaseClient(
+        pdf_bytes=docx_bytes,
+        document_row=_document_row(
+            content_type=DOCX_CONTENT_TYPE,
+            original_filename="Kravspec.docx",
+            storage_path="demo/tenders/skakrav/kravspec.docx",
+        ),
+    )
+
+    result = ingest_tender_document(
+        client,
+        document_id=DOCUMENT_ID,
+        bucket_name="procurement-fixtures",
+        max_chunk_chars=160,
+        docx_pdf_converter=converter,
+    )
+
+    assert converter.calls == [docx_bytes]
+    assert result.document_id == DOCUMENT_ID
+    assert result.page_count == 2
+    assert result.chunk_count == 2
+    assert [chunk.page_start for chunk in result.chunks] == [1, 2]
+    assert "Mandatory DOCX requirement" in result.chunks[0].text
+
+    inserted_chunks = client.inserts["document_chunks"][0]
+    assert inserted_chunks[0]["metadata"]["source_format"] == "docx"
+    assert inserted_chunks[0]["metadata"]["source_content_type"] == DOCX_CONTENT_TYPE
+    assert inserted_chunks[0]["metadata"]["conversion_tool"] == "test-libreoffice"
+    assert inserted_chunks[0]["metadata"]["parser"] == "pymupdf"
+
+    parsed_metadata = client.updates["documents"][-1][0]["metadata"]
+    assert parsed_metadata["parser"]["status"] == "parsed"
+    assert parsed_metadata["parser"]["source_format"] == "docx"
+    assert parsed_metadata["parser"]["source_content_type"] == DOCX_CONTENT_TYPE
+    assert parsed_metadata["parser"]["conversion_tool"] == "test-libreoffice"
+    assert parsed_metadata["parser"]["parser"] == "pymupdf"
+
+
+def test_ingest_tender_document_marks_docx_conversion_failure() -> None:
+    converter = FailingDocxPdfConverter("DOCX conversion failed: invalid DOCX")
+    client = RecordingSupabaseClient(
+        pdf_bytes=b"broken docx",
+        document_row=_document_row(
+            content_type=DOCX_CONTENT_TYPE,
+            original_filename="Kravspec.docx",
+            storage_path="demo/tenders/skakrav/kravspec.docx",
+        ),
+    )
+
+    with pytest.raises(PdfIngestionError, match="invalid DOCX"):
+        ingest_tender_document(
+            client,
+            document_id=DOCUMENT_ID,
+            bucket_name="procurement-fixtures",
+            docx_pdf_converter=converter,
+        )
+
+    assert "document_chunks" not in client.inserts
+    failed_update = client.updates["documents"][-1][0]
+    assert failed_update["parse_status"] == "parser_failed"
+    assert "invalid DOCX" in failed_update["metadata"]["parser"]["error_message"]
+    assert failed_update["metadata"]["parser"]["source_format"] == "docx"
+
+
+def test_ingest_tender_document_rejects_legacy_doc_without_download() -> None:
+    client = RecordingSupabaseClient(
+        pdf_bytes=b"not used",
+        document_row=_document_row(
+            content_type="application/msword",
+            original_filename="requirements.doc",
+            storage_path="demo/tenders/skakrav/requirements.doc",
+        ),
+    )
+
+    with pytest.raises(PdfIngestionError, match="Legacy DOC is not supported"):
+        ingest_tender_document(
+            client,
+            document_id=DOCUMENT_ID,
+            bucket_name="procurement-fixtures",
+        )
+
+    assert client.storage.bucket.downloads == []
+    failed_update = client.updates["documents"][-1][0]
+    assert failed_update["parse_status"] == "parser_failed"
+
+
 def test_ingest_tender_pdf_document_extracts_and_persists_page_chunks() -> None:
     client = RecordingSupabaseClient(
         pdf_bytes=_text_pdf(
@@ -271,6 +393,36 @@ def test_ingest_tender_pdf_document_extracts_and_persists_page_chunks() -> None:
 
     assert "evidence_items" in client.inserts
     assert client.inserts["evidence_items"]
+
+
+def test_ingest_tender_pdf_document_propagates_procurement_document_role() -> None:
+    client = RecordingSupabaseClient(
+        pdf_bytes=_text_pdf(["Pris per månad ska anges i SEK exklusive moms."]),
+        document_row=_document_row(
+            metadata={
+                "source_label": "Prisbilaga.pdf",
+                "registered_via": "frontend_ui",
+                "procurement_document_role": "pricing_appendix",
+            }
+        ),
+    )
+
+    ingest_tender_pdf_document(
+        client,
+        document_id=DOCUMENT_ID,
+        bucket_name="procurement-fixtures",
+        max_chunk_chars=160,
+    )
+
+    inserted_chunks = client.inserts["document_chunks"][0]
+    inserted_evidence = client.inserts["evidence_items"][0]
+    assert inserted_chunks[0]["metadata"]["procurement_document_role"] == (
+        "pricing_appendix"
+    )
+    assert inserted_evidence[0]["source_metadata"] == {
+        "source_label": "Prisbilaga.pdf",
+        "procurement_document_role": "pricing_appendix",
+    }
 
 
 def test_ingest_tender_pdf_populates_chunk_embeddings_when_configured() -> None:
@@ -349,28 +501,37 @@ def test_ingest_tender_pdf_document_fails_when_embeddings_are_required() -> None
     )
 
 
-def test_ingest_tender_pdf_document_marks_empty_text_pdf_as_parser_failed() -> None:
+def test_ingest_tender_pdf_document_marks_empty_text_pdf_as_visual_reference() -> None:
     client = RecordingSupabaseClient(
         pdf_bytes=_text_pdf(["", ""]),
         document_row=_document_row(),
     )
 
-    with pytest.raises(PdfIngestionError, match="No extractable text"):
-        ingest_tender_pdf_document(
-            client,
-            document_id=DOCUMENT_ID,
-            bucket_name="procurement-fixtures",
-        )
+    result = ingest_tender_pdf_document(
+        client,
+        document_id=DOCUMENT_ID,
+        bucket_name="procurement-fixtures",
+    )
 
+    assert result.document_id == DOCUMENT_ID
+    assert result.page_count == 2
+    assert result.chunk_count == 0
+    assert result.chunks == []
+    assert client.deletes["document_chunks"] == [[("document_id", str(DOCUMENT_ID))]]
     assert "document_chunks" not in client.inserts
+    assert "evidence_items" not in client.inserts
     status_updates = client.updates["documents"]
     assert [update["parse_status"] for update, _filters in status_updates] == [
         "parsing",
-        "parser_failed",
+        "parsed",
     ]
-    failed_metadata = status_updates[-1][0]["metadata"]
-    assert failed_metadata["parser"]["status"] == "parser_failed"
-    assert "OCR is a non-goal" in failed_metadata["parser"]["error_message"]
+    skipped_metadata = status_updates[-1][0]["metadata"]
+    assert skipped_metadata["parser"]["status"] == "parsed_skipped"
+    assert skipped_metadata["parser"]["reason"] == "no_text_layer"
+    assert skipped_metadata["parser"]["visual_document"] is True
+    assert skipped_metadata["parser"]["page_count"] == 2
+    assert skipped_metadata["parser"]["chunk_count"] == 0
+    assert "OCR is a non-goal" in skipped_metadata["parser"]["skip_message"]
 
 
 def test_ingest_tender_pdf_document_persists_parser_failure_error() -> None:

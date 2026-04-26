@@ -15,10 +15,7 @@ from bidded.orchestration.evidence_recall import (
     EvidenceRecallWarning,
     audit_evidence_recall,
 )
-from bidded.orchestration.evidence_refs import (
-    coerce_evidence_refs,
-    resolve_evidence_ref_dict_against_board,
-)
+from bidded.orchestration.evidence_refs import coerce_evidence_refs
 from bidded.orchestration.graph import (
     GraphRouteNode,
     InvalidGraphOutput,
@@ -706,7 +703,9 @@ def _drop_unsupported_claims(
                 continue
             if len(resolved_refs) != len(claim.evidence_refs):
                 changed = True
-                kept_claims.append(claim.model_copy(update={"evidence_refs": resolved_refs}))
+                kept_claims.append(
+                    claim.model_copy(update={"evidence_refs": resolved_refs})
+                )
             else:
                 kept_claims.append(claim)
         updates[field_name] = kept_claims

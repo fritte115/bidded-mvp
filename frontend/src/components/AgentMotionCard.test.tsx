@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import { AgentMotionCard } from "@/components/AgentMotionCard";
 import type { AgentMotion } from "@/data/mock";
@@ -18,5 +18,25 @@ describe("AgentMotionCard", () => {
     const card = screen.getByText("Compliance Officer").closest(".rounded-lg");
 
     expect(card).toHaveClass("self-start");
+  });
+
+  it("opens inline evidence citations through the passed click handler", async () => {
+    const onCitationClick = vi.fn();
+    render(
+      <AgentMotionCard
+        motion={{
+          ...baseMotion,
+          findings: ["The supplier meets EVD-004."],
+        }}
+        onCitationClick={onCitationClick}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Compliance Officer"));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open source for EVD-004" }),
+    );
+
+    expect(onCitationClick).toHaveBeenCalledWith("EVD-004");
   });
 });

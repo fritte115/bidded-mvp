@@ -16,6 +16,9 @@ def resolve_graph_handlers(settings: BiddedSettings | None = None) -> GraphNodeH
       (no API calls; reproducible). Read from ``BIDDED_SWARM_BACKEND`` in ``.env``.
     * ``bidded_swarm_backend=anthropic``: Claude via ``ANTHROPIC_API_KEY``.
       Model id: ``BIDDED_ANTHROPIC_MODEL`` (maps to ``bidded_anthropic_model``).
+      ``BIDDED_ANTHROPIC_MODEL_ROUTING=mixed`` sends bounded/low-risk roles to
+      the fast model and high-stakes roles to the reasoning model; ``single``
+      preserves the legacy one-model behavior.
 
     Uses :class:`BiddedSettings` so values in ``.env`` / ``.env.local`` apply even
     when those variables are not exported into ``os.environ`` (fixes silent fallback
@@ -37,6 +40,9 @@ def resolve_graph_handlers(settings: BiddedSettings | None = None) -> GraphNodeH
         return anthropic_graph_handlers(
             api_key=s.anthropic_api_key,
             model=s.bidded_anthropic_model,
+            fast_model=s.bidded_anthropic_fast_model,
+            reasoning_model=s.bidded_anthropic_reasoning_model,
+            model_routing=s.bidded_anthropic_model_routing,
         )
 
     from bidded.orchestration.evidence_locked_swarm import (
