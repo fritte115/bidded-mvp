@@ -8,6 +8,57 @@ FRONTEND_DIR="${WORKTREE_ROOT}/frontend"
 FRONTEND_STAMP_FILE="${FRONTEND_DIR}/node_modules/.codex-npm-install.stamp"
 
 
+bidded_config_dir() {
+  if [ -n "${XDG_CONFIG_HOME:-}" ]; then
+    printf '%s\n' "${XDG_CONFIG_HOME}/bidded"
+    return 0
+  fi
+
+  printf '%s\n' "${HOME}/.config/bidded"
+}
+
+
+git_config_path() {
+  local key="$1"
+
+  if ! command -v git >/dev/null 2>&1; then
+    return 1
+  fi
+
+  git config --path --get "${key}" 2>/dev/null
+}
+
+
+copy_backend_env_from_known_sources() {
+  local source_path
+
+  for source_path in \
+    "${ENV_SOURCE:-}" \
+    "$(git_config_path "bidded.backend-env-source" || true)" \
+    "$(bidded_config_dir)/backend.env"; do
+    [ -n "${source_path}" ] || continue
+    copy_backend_env_if_valid "${source_path}" && return 0
+  done
+
+  return 1
+}
+
+
+copy_frontend_env_from_known_sources() {
+  local source_path
+
+  for source_path in \
+    "${FRONTEND_ENV_SOURCE:-}" \
+    "$(git_config_path "bidded.frontend-env-source" || true)" \
+    "$(bidded_config_dir)/frontend.env"; do
+    [ -n "${source_path}" ] || continue
+    copy_frontend_env_if_valid "${source_path}" && return 0
+  done
+
+  return 1
+}
+
+
 python_version_ok() {
   local candidate="$1"
 
@@ -142,10 +193,7 @@ ensure_env_file() {
     return 0
   fi
 
-  if [ -n "${ENV_SOURCE:-}" ]; then
-    copy_backend_env_if_valid "${ENV_SOURCE}" && return 0
-    echo "Warning: ENV_SOURCE did not contain backend Supabase credentials: ${ENV_SOURCE}" >&2
-  fi
+  copy_backend_env_from_known_sources && return 0
 
   copy_backend_env_from_worktrees && return 0
 
@@ -349,10 +397,7 @@ ensure_frontend_env_file() {
     return 0
   fi
 
-  if [ -n "${FRONTEND_ENV_SOURCE:-}" ]; then
-    copy_frontend_env_if_valid "${FRONTEND_ENV_SOURCE}" && return 0
-    echo "Warning: FRONTEND_ENV_SOURCE did not contain public Supabase frontend credentials: ${FRONTEND_ENV_SOURCE}" >&2
-  fi
+  copy_frontend_env_from_known_sources && return 0
 
   copy_frontend_env_if_valid "${WORKTREE_ROOT}/.env" && return 0
 
@@ -422,4 +467,6 @@ main() {
 }
 
 
-main "$@"
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  main "$@"
+fi
