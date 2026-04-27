@@ -6,8 +6,9 @@ import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
 import { VerdictBadge } from "@/components/VerdictBadge";
 import { ConfidenceBar } from "@/components/ConfidenceBar";
+import { DashboardDecisionDropdown } from "@/components/DashboardDecisionDropdown";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   formatDate,
   formatDuration,
@@ -62,7 +63,7 @@ export default function Dashboard() {
     refetchInterval: 10_000,
   });
 
-  const { data: decisions = [] } = useQuery({
+  const { data: decisions = [], isLoading: decisionsLoading } = useQuery({
     queryKey: ["decisions"],
     queryFn: fetchDecisions,
     refetchInterval: 10_000,
@@ -379,11 +380,6 @@ export default function Dashboard() {
       <div className="mt-6">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-semibold">Latest Verdicts</h2>
-          <Button asChild variant="ghost" size="sm" className="text-xs text-primary">
-            <Link to="/decisions">
-              View all decisions <ArrowRight className="h-3 w-3" />
-            </Link>
-          </Button>
         </div>
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
           {recentDecisions.length === 0 ? (
@@ -435,6 +431,7 @@ export default function Dashboard() {
             ))
           )}
         </div>
+        <DashboardDecisionDropdown decisions={decisions} isLoading={decisionsLoading} />
       </div>
 
     </>
