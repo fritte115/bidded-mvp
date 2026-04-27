@@ -14,4 +14,15 @@ describe("EvidenceBadge", () => {
 
     expect(onClick).toHaveBeenCalledTimes(1);
   });
+
+  it("shows long tender citation keys as compact readable labels", () => {
+    const id = "TENDER-2-SUBMISSION-DEADLINE-APPENDIX-A-ABCDEF12";
+
+    render(<EvidenceBadge id={id} />);
+
+    const badge = screen.getByTitle(id);
+
+    expect(badge).toHaveTextContent("Tender p.2 · Submission deadline…");
+    expect(screen.queryByText(id)).not.toBeInTheDocument();
+  });
 });
