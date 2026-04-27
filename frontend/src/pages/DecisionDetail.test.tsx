@@ -93,14 +93,16 @@ describe("DecisionDetail", () => {
     expect(screen.queryByText("Cited Evidence")).not.toBeInTheDocument();
   });
 
-  it("hides disagreement when it duplicates the judge memo", async () => {
+  it("hides disagreement when it nearly duplicates the judge memo", async () => {
     vi.mocked(fetchRunDetail).mockResolvedValue({
       ...run,
       judge: run.judge
         ? {
             ...run.judge,
-            citedMemo: "All four agents unanimously recommend conditional bid.",
-            disagreement: "All four agents unanimously recommend CONDITIONAL_BID.",
+            citedMemo:
+              "The Judge resolves the residual disagreement in favor of a conditional bid because ISO proof and staffing evidence support proceeding once liability clarifications are attached.",
+            disagreement:
+              "Judge resolves residual disagreement in favour of CONDITIONAL_BID because ISO proof and staffing evidence support proceeding once the liability clarification is attached.",
           }
         : null,
     });
