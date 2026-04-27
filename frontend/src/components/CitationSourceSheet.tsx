@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent,
-  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
@@ -54,13 +53,11 @@ export function CitationSourceSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
+        aria-describedby={undefined}
         className="flex h-full w-[92vw] flex-col overflow-y-auto p-0 sm:max-w-md"
       >
         <SheetHeader className="border-b border-border px-5 py-4">
           <SheetTitle>Citation source</SheetTitle>
-          <SheetDescription>
-            Excerpt-level source content from this run&apos;s evidence board.
-          </SheetDescription>
         </SheetHeader>
 
         <div className="flex flex-1 flex-col gap-5 px-5 py-5">
@@ -90,15 +87,6 @@ export function CitationSourceSheet({
               </blockquote>
 
               <dl className="space-y-3 text-sm">
-                <div>
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Evidence key
-                  </dt>
-                  <dd className="mt-1 break-words font-mono text-xs text-foreground">
-                    {evidence.key}
-                  </dd>
-                </div>
-
                 <div>
                   <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Source
