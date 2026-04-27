@@ -10,7 +10,6 @@ import Procurements from "./pages/Procurements";
 import RegisterProcurement from "./pages/RegisterProcurement";
 import RunDetail from "./pages/RunDetail";
 import EvidenceBoard from "./pages/EvidenceBoard";
-import Decisions from "./pages/Decisions";
 import DecisionDetail from "./pages/DecisionDetail";
 import CompanyProfile from "./pages/CompanyProfile";
 import Bids from "./pages/Bids";
@@ -47,7 +46,6 @@ const App = () => (
               <Route path="/procurements/new" element={<RegisterProcurement />} />
               <Route path="/runs/:id" element={<RunDetail />} />
               <Route path="/runs/:id/evidence" element={<EvidenceBoard />} />
-              <Route path="/decisions" element={<Decisions />} />
               <Route path="/decisions/:id" element={<DecisionDetail />} />
               <Route path="/bids" element={<Bids />} />
               <Route path="/bids/new" element={<BidEditor />} />
