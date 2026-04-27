@@ -38,6 +38,7 @@ class CompanyKbRegistrationError(CompanyKbError):
 
 class CompanyKbDocumentType(StrEnum):
     CERTIFICATION = "certification"
+    CREDIT_CERTIFICATE = "credit_certificate"
     CASE_STUDY = "case_study"
     CV_PROFILE = "cv_profile"
     CAPABILITY_STATEMENT = "capability_statement"
@@ -70,6 +71,7 @@ _ALLOWED_EXTENSIONS: dict[str, str] = {
 
 _CATEGORY_BY_DOCUMENT_TYPE: dict[CompanyKbDocumentType, str] = {
     CompanyKbDocumentType.CERTIFICATION: "certification",
+    CompanyKbDocumentType.CREDIT_CERTIFICATE: "financial_standing",
     CompanyKbDocumentType.CASE_STUDY: "reference",
     CompanyKbDocumentType.CV_PROFILE: "cv_summary",
     CompanyKbDocumentType.CAPABILITY_STATEMENT: "capability",
@@ -653,6 +655,8 @@ class RuleBasedCompanyKbFactExtractor:
         category = _CATEGORY_BY_DOCUMENT_TYPE[request.kb_document_type]
         if request.kb_document_type is CompanyKbDocumentType.CV_PROFILE:
             return self._cv_fact(request, chunk)
+        if request.kb_document_type is CompanyKbDocumentType.CREDIT_CERTIFICATE:
+            return self._credit_certificate_fact(request, chunk)
 
         claim_text = _summary_for_document_type(request.kb_document_type, text)
         return ExtractedCompanyKbFacts(
@@ -668,6 +672,35 @@ class RuleBasedCompanyKbFactExtractor:
                     ),
                     confidence=0.72,
                     metadata={"extraction_method": "rule_based"},
+                ),
+            )
+        )
+
+    def _credit_certificate_fact(
+        self,
+        request: CompanyKbExtractionRequest,
+        chunk: CompanyKbChunkForExtraction,
+    ) -> ExtractedCompanyKbFacts:
+        text = chunk.text
+        details = _extract_credit_certificate_details(text)
+        claim = _credit_certificate_claim(details, text)
+        metadata = {
+            "extraction_method": "rule_based_credit_certificate",
+            **{key: value for key, value in details.items() if value},
+        }
+        return ExtractedCompanyKbFacts(
+            facts=(
+                ExtractedCompanyKbFact(
+                    fact_type=request.kb_document_type.value,
+                    category=_CATEGORY_BY_DOCUMENT_TYPE[request.kb_document_type],
+                    claim=claim,
+                    normalized_meaning=claim,
+                    evidence_ref=EvidenceExcerptRef(
+                        chunk_id=chunk.chunk_id,
+                        excerpt=_excerpt(text),
+                    ),
+                    confidence=0.9 if details.get("risk_class") else 0.72,
+                    metadata=metadata,
                 ),
             )
         )
@@ -796,6 +829,8 @@ def _company_kb_evidence_payloads(
                 },
             }
         )
+        if kb_document_type is CompanyKbDocumentType.CREDIT_CERTIFICATE:
+            rows[-1]["requirement_type"] = "financial_standing"
     return rows
 
 
@@ -1263,6 +1298,7 @@ def _summary_for_document_type(
     excerpt = _excerpt(text)
     labels = {
         CompanyKbDocumentType.CERTIFICATION: "Certification evidence",
+        CompanyKbDocumentType.CREDIT_CERTIFICATE: "Credit certificate evidence",
         CompanyKbDocumentType.CASE_STUDY: "Case study evidence",
         CompanyKbDocumentType.CV_PROFILE: "Anonymized CV/profile evidence",
         CompanyKbDocumentType.CAPABILITY_STATEMENT: "Capability evidence",
@@ -1271,6 +1307,81 @@ def _summary_for_document_type(
         CompanyKbDocumentType.LEGAL_INSURANCE: "Legal/insurance evidence",
     }
     return f"{labels[document_type]}: {excerpt}"
+
+
+def _extract_credit_certificate_details(text: str) -> dict[str, str]:
+    return {
+        "credit_provider": _detect_credit_provider(text),
+        "risk_class": _first_match(
+            text,
+            (
+                r"(?i)\b(?:riskklass|risk class)\s*[:#]?\s*([A-Za-z0-9+\-]+)",
+                r"(?i)\b(?:rating|kreditrating)\s*[:#]?\s*([A-Za-z0-9+\-]+)",
+            ),
+        ),
+        "risk_forecast": _first_match(
+            text,
+            (
+                r"(?i)\b(?:riskprognos|risk forecast|risk prognosis)"
+                r"\s*[:#]?\s*([0-9]+(?:[,.][0-9]+)?\s*%?)",
+            ),
+        ),
+        "credit_limit": _first_match(
+            text,
+            (
+                r"(?i)\b(?:kreditlimit|kreditgrans|kreditgräns|credit limit|"
+                r"rekommenderad kreditlimit)\s*[:#]?\s*"
+                r"([0-9][0-9 .\u00a0]*\s*(?:kr|sek)?)",
+            ),
+        ),
+        "issued_date": _first_match(
+            text,
+            (
+                r"(?i)\b(?:intygsdatum|utfardat|utfärdat|bestallningsdatum|"
+                r"beställningsdatum|issued|date)\s*[:#]?\s*"
+                r"(\d{4}-\d{2}-\d{2})",
+            ),
+        ),
+    }
+
+
+def _detect_credit_provider(text: str) -> str:
+    if re.search(r"(?i)\bUC\b|upplysningscentralen", text):
+        return "UC"
+    if re.search(r"(?i)\bcreditsafe\b", text):
+        return "Creditsafe"
+    if re.search(r"(?i)\bbisnode\b|dun\s*&\s*bradstreet|\bD&B\b|\bDNB\b", text):
+        return "Dun & Bradstreet"
+    return ""
+
+
+def _first_match(text: str, patterns: Sequence[str]) -> str:
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return _normalize_text(match.group(1))
+    return ""
+
+
+def _credit_certificate_claim(details: Mapping[str, str], text: str) -> str:
+    provider = details.get("credit_provider")
+    parts: list[str] = []
+    if risk_class := details.get("risk_class"):
+        parts.append(f"risk class {risk_class}")
+    if risk_forecast := details.get("risk_forecast"):
+        parts.append(f"risk forecast {risk_forecast}")
+    if credit_limit := details.get("credit_limit"):
+        parts.append(f"credit limit {credit_limit}")
+    if issued_date := details.get("issued_date"):
+        parts.append(f"issued {issued_date}")
+    if not parts:
+        return f"Uploaded credit certificate evidence: {_excerpt(text)}"
+    prefix = (
+        f"Uploaded {provider} credit certificate"
+        if provider
+        else "Uploaded credit certificate"
+    )
+    return f"{prefix} reports {', '.join(parts)}."
 
 
 def _anonymize_cv_text(text: str) -> str:

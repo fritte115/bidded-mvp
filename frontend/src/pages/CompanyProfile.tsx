@@ -56,6 +56,7 @@ type PendingKbFile = { file: File; kbDocumentType: CompanyKbDocumentType };
 
 const kbDocumentTypes: Array<{ value: CompanyKbDocumentType; label: string }> = [
   { value: "certification", label: "Certification" },
+  { value: "credit_certificate", label: "Credit certificate" },
   { value: "case_study", label: "Case study" },
   { value: "cv_profile", label: "CV/profile" },
   { value: "capability_statement", label: "Capability statement" },
@@ -69,6 +70,12 @@ function inferCompanyKbDocumentType(filename: string): CompanyKbDocumentType {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
+  if (
+    /\b(uc|creditsafe|bisnode|dnb)\b/.test(normalized) ||
+    /dun.*bradstreet|d&b|riskklass|riskprognos|kreditupplys|kreditvardig|upphandlingsintyg|credit.*(rating|report|certificate|score)/.test(normalized)
+  ) {
+    return "credit_certificate";
+  }
   if (/\b(iso|cert|certifikat|intyg)\b/.test(normalized)) {
     return "certification";
   }

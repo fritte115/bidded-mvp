@@ -2675,6 +2675,7 @@ const AGENT_API_URL =
 
 export type CompanyKbDocumentType =
   | "certification"
+  | "credit_certificate"
   | "case_study"
   | "cv_profile"
   | "capability_statement"

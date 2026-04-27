@@ -158,12 +158,20 @@ describe("CompanyProfile Knowledge Base", () => {
       "1.5 Andra företags kapacitet.pdf",
       { type: "application/pdf" },
     );
-    fireEvent.change(input, { target: { files: [file, referenceFile, capacityFile] } });
+    const creditFile = new File(
+      ["UC riskklass 4"],
+      "UC upphandlingsintyg.pdf",
+      { type: "application/pdf" },
+    );
+    fireEvent.change(input, {
+      target: { files: [file, referenceFile, capacityFile, creditFile] },
+    });
 
     expect(await screen.findByText("iso.txt")).toBeInTheDocument();
     expect(await screen.findByText("Referensuppdrag.docx")).toBeInTheDocument();
     expect(await screen.findByText("1.5 Andra företags kapacitet.pdf"))
       .toBeInTheDocument();
+    expect(await screen.findByText("UC upphandlingsintyg.pdf")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Upload to KB/i }));
 
     await waitFor(() =>
@@ -171,6 +179,7 @@ describe("CompanyProfile Knowledge Base", () => {
         { file, kbDocumentType: "certification" },
         { file: referenceFile, kbDocumentType: "case_study" },
         { file: capacityFile, kbDocumentType: "capability_statement" },
+        { file: creditFile, kbDocumentType: "credit_certificate" },
       ]),
     );
   });

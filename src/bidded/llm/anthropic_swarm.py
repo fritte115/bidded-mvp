@@ -193,6 +193,22 @@ def _cached_evidence_user_blocks(
     ]
 
 
+def _credit_evidence_kind(item: EvidenceItemState) -> str | None:
+    source_metadata = item.source_metadata or {}
+    metadata = item.metadata or {}
+    field_path = (item.field_path or "").casefold()
+    evidence_key = (item.evidence_key or "").casefold()
+    if (
+        source_metadata.get("kb_document_type") == "credit_certificate"
+        or metadata.get("kb_document_type") == "credit_certificate"
+        or "knowledge_base.credit_certificate" in field_path
+        or "credit-certificate" in evidence_key
+        or "credit_certificate" in evidence_key
+    ):
+        return "uploaded_credit_certificate"
+    return None
+
+
 def _catalog(board: Sequence[EvidenceItemState]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for e in board:
@@ -207,18 +223,20 @@ def _catalog(board: Sequence[EvidenceItemState]) -> list[dict[str, Any]]:
                 if hasattr(raw_req_type, "value")
                 else str(raw_req_type)
             )
-        rows.append(
-            {
-                "evidence_key": e.evidence_key,
-                "source_type": e.source_type.value,
-                "evidence_id": str(e.evidence_id) if e.evidence_id else None,
-                "excerpt": (e.excerpt or "")[:2000],
-                "normalized_meaning": (e.normalized_meaning or "")[:800],
-                "field_path": e.field_path,
-                "category": e.category,
-                "requirement_type": requirement_type,
-            }
-        )
+        row = {
+            "evidence_key": e.evidence_key,
+            "source_type": e.source_type.value,
+            "evidence_id": str(e.evidence_id) if e.evidence_id else None,
+            "excerpt": (e.excerpt or "")[:2000],
+            "normalized_meaning": (e.normalized_meaning or "")[:800],
+            "field_path": e.field_path,
+            "category": e.category,
+            "requirement_type": requirement_type,
+        }
+        credit_kind = _credit_evidence_kind(e)
+        if credit_kind is not None:
+            row["credit_evidence_kind"] = credit_kind
+        rows.append(row)
     return rows
 
 
@@ -247,6 +265,9 @@ _BASE_RULES = (
     '"tender_document", "evidence_id": "<UUID from catalog>"}. '
     "If a claim cannot be supported by any catalog entry, move it to missing_info "
     "or potential_evidence_gaps — do not hallucinate an evidence reference. "
+    "When assessing a credit rating, risk class, or credit certificate "
+    "requirement, cite uploaded credit_certificate company evidence if "
+    "available. "
     "Output a single JSON object only (no markdown fences, no prose outside JSON)."
 )
 

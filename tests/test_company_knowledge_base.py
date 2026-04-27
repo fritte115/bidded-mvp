@@ -345,6 +345,49 @@ def test_ingest_company_kb_document_extracts_text_and_materializes_cited_evidenc
     assert "2027-03-31" in evidence["excerpt"]
 
 
+def test_credit_certificate_upload_materializes_financial_standing_evidence() -> None:
+    client = RecordingCompanyKbClient()
+    [registered] = register_company_kb_documents(
+        client,
+        company_id=COMPANY_ID,
+        bucket_name="company-knowledge",
+        files=[
+            CompanyKbUploadFile(
+                filename="UC upphandlingsintyg 2026.txt",
+                content=(
+                    b"UC Upphandlingsintyg\n"
+                    b"Intygsdatum: 2026-04-26\n"
+                    b"Riskklass: 4\n"
+                    b"Riskprognos: 0,43 %\n"
+                    b"Kreditlimit: 500 000 kr\n"
+                ),
+                content_type="text/plain",
+                kb_document_type=CompanyKbDocumentType.CREDIT_CERTIFICATE,
+            )
+        ],
+    )
+
+    result = ingest_company_kb_document(
+        client,
+        document_id=registered.document_id,
+        bucket_name="company-knowledge",
+    )
+
+    assert result.extraction_status == "extracted"
+    evidence = client.rows["evidence_items"][0]
+    assert evidence["category"] == "financial_standing"
+    assert evidence["requirement_type"] == "financial_standing"
+    assert evidence["field_path"].startswith("knowledge_base.credit_certificate.")
+    assert evidence["source_metadata"]["kb_document_type"] == "credit_certificate"
+    assert evidence["metadata"]["credit_provider"] == "UC"
+    assert evidence["metadata"]["risk_class"] == "4"
+    assert evidence["metadata"]["risk_forecast"] == "0,43 %"
+    assert evidence["metadata"]["credit_limit"] == "500 000 kr"
+    assert evidence["metadata"]["issued_date"] == "2026-04-26"
+    assert "Riskklass: 4" in evidence["excerpt"]
+    assert "risk class 4" in evidence["normalized_meaning"]
+
+
 def test_rule_based_company_kb_extraction_uses_resolvable_excerpt_for_long_text() -> (
     None
 ):

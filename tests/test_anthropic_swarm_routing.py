@@ -34,6 +34,7 @@ TENDER_ID = UUID("33333333-3333-4333-8333-333333333333")
 DOCUMENT_ID = UUID("44444444-4444-4444-8444-444444444444")
 CHUNK_ID = UUID("55555555-5555-4555-8555-555555555555")
 EVIDENCE_ID = UUID("66666666-6666-4666-8666-666666666666")
+CREDIT_EVIDENCE_ID = UUID("77777777-7777-4777-8777-777777777777")
 
 
 @pytest.fixture
@@ -221,6 +222,43 @@ def test_judge_uses_cached_evidence_catalog_with_dynamic_task_suffix(
     assert "evidence_catalog" not in task_payload
 
 
+def test_credit_certificate_catalog_is_tagged_and_prompted(
+    anthropic_calls: list[dict[str, object]],
+) -> None:
+    model = AnthropicRound1Model(
+        api_key="sk-ant-test",
+        fast_model="claude-haiku",
+        reasoning_model="claude-sonnet",
+    )
+
+    model.draft_motion(
+        _round_1_request(
+            AgentRole.DELIVERY_CFO,
+            evidence_board=(_credit_certificate_item(),),
+        )
+    )
+
+    catalog = _cached_context_payload(anthropic_calls[0])["evidence_catalog"]
+    assert catalog == [
+        {
+            "evidence_key": "COMPANY-KB-CREDIT-CERTIFICATE-001",
+            "source_type": "company_profile",
+            "evidence_id": str(CREDIT_EVIDENCE_ID),
+            "excerpt": "UC Upphandlingsintyg: Riskklass 4, riskprognos 0,43 %.",
+            "normalized_meaning": (
+                "Uploaded UC credit certificate reports risk class 4."
+            ),
+            "field_path": "knowledge_base.credit_certificate.abc.facts[0]",
+            "category": "financial_standing",
+            "requirement_type": "financial_standing",
+            "credit_evidence_kind": "uploaded_credit_certificate",
+        }
+    ]
+    assert "credit rating, risk class, or credit certificate" in str(
+        anthropic_calls[0]["system"]
+    )
+
+
 def _cached_context_payload(call: dict[str, object]) -> dict[str, object]:
     user = call["user"]
     assert isinstance(user, list)
@@ -369,4 +407,24 @@ def _evidence_item(
         chunk_id=CHUNK_ID,
         page_start=1,
         page_end=1,
+    )
+
+
+def _credit_certificate_item() -> EvidenceItemState:
+    return EvidenceItemState(
+        evidence_id=CREDIT_EVIDENCE_ID,
+        evidence_key="COMPANY-KB-CREDIT-CERTIFICATE-001",
+        source_type=EvidenceSourceType.COMPANY_PROFILE,
+        excerpt="UC Upphandlingsintyg: Riskklass 4, riskprognos 0,43 %.",
+        normalized_meaning="Uploaded UC credit certificate reports risk class 4.",
+        category="financial_standing",
+        requirement_type=RequirementType.FINANCIAL_STANDING,
+        confidence=0.9,
+        source_metadata={
+            "source_label": "UC upphandlingsintyg 2026.pdf",
+            "kb_document_type": "credit_certificate",
+        },
+        metadata={"credit_provider": "UC", "risk_class": "4"},
+        company_id=COMPANY_ID,
+        field_path="knowledge_base.credit_certificate.abc.facts[0]",
     )

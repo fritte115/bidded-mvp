@@ -130,6 +130,59 @@ def _sorted_company_items(
     return sorted(company, key=lambda e: (e.field_path or "", e.evidence_key or ""))
 
 
+def _is_credit_tender_item(item: EvidenceItemState) -> bool:
+    haystack = " ".join(
+        [
+            item.category or "",
+            item.excerpt or "",
+            item.normalized_meaning or "",
+        ]
+    )
+    return bool(
+        re.search(
+            r"(?i)\buc\b|creditsafe|bisnode|dun\s*&\s*bradstreet|\bd&b\b|"
+            r"\bdnb\b|riskklass|risk class|riskprognos|kreditupplysning|"
+            r"kreditvardig|kreditvärdig|credit report|credit rating|"
+            r"credit certificate|upphandlingsintyg",
+            haystack,
+        )
+    )
+
+
+def _is_credit_certificate_evidence(item: EvidenceItemState) -> bool:
+    source_metadata = item.source_metadata or {}
+    metadata = item.metadata or {}
+    field_path = (item.field_path or "").casefold()
+    evidence_key = (item.evidence_key or "").casefold()
+    return (
+        source_metadata.get("kb_document_type") == "credit_certificate"
+        or metadata.get("kb_document_type") == "credit_certificate"
+        or "knowledge_base.credit_certificate" in field_path
+        or "credit-certificate" in evidence_key
+        or "credit_certificate" in evidence_key
+    )
+
+
+def _company_item_for_tender(
+    tender_item: EvidenceItemState,
+    company: Sequence[EvidenceItemState],
+    *,
+    offset: int,
+) -> EvidenceItemState:
+    if not company:
+        return tender_item
+    if _is_credit_tender_item(tender_item):
+        credit_items = [
+            item for item in company if _is_credit_certificate_evidence(item)
+        ]
+        if credit_items:
+            return sorted(
+                credit_items,
+                key=lambda item: (item.field_path or "", item.evidence_key or ""),
+            )[0]
+    return company[offset % len(company)]
+
+
 def _document_citation_hint(item: EvidenceItemState) -> str:
     """Short provenance for UI when multiple tender documents are on the board."""
     meta = item.source_metadata or {}
@@ -314,7 +367,7 @@ class EvidenceLockedRound1Model:
         t0 = tender[off % n_t]
         t_risk = tender[(off + max(1, n_t // 2)) % n_t] if n_t > 1 else t0
         nc = len(company)
-        c0 = company[off % nc] if nc else t0
+        c0 = _company_item_for_tender(t0, company, offset=off) if nc else t0
 
         seed = int(
             hashlib.sha256(f"{role.value}:{t0.evidence_key}".encode()).hexdigest()[:8],
@@ -623,8 +676,12 @@ class EvidenceLockedRound2Model:
         t0 = tender[off % n_t]
         t1 = tender[(off + 1) % n_t]
         t2 = tender[(off + 2) % n_t] if n_t > 2 else tender[(off + 1) % n_t]
-        c0 = company[off % n_c] if n_c else t0
-        c1 = company[(off + 1) % n_c] if n_c > 1 else c0
+        c0 = _company_item_for_tender(t0, company, offset=off) if n_c else t0
+        c1 = (
+            _company_item_for_tender(t1, company, offset=off + 1)
+            if n_c > 1
+            else c0
+        )
 
         if role is AgentRole.RED_TEAM:
             target_roles = [AgentRole.WIN_STRATEGIST, AgentRole.DELIVERY_CFO]
@@ -788,7 +845,7 @@ class EvidenceLockedJudgeModel:
             msg = "Judge requires tender evidence."
             raise ValueError(msg)
         t0, t1 = tender[0], tender[min(1, len(tender) - 1)]
-        c0 = company[0] if company else t0
+        c0 = _company_item_for_tender(t0, company, offset=0) if company else t0
 
         vs = request.vote_summary.model_dump()
         verdict = FinalVerdict.CONDITIONAL_BID

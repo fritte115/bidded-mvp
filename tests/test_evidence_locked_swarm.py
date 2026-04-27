@@ -13,6 +13,7 @@ from bidded.orchestration import (
     run_bidded_graph_shell,
 )
 from bidded.orchestration.evidence_locked_swarm import evidence_locked_graph_handlers
+from bidded.requirements import RequirementType
 
 RUN_ID = UUID("11111111-1111-4111-8111-111111111111")
 COMPANY_ID = UUID("22222222-2222-4222-8222-222222222222")
@@ -22,6 +23,7 @@ CHUNK_ID = UUID("55555555-5555-4555-8555-555555555555")
 TENDER_EVIDENCE_ID = UUID("66666666-6666-4666-8666-666666666666")
 TENDER_EVIDENCE_ID_B = UUID("66666666-6666-4666-8666-666666666667")
 COMPANY_EVIDENCE_ID = UUID("77777777-7777-4777-8777-777777777777")
+COMPANY_EVIDENCE_ID_B = UUID("77777777-7777-4777-8777-777777777778")
 DOCUMENT_ID_B = UUID("44444444-4444-4444-8444-444444444445")
 CHUNK_ID_B = UUID("55555555-5555-4555-8555-555555555556")
 
@@ -167,3 +169,84 @@ def test_round1_rotates_tender_excerpts_across_roles_when_multiple_pdfs() -> Non
 
     win = next(o for o in motion_outputs if o.agent_role == "win_strategist")
     assert win.payload.get("vote") == "bid"
+
+
+def test_credit_rating_tenders_prefer_uploaded_credit_certificate() -> None:
+    base = _minimal_evidence_state()
+    credit_tender = EvidenceItemState(
+        evidence_id=TENDER_EVIDENCE_ID,
+        evidence_key="TENDER-CREDIT-RATING-001",
+        source_type=EvidenceSourceType.TENDER_DOCUMENT,
+        excerpt=(
+            "Anbudsgivare ska ha lägst riskklass 3 enligt UC eller motsvarande "
+            "kreditupplysning."
+        ),
+        normalized_meaning="The tender requires UC risk class or equivalent.",
+        category="financial_standing",
+        requirement_type=RequirementType.FINANCIAL_STANDING,
+        confidence=0.94,
+        source_metadata={"source_label": "Tender page 4"},
+        document_id=DOCUMENT_ID,
+        chunk_id=CHUNK_ID,
+        page_start=4,
+        page_end=4,
+    )
+    generic_company_financial = EvidenceItemState(
+        evidence_id=COMPANY_EVIDENCE_ID,
+        evidence_key="COMPANY-FINANCIAL-HISTORY-2024",
+        source_type=EvidenceSourceType.COMPANY_PROFILE,
+        excerpt="2024 annual-account history: revenue 24.901 MSEK.",
+        normalized_meaning="Latest financial history from public accounts.",
+        category="financial_standing",
+        confidence=0.9,
+        source_metadata={"source_label": "Company profile"},
+        company_id=COMPANY_ID,
+        field_path="profile_details.financials",
+    )
+    credit_certificate = EvidenceItemState(
+        evidence_id=COMPANY_EVIDENCE_ID_B,
+        evidence_key="COMPANY-KB-CREDIT-CERTIFICATE-001",
+        source_type=EvidenceSourceType.COMPANY_PROFILE,
+        excerpt="UC Upphandlingsintyg: Riskklass 4, riskprognos 0,43 %.",
+        normalized_meaning="Uploaded UC credit certificate reports risk class 4.",
+        category="financial_standing",
+        requirement_type=RequirementType.FINANCIAL_STANDING,
+        confidence=0.9,
+        source_metadata={
+            "source_label": "UC upphandlingsintyg 2026.pdf",
+            "kb_document_type": "credit_certificate",
+        },
+        metadata={"credit_provider": "UC", "risk_class": "4"},
+        company_id=COMPANY_ID,
+        field_path="knowledge_base.credit_certificate.abc.facts[0]",
+    )
+    state = base.model_copy(
+        update={
+            "evidence_board": [
+                credit_tender,
+                generic_company_financial,
+                credit_certificate,
+            ],
+        }
+    )
+
+    result = run_bidded_graph_shell(
+        state,
+        handlers=evidence_locked_graph_handlers(),
+    )
+
+    assert result.state.status is AgentRunStatus.SUCCEEDED
+    motion_outputs = [
+        o for o in result.state.agent_outputs if o.round_name == "round_1_motion"
+    ]
+    cited_company_keys = {
+        ref["evidence_key"]
+        for output in motion_outputs
+        for ref in output.payload["top_findings"][0]["evidence_refs"]
+        if ref["source_type"] == "company_profile"
+    }
+    assert cited_company_keys == {"COMPANY-KB-CREDIT-CERTIFICATE-001"}
+    assert result.state.final_decision is not None
+    assert "COMPANY-KB-CREDIT-CERTIFICATE-001" in {
+        ref.evidence_key for ref in result.state.final_decision.evidence_refs
+    }
