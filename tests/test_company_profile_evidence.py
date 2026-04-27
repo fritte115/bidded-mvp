@@ -211,6 +211,48 @@ def test_public_financial_statement_history_converts_to_evidence() -> None:
     assert history["metadata"]["latest_year"] == 2024
 
 
+def test_profile_financials_convert_to_revenue_margin_trend_evidence() -> None:
+    company_profile = build_demo_company_payload()
+    company_profile["profile_details"] = {
+        **company_profile["profile_details"],
+        "public_financial_statement_history": [],
+        "financials": [
+            {
+                "year": 2020,
+                "revenue_msek": 12.970,
+                "ebit_margin_pct": 13.4,
+                "headcount": 1,
+            },
+            {
+                "year": 2024,
+                "revenue_msek": 24.901,
+                "ebit_margin_pct": 0.1,
+                "headcount": 7,
+            },
+        ],
+    }
+
+    evidence_items = build_company_profile_evidence_items(
+        company_id=COMPANY_ID,
+        company_profile=company_profile,
+    )
+
+    trend = _item_by_path(evidence_items, "profile_details.financials")
+
+    assert trend["category"] == "financial_standing"
+    assert "2020-2024 public financial trend" in trend["excerpt"]
+    assert "2020: revenue 12.970 MSEK, EBIT margin 13.4%" in trend["excerpt"]
+    assert "2024: revenue 24.901 MSEK, EBIT margin 0.1%" in trend["excerpt"]
+    assert (
+        "revenue grew from 12.970 MSEK in 2020 to 24.901 MSEK in 2024"
+        in trend["normalized_meaning"]
+    )
+    assert "latest EBIT margin 0.1%" in trend["normalized_meaning"]
+    assert trend["metadata"]["first_year"] == 2020
+    assert trend["metadata"]["latest_year"] == 2024
+    assert trend["metadata"]["latest_ebit_margin_pct"] == 0.1
+
+
 def test_imported_website_profile_facts_convert_to_evidence() -> None:
     company_profile = build_demo_company_payload()
     company_profile["profile_details"] = {
@@ -321,6 +363,9 @@ def test_imported_website_profile_facts_convert_to_evidence() -> None:
 class RecordingEvidenceTable:
     def __init__(self) -> None:
         self.upserts: list[tuple[list[dict[str, Any]], str | None]] = []
+        self.deletes: list[tuple[tuple[str, object], ...]] = []
+        self._operation = "upsert"
+        self._filters: list[tuple[str, object]] = []
 
     def upsert(
         self,
@@ -328,10 +373,36 @@ class RecordingEvidenceTable:
         *,
         on_conflict: str | None = None,
     ) -> RecordingEvidenceTable:
+        self._operation = "upsert"
         self.upserts.append((payload, on_conflict))
         return self
 
+    def delete(self) -> RecordingEvidenceTable:
+        self._operation = "delete"
+        self._filters = []
+        return self
+
+    def eq(self, column: str, value: object) -> RecordingEvidenceTable:
+        self._filters.append((f"eq:{column}", value))
+        return self
+
+    def is_(self, column: str, value: object) -> RecordingEvidenceTable:
+        self._filters.append((f"is:{column}", value))
+        return self
+
+    @property
+    def not_(self) -> RecordingEvidenceTable:
+        self._filters.append(("not", True))
+        return self
+
+    def in_(self, column: str, values: object) -> RecordingEvidenceTable:
+        self._filters.append((f"in:{column}", values))
+        return self
+
     def execute(self) -> object:
+        if self._operation == "delete":
+            self.deletes.append(tuple(self._filters))
+            return type("Response", (), {"data": []})()
         payload = self.upserts[-1][0]
         return type("Response", (), {"data": payload})()
 
@@ -371,3 +442,27 @@ def test_company_profile_evidence_upsert_is_idempotent() -> None:
         first_result.rows_returned == second_result.rows_returned == len(first_payload)
     )
     assert len({item["evidence_key"] for item in first_payload}) == len(first_payload)
+
+
+def test_company_profile_evidence_upsert_deletes_stale_generated_rows() -> None:
+    client = RecordingSupabaseClient()
+    company_profile = build_demo_company_payload()
+
+    upsert_company_profile_evidence(
+        client,
+        company_id=COMPANY_ID,
+        company_profile=company_profile,
+    )
+
+    payload, _ = client.evidence_table.upserts[0]
+    expected_keys = sorted(item["evidence_key"] for item in payload)
+    assert client.evidence_table.deletes == [
+        (
+            ("eq:tenant_key", "demo"),
+            ("eq:source_type", "company_profile"),
+            ("eq:company_id", str(COMPANY_ID)),
+            ("is:document_id", "null"),
+            ("not", True),
+            ("in:evidence_key", expected_keys),
+        )
+    ]

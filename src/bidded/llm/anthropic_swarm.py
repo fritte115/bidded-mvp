@@ -193,9 +193,44 @@ def _cached_evidence_user_blocks(
     ]
 
 
+def _financial_evidence_kind(item: EvidenceItemState) -> str | None:
+    field_path = (item.field_path or "").casefold()
+    evidence_key = (item.evidence_key or "").casefold()
+    category = (item.category or "").casefold()
+    if category != "financial_standing" and "financial" not in evidence_key:
+        return None
+    if (
+        "public_financial_statement_history" in field_path
+        or field_path == "profile_details.financials"
+        or "financial-history" in evidence_key
+    ):
+        return "multi_year_history"
+    if (
+        "public_financial_snapshot" in field_path
+        or "financial-snapshot" in evidence_key
+    ):
+        return "latest_snapshot"
+    return "financial"
+
+
+def _catalog_sort_key(item: EvidenceItemState) -> tuple[int, str, str, str]:
+    rank_by_kind = {
+        "multi_year_history": 0,
+        "latest_snapshot": 1,
+        "financial": 2,
+    }
+    source_rank = 0 if item.source_type.value == "tender_document" else 1
+    return (
+        source_rank,
+        rank_by_kind.get(_financial_evidence_kind(item) or "", 99),
+        item.field_path or "",
+        item.evidence_key or "",
+    )
+
+
 def _catalog(board: Sequence[EvidenceItemState]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for e in board:
+    for e in sorted(board, key=_catalog_sort_key):
         # `requirement_type` is the classification used by the orchestrator to
         # gate which evidence a specialist may cite for formal_blockers. Expose
         # it on every row so the LLM can filter without guessing.
@@ -207,18 +242,20 @@ def _catalog(board: Sequence[EvidenceItemState]) -> list[dict[str, Any]]:
                 if hasattr(raw_req_type, "value")
                 else str(raw_req_type)
             )
-        rows.append(
-            {
-                "evidence_key": e.evidence_key,
-                "source_type": e.source_type.value,
-                "evidence_id": str(e.evidence_id) if e.evidence_id else None,
-                "excerpt": (e.excerpt or "")[:2000],
-                "normalized_meaning": (e.normalized_meaning or "")[:800],
-                "field_path": e.field_path,
-                "category": e.category,
-                "requirement_type": requirement_type,
-            }
-        )
+        row = {
+            "evidence_key": e.evidence_key,
+            "source_type": e.source_type.value,
+            "evidence_id": str(e.evidence_id) if e.evidence_id else None,
+            "excerpt": (e.excerpt or "")[:2000],
+            "normalized_meaning": (e.normalized_meaning or "")[:800],
+            "field_path": e.field_path,
+            "category": e.category,
+            "requirement_type": requirement_type,
+        }
+        financial_kind = _financial_evidence_kind(e)
+        if financial_kind is not None:
+            row["financial_evidence_kind"] = financial_kind
+        rows.append(row)
     return rows
 
 
@@ -247,6 +284,9 @@ _BASE_RULES = (
     '"tender_document", "evidence_id": "<UUID from catalog>"}. '
     "If a claim cannot be supported by any catalog entry, move it to missing_info "
     "or potential_evidence_gaps — do not hallucinate an evidence reference. "
+    "When assessing financial standing, turnover, revenue, or margins, cite "
+    "multi-year financial history evidence when available; use a latest-year "
+    "snapshot only as a current-period supplement. "
     "Output a single JSON object only (no markdown fences, no prose outside JSON)."
 )
 

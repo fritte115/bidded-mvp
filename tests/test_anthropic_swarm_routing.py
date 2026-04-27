@@ -34,6 +34,8 @@ TENDER_ID = UUID("33333333-3333-4333-8333-333333333333")
 DOCUMENT_ID = UUID("44444444-4444-4444-8444-444444444444")
 CHUNK_ID = UUID("55555555-5555-4555-8555-555555555555")
 EVIDENCE_ID = UUID("66666666-6666-4666-8666-666666666666")
+COMPANY_SNAPSHOT_ID = UUID("77777777-7777-4777-8777-777777777777")
+COMPANY_HISTORY_ID = UUID("88888888-8888-4888-8888-888888888888")
 
 
 @pytest.fixture
@@ -221,6 +223,37 @@ def test_judge_uses_cached_evidence_catalog_with_dynamic_task_suffix(
     assert "evidence_catalog" not in task_payload
 
 
+def test_financial_catalog_prioritizes_multi_year_history(
+    anthropic_calls: list[dict[str, object]],
+) -> None:
+    model = AnthropicRound1Model(
+        api_key="sk-ant-test",
+        fast_model="claude-haiku",
+        reasoning_model="claude-sonnet",
+    )
+    evidence_board = (
+        _financial_snapshot_item(),
+        _financial_history_item(),
+    )
+
+    model.draft_motion(
+        _round_1_request(
+            AgentRole.DELIVERY_CFO,
+            evidence_board=evidence_board,
+        )
+    )
+
+    payload = _cached_context_payload(anthropic_calls[0])
+    catalog = payload["evidence_catalog"]
+    assert [row["evidence_key"] for row in catalog] == [
+        "COMPANY-FINANCIAL-HISTORY-2020-2024",
+        "COMPANY-FINANCIAL-SNAPSHOT-2024",
+    ]
+    assert catalog[0]["financial_evidence_kind"] == "multi_year_history"
+    assert catalog[1]["financial_evidence_kind"] == "latest_snapshot"
+    assert "multi-year financial history" in str(anthropic_calls[0]["system"])
+
+
 def _cached_context_payload(call: dict[str, object]) -> dict[str, object]:
     user = call["user"]
     assert isinstance(user, list)
@@ -369,4 +402,37 @@ def _evidence_item(
         chunk_id=CHUNK_ID,
         page_start=1,
         page_end=1,
+    )
+
+
+def _financial_snapshot_item() -> EvidenceItemState:
+    return EvidenceItemState(
+        evidence_id=COMPANY_SNAPSHOT_ID,
+        evidence_key="COMPANY-FINANCIAL-SNAPSHOT-2024",
+        source_type=EvidenceSourceType.COMPANY_PROFILE,
+        excerpt="2024 public financial snapshot: 24.901 MSEK revenue.",
+        normalized_meaning="Latest annual-account snapshot for 2024.",
+        category="financial_standing",
+        confidence=0.9,
+        source_metadata={"source_label": "Company profile"},
+        company_id=COMPANY_ID,
+        field_path="profile_details.public_financial_snapshot",
+    )
+
+
+def _financial_history_item() -> EvidenceItemState:
+    return EvidenceItemState(
+        evidence_id=COMPANY_HISTORY_ID,
+        evidence_key="COMPANY-FINANCIAL-HISTORY-2020-2024",
+        source_type=EvidenceSourceType.COMPANY_PROFILE,
+        excerpt=(
+            "2020-2024 public financial trend: revenue grew from 12.970 MSEK "
+            "to 24.901 MSEK and latest EBIT margin was 0.1%."
+        ),
+        normalized_meaning="Multi-year revenue and EBIT margin history.",
+        category="financial_standing",
+        confidence=0.9,
+        source_metadata={"source_label": "Company profile"},
+        company_id=COMPANY_ID,
+        field_path="profile_details.financials",
     )

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 from uuid import UUID
@@ -142,6 +142,15 @@ def build_company_profile_evidence_items(
         )
     )
     evidence_items.extend(
+        _build_profile_financials_trend_evidence(
+            tenant_key=tenant_key,
+            company_id=company_id,
+            profile_label=profile_label,
+            source_label=source_label,
+            company_profile=company_profile,
+        )
+    )
+    evidence_items.extend(
         _build_website_import_evidence(
             tenant_key=tenant_key,
             company_id=company_id,
@@ -170,10 +179,16 @@ def upsert_company_profile_evidence(
             rows_returned=0,
         )
 
-    response = (
-        client.table("evidence_items")
-        .upsert(evidence_items, on_conflict="tenant_key,evidence_key")
-        .execute()
+    table = client.table("evidence_items")
+    response = table.upsert(
+        evidence_items,
+        on_conflict="tenant_key,evidence_key",
+    ).execute()
+    _delete_stale_generated_company_profile_evidence(
+        table,
+        tenant_key=str(evidence_items[0]["tenant_key"]),
+        company_id=company_id,
+        keep_evidence_keys=tuple(str(item["evidence_key"]) for item in evidence_items),
     )
     data = getattr(response, "data", [])
     rows_returned = len(data) if isinstance(data, list) else 0
@@ -183,6 +198,36 @@ def upsert_company_profile_evidence(
         evidence_keys=tuple(item["evidence_key"] for item in evidence_items),
         rows_returned=rows_returned,
     )
+
+
+def _delete_stale_generated_company_profile_evidence(
+    table: Any,
+    *,
+    tenant_key: str,
+    company_id: UUID,
+    keep_evidence_keys: Sequence[str],
+) -> None:
+    """Remove old profile-derived rows while preserving KB document evidence."""
+
+    delete = getattr(table, "delete", None)
+    if not callable(delete):
+        return
+
+    query = (
+        delete()
+        .eq("tenant_key", tenant_key)
+        .eq("source_type", "company_profile")
+        .eq("company_id", str(company_id))
+        .is_("document_id", "null")
+    )
+    not_filter = getattr(query, "not_", None)
+    if callable(not_filter):
+        not_filter = not_filter()
+    in_filter = getattr(not_filter, "in_", None)
+    if not callable(in_filter):
+        return
+
+    in_filter("evidence_key", sorted(keep_evidence_keys)).execute()
 
 
 def _build_reference_evidence(
@@ -740,6 +785,7 @@ def _build_public_financial_statement_history_evidence(
     latest_revenue = latest["total_revenue_ksek"]
     latest_result = latest.get("result_after_financial_net_ksek")
     source = str(latest.get("source_label") or source_label)
+    profile_financials_by_year = _profile_financials_by_year(company_profile)
 
     row_summaries: list[str] = []
     for row in usable_rows:
@@ -747,6 +793,8 @@ def _build_public_financial_statement_history_evidence(
         revenue = row["total_revenue_ksek"]
         result = row.get("result_after_financial_net_ksek")
         operating_result = row.get("operating_result_after_depreciation_ksek")
+        profile_financial = profile_financials_by_year.get(year, {})
+        ebit_margin = profile_financial.get("ebit_margin_pct")
         summary_parts = [f"{year}: revenue {_format_number(revenue)} KSEK"]
         if isinstance(operating_result, int | float):
             summary_parts.append(
@@ -756,6 +804,8 @@ def _build_public_financial_statement_history_evidence(
             summary_parts.append(
                 f"result after financial net {_format_number(result)} KSEK"
             )
+        if isinstance(ebit_margin, int | float):
+            summary_parts.append(f"EBIT margin {_format_percent(ebit_margin)}")
         row_summaries.append(", ".join(summary_parts))
 
     normalized_tail = (
@@ -763,6 +813,19 @@ def _build_public_financial_statement_history_evidence(
         if isinstance(latest_result, int | float)
         else ""
     )
+    latest_financial = profile_financials_by_year.get(latest_year, {})
+    latest_ebit_margin = latest_financial.get("ebit_margin_pct")
+    normalized_margin_tail = (
+        f" with latest EBIT margin {_format_percent(latest_ebit_margin)}"
+        if isinstance(latest_ebit_margin, int | float)
+        else ""
+    )
+    ebit_margin_by_year = {
+        str(year): row["ebit_margin_pct"]
+        for year, row in profile_financials_by_year.items()
+        if first_year <= year <= latest_year
+        and isinstance(row.get("ebit_margin_pct"), int | float)
+    }
 
     return [
         _company_evidence_payload(
@@ -780,7 +843,7 @@ def _build_public_financial_statement_history_evidence(
                 "The company profile public financial history shows revenue grew "
                 f"from {_format_number(first_revenue)} KSEK in {first_year} to "
                 f"{_format_number(latest_revenue)} KSEK in {latest_year}"
-                f"{normalized_tail}."
+                f"{normalized_tail}{normalized_margin_tail}."
             ),
             source_label=source,
             confidence=0.9,
@@ -790,10 +853,122 @@ def _build_public_financial_statement_history_evidence(
                 "first_total_revenue_ksek": first_revenue,
                 "latest_total_revenue_ksek": latest_revenue,
                 "latest_result_after_financial_net_ksek": latest_result,
+                "latest_ebit_margin_pct": (
+                    latest_ebit_margin
+                    if isinstance(latest_ebit_margin, int | float)
+                    else None
+                ),
+                "ebit_margin_by_year": ebit_margin_by_year,
                 "rows": [dict(row) for row in usable_rows],
             },
         )
     ]
+
+
+def _build_profile_financials_trend_evidence(
+    *,
+    tenant_key: str,
+    company_id: UUID,
+    profile_label: str,
+    source_label: str,
+    company_profile: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    if _mapping_sequence(
+        _nested_mapping(company_profile, "profile_details").get(
+            "public_financial_statement_history",
+            [],
+        )
+    ):
+        return []
+
+    rows = list(_profile_financials_by_year(company_profile).values())
+    usable_rows = [
+        row
+        for row in rows
+        if isinstance(row.get("year"), int | float)
+        and isinstance(row.get("revenue_msek"), int | float)
+    ]
+    if not usable_rows:
+        return []
+
+    first = usable_rows[0]
+    latest = usable_rows[-1]
+    first_year = int(first["year"])
+    latest_year = int(latest["year"])
+    first_revenue = first["revenue_msek"]
+    latest_revenue = latest["revenue_msek"]
+    latest_ebit_margin = latest.get("ebit_margin_pct")
+
+    row_summaries: list[str] = []
+    for row in usable_rows:
+        year = int(row["year"])
+        summary_parts = [
+            f"{year}: revenue {_format_msek(row['revenue_msek'])} MSEK",
+        ]
+        ebit_margin = row.get("ebit_margin_pct")
+        headcount = row.get("headcount")
+        if isinstance(ebit_margin, int | float):
+            summary_parts.append(f"EBIT margin {_format_percent(ebit_margin)}")
+        if isinstance(headcount, int | float):
+            summary_parts.append(f"headcount {_format_number(headcount)}")
+        row_summaries.append(", ".join(summary_parts))
+
+    normalized_margin_tail = (
+        f" with latest EBIT margin {_format_percent(latest_ebit_margin)}"
+        if isinstance(latest_ebit_margin, int | float)
+        else ""
+    )
+
+    return [
+        _company_evidence_payload(
+            tenant_key=tenant_key,
+            company_id=company_id,
+            profile_label=profile_label,
+            fact_key=f"financial-history-{first_year}-{latest_year}",
+            field_path="profile_details.financials",
+            category="financial_standing",
+            excerpt=(
+                f"{first_year}-{latest_year} public financial trend: "
+                f"{'; '.join(row_summaries)}."
+            ),
+            normalized_meaning=(
+                "The company profile financial trend shows revenue grew from "
+                f"{_format_msek(first_revenue)} MSEK in {first_year} to "
+                f"{_format_msek(latest_revenue)} MSEK in {latest_year}"
+                f"{normalized_margin_tail}."
+            ),
+            source_label=source_label,
+            confidence=0.88,
+            metadata={
+                "first_year": first_year,
+                "latest_year": latest_year,
+                "first_revenue_msek": first_revenue,
+                "latest_revenue_msek": latest_revenue,
+                "latest_ebit_margin_pct": (
+                    latest_ebit_margin
+                    if isinstance(latest_ebit_margin, int | float)
+                    else None
+                ),
+                "rows": [dict(row) for row in usable_rows],
+            },
+        )
+    ]
+
+
+def _profile_financials_by_year(
+    company_profile: Mapping[str, Any],
+) -> dict[int, Mapping[str, Any]]:
+    rows = sorted(
+        _mapping_sequence(
+            _nested_mapping(company_profile, "profile_details").get("financials", [])
+        ),
+        key=lambda row: int(row.get("year", 0)),
+    )
+    return {
+        int(row["year"]): row
+        for row in rows
+        if isinstance(row.get("year"), int | float)
+    }
 
 
 def _build_website_import_evidence(
@@ -1103,6 +1278,10 @@ def _format_number(value: int | float) -> str:
 def _format_percent(value: int | float) -> str:
     formatted = f"{value:,.1f}" if not float(value).is_integer() else f"{value:,.0f}"
     return f"{formatted}%"
+
+
+def _format_msek(value: int | float) -> str:
+    return f"{value:,.3f}"
 
 
 def _format_plain_number(value: int | float) -> str:

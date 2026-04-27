@@ -130,6 +130,87 @@ def _sorted_company_items(
     return sorted(company, key=lambda e: (e.field_path or "", e.evidence_key or ""))
 
 
+def _financial_evidence_kind(item: EvidenceItemState) -> str | None:
+    field_path = (item.field_path or "").casefold()
+    evidence_key = (item.evidence_key or "").casefold()
+    category = (item.category or "").casefold()
+    if category != "financial_standing" and "financial" not in evidence_key:
+        return None
+    if (
+        "public_financial_statement_history" in field_path
+        or field_path == "profile_details.financials"
+        or "financial-history" in evidence_key
+    ):
+        return "multi_year_history"
+    if (
+        "public_financial_snapshot" in field_path
+        or "financial-snapshot" in evidence_key
+    ):
+        return "latest_snapshot"
+    return "financial"
+
+
+def _is_financial_tender_item(item: EvidenceItemState) -> bool:
+    requirement_type = item.requirement_type
+    requirement_value = (
+        requirement_type.value
+        if hasattr(requirement_type, "value")
+        else str(requirement_type or "")
+    )
+    haystack = " ".join(
+        [
+            item.category or "",
+            requirement_value,
+            item.excerpt or "",
+            item.normalized_meaning or "",
+        ]
+    ).casefold()
+    return any(
+        token in haystack
+        for token in (
+            "financial_standing",
+            "financial standing",
+            "turnover",
+            "revenue",
+            "margin",
+            "omsattning",
+            "omsättning",
+            "marginal",
+            "ekonomisk",
+        )
+    )
+
+
+def _company_financial_sort_key(item: EvidenceItemState) -> tuple[int, str, str]:
+    rank_by_kind = {
+        "multi_year_history": 0,
+        "latest_snapshot": 1,
+        "financial": 2,
+    }
+    return (
+        rank_by_kind.get(_financial_evidence_kind(item) or "", 99),
+        item.field_path or "",
+        item.evidence_key or "",
+    )
+
+
+def _company_item_for_tender(
+    tender_item: EvidenceItemState,
+    company: Sequence[EvidenceItemState],
+    *,
+    offset: int,
+) -> EvidenceItemState:
+    if not company:
+        return tender_item
+    if _is_financial_tender_item(tender_item):
+        financial_items = [
+            item for item in company if _financial_evidence_kind(item) is not None
+        ]
+        if financial_items:
+            return sorted(financial_items, key=_company_financial_sort_key)[0]
+    return company[offset % len(company)]
+
+
 def _document_citation_hint(item: EvidenceItemState) -> str:
     """Short provenance for UI when multiple tender documents are on the board."""
     meta = item.source_metadata or {}
@@ -314,7 +395,7 @@ class EvidenceLockedRound1Model:
         t0 = tender[off % n_t]
         t_risk = tender[(off + max(1, n_t // 2)) % n_t] if n_t > 1 else t0
         nc = len(company)
-        c0 = company[off % nc] if nc else t0
+        c0 = _company_item_for_tender(t0, company, offset=off) if nc else t0
 
         seed = int(
             hashlib.sha256(f"{role.value}:{t0.evidence_key}".encode()).hexdigest()[:8],
@@ -623,8 +704,12 @@ class EvidenceLockedRound2Model:
         t0 = tender[off % n_t]
         t1 = tender[(off + 1) % n_t]
         t2 = tender[(off + 2) % n_t] if n_t > 2 else tender[(off + 1) % n_t]
-        c0 = company[off % n_c] if n_c else t0
-        c1 = company[(off + 1) % n_c] if n_c > 1 else c0
+        c0 = _company_item_for_tender(t0, company, offset=off) if n_c else t0
+        c1 = (
+            _company_item_for_tender(t2, company, offset=off + 1)
+            if n_c > 1
+            else c0
+        )
 
         if role is AgentRole.RED_TEAM:
             target_roles = [AgentRole.WIN_STRATEGIST, AgentRole.DELIVERY_CFO]
@@ -788,7 +873,7 @@ class EvidenceLockedJudgeModel:
             msg = "Judge requires tender evidence."
             raise ValueError(msg)
         t0, t1 = tender[0], tender[min(1, len(tender) - 1)]
-        c0 = company[0] if company else t0
+        c0 = _company_item_for_tender(t0, company, offset=0) if company else t0
 
         vs = request.vote_summary.model_dump()
         verdict = FinalVerdict.CONDITIONAL_BID
