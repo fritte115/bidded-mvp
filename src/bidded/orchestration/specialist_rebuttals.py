@@ -12,6 +12,10 @@ from bidded.agents.schemas import (
     Round2Rebuttal,
 )
 from bidded.orchestration.evidence_refs import coerce_evidence_refs
+from bidded.orchestration.fit_gap import (
+    RequirementFitGapItem,
+    fit_gap_items_from_state,
+)
 from bidded.orchestration.graph import (
     GraphRouteNode,
     InvalidGraphOutput,
@@ -69,6 +73,7 @@ class Round2RebuttalRequest(BaseModel):
     document_ids: tuple[UUID, ...]
     agent_role: AgentRole
     evidence_board: tuple[EvidenceItemState, ...]
+    fit_gap_board: tuple[RequirementFitGapItem, ...] = ()
     scout_output: ScoutOutputState
     motions: dict[AgentRole, SpecialistMotionState]
     focus_points: tuple[RebuttalFocusPoint, ...]
@@ -411,6 +416,7 @@ def build_round_2_rebuttal_request(
         document_ids=tuple(state.document_ids),
         agent_role=_AGENT_ROLE_BY_SPECIALIST[role],
         evidence_board=tuple(state.evidence_board),
+        fit_gap_board=fit_gap_items_from_state(state),
         scout_output=state.scout_output,
         motions=_agent_role_motion_map(state.motions),
         focus_points=_build_focus_points(state.motions, role),

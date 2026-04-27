@@ -16,6 +16,10 @@ from bidded.orchestration.evidence_recall import (
     audit_evidence_recall,
 )
 from bidded.orchestration.evidence_refs import coerce_evidence_refs
+from bidded.orchestration.fit_gap import (
+    RequirementFitGapItem,
+    fit_gap_items_from_state,
+)
 from bidded.orchestration.graph import (
     GraphRouteNode,
     InvalidGraphOutput,
@@ -60,6 +64,7 @@ class Round1SpecialistRequest(BaseModel):
     document_ids: tuple[UUID, ...]
     agent_role: AgentRole
     evidence_board: tuple[EvidenceItemState, ...]
+    fit_gap_board: tuple[RequirementFitGapItem, ...] = ()
     requirement_context: tuple[RequirementEvidenceContext, ...] = ()
     evidence_recall_warnings: tuple[EvidenceRecallWarning, ...] = ()
     contract_clause_audit_warnings: tuple[ContractClauseCoverageWarning, ...] = ()
@@ -151,6 +156,7 @@ def build_round_1_specialist_request(
         document_ids=tuple(state.document_ids),
         agent_role=_AGENT_ROLE_BY_SPECIALIST[role],
         evidence_board=tuple(state.evidence_board),
+        fit_gap_board=fit_gap_items_from_state(state),
         requirement_context=build_requirement_context(state.evidence_board),
         evidence_recall_warnings=audit_evidence_recall(
             chunks=state.chunks,

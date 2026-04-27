@@ -26,6 +26,7 @@ from bidded.llm.anthropic_client import (
     anthropic_complete_json,
 )
 from bidded.orchestration.evidence_scout import EvidenceScoutRequest
+from bidded.orchestration.fit_gap import fit_gap_payload
 from bidded.orchestration.graph import GraphNodeHandlers, default_graph_node_handlers
 from bidded.orchestration.judge import JudgeDecisionRequest
 from bidded.orchestration.specialist_motions import Round1SpecialistRequest
@@ -389,6 +390,7 @@ class AnthropicRound1Model:
                 "task_instructions": instructions,
                 "your_role": role.value,
                 "scout_summary": scout,
+                "fit_gap_board": fit_gap_payload(request.fit_gap_board),
             },
         )
         data = anthropic_complete_json(
@@ -492,6 +494,7 @@ class AnthropicRound2Model:
                 "your_role": role.value,
                 "all_round_1_motions": motions_payload,
                 "focus_points": focus,
+                "fit_gap_board": fit_gap_payload(request.fit_gap_board),
             },
         )
         data = anthropic_complete_json(
@@ -573,6 +576,7 @@ class AnthropicJudgeModel:
                     c.model_dump(mode="json")
                     for c in request.formal_compliance_blockers
                 ],
+                "fit_gap_board": fit_gap_payload(request.fit_gap_board),
                 "motions": motions_j,
                 "rebuttals": rebuttals_j,
             },

@@ -25,6 +25,10 @@ from bidded.orchestration.evidence_recall import (
     audit_evidence_recall,
 )
 from bidded.orchestration.evidence_refs import resolve_evidence_ref_dict_against_board
+from bidded.orchestration.fit_gap import (
+    RequirementFitGapItem,
+    fit_gap_items_from_state,
+)
 from bidded.orchestration.graph import (
     GraphRouteNode,
     InvalidGraphOutput,
@@ -77,6 +81,7 @@ class JudgeDecisionRequest(BaseModel):
     tender_id: UUID
     document_ids: tuple[UUID, ...]
     evidence_board: tuple[EvidenceItemState, ...]
+    fit_gap_board: tuple[RequirementFitGapItem, ...] = ()
     requirement_context: tuple[RequirementEvidenceContext, ...] = ()
     evidence_recall_warnings: tuple[EvidenceRecallWarning, ...] = ()
     contract_clause_audit_warnings: tuple[ContractClauseCoverageWarning, ...] = ()
@@ -508,6 +513,7 @@ def build_judge_decision_request(state: BidRunState) -> JudgeDecisionRequest:
         tender_id=state.tender_id,
         document_ids=tuple(state.document_ids),
         evidence_board=tuple(state.evidence_board),
+        fit_gap_board=fit_gap_items_from_state(state),
         requirement_context=build_requirement_context(state.evidence_board),
         evidence_recall_warnings=audit_evidence_recall(
             chunks=state.chunks,

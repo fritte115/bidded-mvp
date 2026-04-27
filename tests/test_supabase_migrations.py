@@ -113,6 +113,19 @@ def _impact_solution_financials_sql() -> str:
     return migration_files[0].read_text()
 
 
+def _fit_gap_sql() -> str:
+    migration_files = sorted(
+        (PROJECT_ROOT / "supabase" / "migrations").glob(
+            "*_create_requirement_fit_gaps.sql"
+        )
+    )
+
+    assert [path.name for path in migration_files] == [
+        "20260427120000_create_requirement_fit_gaps.sql"
+    ]
+    return migration_files[0].read_text()
+
+
 def _table_body(sql: str, table_name: str) -> str:
     match = re.search(
         rf"create table if not exists public\.{table_name}\s*\((?P<body>.*?)\);",
@@ -516,6 +529,89 @@ def test_pgvector_search_migration_adds_index_and_rpc_contract() -> None:
     ) in sql
     assert "dc.embedding <=> query_embedding" in sql
     assert "least(greatest(match_count, 1), 50)" in sql
+
+
+def test_requirement_fit_gaps_migration_contract() -> None:
+    sql = re.sub(r"\s+", " ", _fit_gap_sql().lower())
+    table_body = _table_body(_fit_gap_sql(), "requirement_fit_gaps")
+
+    for column in [
+        "agent_run_id uuid not null references public.agent_runs(id) on delete cascade",
+        "tender_id uuid not null references public.tenders(id) on delete cascade",
+        "company_id uuid not null references public.companies(id) on delete cascade",
+        "requirement_key text not null",
+        "requirement text not null",
+        "requirement_type text not null",
+        "match_status text not null",
+        "risk_level text not null",
+        "confidence numeric not null",
+        "tender_evidence_refs jsonb not null default '[]'::jsonb",
+        "company_evidence_refs jsonb not null default '[]'::jsonb",
+        "tender_evidence_ids uuid[] not null default '{}'::uuid[]",
+        "company_evidence_ids uuid[] not null default '{}'::uuid[]",
+        "missing_info jsonb not null default '[]'::jsonb",
+        "recommended_actions jsonb not null default '[]'::jsonb",
+        "metadata jsonb not null default '{}'::jsonb",
+    ]:
+        assert column in table_body
+
+    for constraint in [
+        (
+            "constraint requirement_fit_gaps_tenant_key_demo_check "
+            "check (tenant_key = 'demo')"
+        ),
+        (
+            "constraint requirement_fit_gaps_run_requirement_key "
+            "unique (agent_run_id, requirement_key)"
+        ),
+        (
+            "constraint requirement_fit_gaps_requirement_key_check "
+            "check (requirement_key <> '')"
+        ),
+        (
+            "constraint requirement_fit_gaps_requirement_check "
+            "check (requirement <> '')"
+        ),
+        (
+            "constraint requirement_fit_gaps_confidence_check "
+            "check (confidence >= 0 and confidence <= 1)"
+        ),
+        (
+            "constraint requirement_fit_gaps_tender_refs_array_check "
+            "check (jsonb_typeof(tender_evidence_refs) = 'array')"
+        ),
+        (
+            "constraint requirement_fit_gaps_company_refs_array_check "
+            "check (jsonb_typeof(company_evidence_refs) = 'array')"
+        ),
+        (
+            "constraint requirement_fit_gaps_missing_info_array_check "
+            "check (jsonb_typeof(missing_info) = 'array')"
+        ),
+        (
+            "constraint requirement_fit_gaps_recommended_actions_array_check "
+            "check (jsonb_typeof(recommended_actions) = 'array')"
+        ),
+        (
+            "constraint requirement_fit_gaps_metadata_object_check "
+            "check (jsonb_typeof(metadata) = 'object')"
+        ),
+    ]:
+        assert constraint in table_body
+
+    assert (
+        "constraint requirement_fit_gaps_match_status_check check "
+        "(match_status in ('matched', 'partial_match', "
+        "'missing_company_evidence', 'conflicting_evidence', "
+        "'stale_evidence', 'not_applicable', 'needs_human_review'))"
+    ) in table_body
+    assert (
+        "constraint requirement_fit_gaps_risk_level_check check "
+        "(risk_level in ('low', 'medium', 'high'))"
+    ) in table_body
+    assert "create index if not exists requirement_fit_gaps_agent_run_id_idx" in sql
+    assert "create index if not exists requirement_fit_gaps_run_status_idx" in sql
+    assert "create index if not exists requirement_fit_gaps_tender_company_idx" in sql
 
 
 def test_company_kb_migration_adds_private_bucket_and_relaxes_provenance() -> None:

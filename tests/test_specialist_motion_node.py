@@ -417,6 +417,20 @@ def test_compliance_request_includes_evidence_recall_warnings() -> None:
     assert "financial_standing" in request.evidence_recall_warnings[0].missing_info
 
 
+def test_round_1_request_includes_fit_gap_board() -> None:
+    state = _ready_state().model_copy(
+        update={
+            "scout_output": ScoutOutputState(),
+            "fit_gap_board": [_fit_gap_payload()],
+        }
+    )
+
+    request = build_round_1_specialist_request(state, SpecialistRole.COMPLIANCE)
+
+    assert request.fit_gap_board[0].requirement_key == "TENDER-SHALL-001"
+    assert request.fit_gap_board[0].match_status.value == "partial_match"
+
+
 def test_non_compliance_formal_blocker_is_migrated_to_potential_blocker() -> None:
     """A non-compliance specialist that wrongly populates ``formal_blockers``
     no longer aborts the run. The pre-validate coercer migrates every entry
@@ -528,6 +542,40 @@ def _financial_ref() -> dict[str, str]:
         "evidence_key": "TENDER-FINANCIAL-001",
         "source_type": "tender_document",
         "evidence_id": str(FINANCIAL_EVIDENCE_ID),
+    }
+
+
+def _fit_gap_payload() -> dict[str, Any]:
+    return {
+        "agent_run_id": str(RUN_ID),
+        "tender_id": str(TENDER_ID),
+        "company_id": str(COMPANY_ID),
+        "requirement_key": "TENDER-SHALL-001",
+        "requirement": "ISO 27001 certification is mandatory.",
+        "requirement_type": "qualification_requirement",
+        "match_status": "partial_match",
+        "risk_level": "medium",
+        "confidence": 0.68,
+        "assessment": "Company evidence partially supports the requirement.",
+        "tender_evidence_refs": [
+            {
+                "evidence_key": "TENDER-SHALL-001",
+                "source_type": "tender_document",
+                "evidence_id": str(TENDER_EVIDENCE_ID),
+            }
+        ],
+        "company_evidence_refs": [
+            {
+                "evidence_key": "COMPANY-CERT-001",
+                "source_type": "company_profile",
+                "evidence_id": str(COMPANY_EVIDENCE_ID),
+            }
+        ],
+        "tender_evidence_ids": [str(TENDER_EVIDENCE_ID)],
+        "company_evidence_ids": [str(COMPANY_EVIDENCE_ID)],
+        "missing_info": ["Certificate expiry date."],
+        "recommended_actions": ["Confirm certificate validity."],
+        "metadata": {"source": "test"},
     }
 
 

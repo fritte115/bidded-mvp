@@ -18,6 +18,7 @@ from bidded.orchestration import (
     Verdict,
     run_bidded_graph_shell,
 )
+from bidded.orchestration.fit_gap import FitGapMatchStatus
 from bidded.orchestration.worker import (
     DEFAULT_WORKER_NAME,
     build_bid_run_state_from_supabase,
@@ -153,6 +154,7 @@ class RecordingWorkerClient:
             "documents": [_parsed_document()],
             "document_chunks": [_document_chunk()],
             "evidence_items": [_tender_evidence_item()],
+            "requirement_fit_gaps": [],
         }
         self.inserts: dict[str, list[dict[str, Any] | list[dict[str, Any]]]] = {}
         self.updates: dict[str, list[tuple[dict[str, Any], list[tuple[str, str]]]]] = {}
@@ -313,6 +315,82 @@ def test_worker_claims_run_before_graph_execution() -> None:
         "2026-04-18T18:00:00+00:00"
     )
     assert client.rows["agent_runs"][0]["started_at"] == ("2026-04-18T18:00:00+00:00")
+
+
+def test_worker_creates_fit_gap_rows_before_graph_execution() -> None:
+    client = RecordingWorkerClient()
+    captured_state: dict[str, Any] = {}
+
+    def recording_runner(state: Any) -> GraphRunResult:
+        captured_state["fit_gap_board"] = state.fit_gap_board
+        return run_bidded_graph_shell(state)
+
+    result = run_worker_once(
+        client,
+        run_id=RUN_ID,
+        graph_runner=recording_runner,
+        now_factory=lambda: datetime(2026, 4, 18, 18, 0, tzinfo=UTC),
+    )
+
+    assert result.terminal_status is AgentRunStatus.SUCCEEDED
+    inserted = client.inserts["requirement_fit_gaps"][0]
+    assert isinstance(inserted, list)
+    assert inserted[0]["agent_run_id"] == str(RUN_ID)
+    assert inserted[0]["requirement_key"] == "TENDER-REQ-001"
+    assert inserted[0]["match_status"] == (
+        FitGapMatchStatus.MISSING_COMPANY_EVIDENCE.value
+    )
+    assert captured_state["fit_gap_board"][0]["requirement_key"] == "TENDER-REQ-001"
+
+
+def test_worker_loads_existing_fit_gap_rows_without_duplication() -> None:
+    client = RecordingWorkerClient()
+    client.rows["requirement_fit_gaps"] = [
+        {
+            "tenant_key": "demo",
+            "agent_run_id": str(RUN_ID),
+            "tender_id": str(TENDER_ID),
+            "company_id": str(COMPANY_ID),
+            "requirement_key": "TENDER-REQ-001",
+            "requirement": "Existing fit-gap row.",
+            "requirement_type": "shall_requirement",
+            "match_status": "needs_human_review",
+            "risk_level": "high",
+            "confidence": 0.4,
+            "assessment": "Existing row must be reused.",
+            "tender_evidence_refs": [
+                {
+                    "evidence_key": "TENDER-REQ-001",
+                    "source_type": "tender_document",
+                    "evidence_id": str(EVIDENCE_ID),
+                }
+            ],
+            "company_evidence_refs": [],
+            "tender_evidence_ids": [str(EVIDENCE_ID)],
+            "company_evidence_ids": [],
+            "missing_info": ["Existing missing info."],
+            "recommended_actions": ["Existing action."],
+            "metadata": {"source": "test"},
+        }
+    ]
+    captured_state: dict[str, Any] = {}
+
+    def recording_runner(state: Any) -> GraphRunResult:
+        captured_state["fit_gap_board"] = state.fit_gap_board
+        return run_bidded_graph_shell(state)
+
+    result = run_worker_once(
+        client,
+        run_id=RUN_ID,
+        graph_runner=recording_runner,
+        now_factory=lambda: datetime(2026, 4, 18, 18, 0, tzinfo=UTC),
+    )
+
+    assert result.terminal_status is AgentRunStatus.SUCCEEDED
+    assert "requirement_fit_gaps" not in client.inserts
+    assert captured_state["fit_gap_board"][0]["assessment"] == (
+        "Existing row must be reused."
+    )
 
 
 @pytest.mark.parametrize("status", ["succeeded", "failed", "needs_human_review"])

@@ -43,6 +43,7 @@ from bidded.orchestration import (
     create_pending_run_context,
     fetch_latest_bid_response_draft,
     generate_bid_response_draft,
+    list_requirement_fit_gaps_for_run,
     run_worker_once,
 )
 from bidded.orchestration.run_controls import RunControlError, archive_agent_run
@@ -660,6 +661,40 @@ def get_bid_document(
         media_type="text/markdown",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.get("/api/runs/{run_id}/fit-gaps")
+def get_run_fit_gaps(
+    run_id: str,
+    user: AuthenticatedUser = AUTHENTICATED_USER,
+) -> dict[str, Any]:
+    settings = load_settings()
+    client = _service_role_client(settings)
+    require_agent_run_member(client, user, run_id)
+    fit_gaps = list_requirement_fit_gaps_for_run(client, run_id=run_id)
+    return {
+        "run_id": run_id,
+        "fit_gaps": [
+            {
+                "requirement_key": item.requirement_key,
+                "requirement": item.requirement,
+                "requirement_type": item.requirement_type.value,
+                "match_status": item.match_status.value,
+                "risk_level": item.risk_level,
+                "confidence": item.confidence,
+                "assessment": item.assessment,
+                "tender_evidence_refs": [
+                    ref.model_dump(mode="json") for ref in item.tender_evidence_refs
+                ],
+                "company_evidence_refs": [
+                    ref.model_dump(mode="json") for ref in item.company_evidence_refs
+                ],
+                "missing_info": list(item.missing_info),
+                "recommended_actions": list(item.recommended_actions),
+            }
+            for item in fit_gaps
+        ],
+    }
 
 
 @app.delete("/api/runs/{run_id}")

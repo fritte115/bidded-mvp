@@ -133,6 +133,7 @@ class FakeSupabaseClient:
                     "document_id": DOCUMENT_ID_2,
                 },
             ],
+            "requirement_fit_gaps": [],
         }
         self.upserts: list[tuple[str, dict[str, Any]]] = []
 
@@ -245,6 +246,79 @@ def test_start_run_parses_pending_documents_and_starts_worker(
     assert captured["workers"] == [(client, RUN_ID, print, {"graph": "handlers"})]
 
 
+def test_get_run_fit_gaps_returns_stable_rows(monkeypatch: Any) -> None:
+    client = FakeSupabaseClient()
+    client.rows["requirement_fit_gaps"] = [
+        {
+            "tenant_key": "demo",
+            "agent_run_id": RUN_ID,
+            "tender_id": TENDER_ID,
+            "company_id": COMPANY_ID,
+            "requirement_key": "TENDER-REQ-001",
+            "requirement": "Supplier must hold ISO 27001.",
+            "requirement_type": "qualification_requirement",
+            "match_status": "matched",
+            "risk_level": "low",
+            "confidence": 0.91,
+            "assessment": "Company evidence matches the tender requirement.",
+            "tender_evidence_refs": [
+                {
+                    "evidence_key": "TENDER-REQ-001",
+                    "source_type": "tender_document",
+                    "evidence_id": "66666666-6666-4666-8666-666666666666",
+                }
+            ],
+            "company_evidence_refs": [
+                {
+                    "evidence_key": "COMPANY-CERT-001",
+                    "source_type": "company_profile",
+                    "evidence_id": "77777777-7777-4777-8777-777777777777",
+                }
+            ],
+            "tender_evidence_ids": ["66666666-6666-4666-8666-666666666666"],
+            "company_evidence_ids": ["77777777-7777-4777-8777-777777777777"],
+            "missing_info": [],
+            "recommended_actions": [],
+            "metadata": {},
+        }
+    ]
+    settings = SimpleNamespace(
+        supabase_url="https://example.supabase.co",
+        supabase_service_role_key="service-role",
+    )
+    monkeypatch.setattr(api_server, "load_settings", lambda: settings)
+    monkeypatch.setattr(api_server, "_service_role_client", lambda _settings: client)
+
+    result = api_server.get_run_fit_gaps(
+        RUN_ID,
+        user=AuthenticatedUser(user_id=USER_ID, email="user@example.com"),
+    )
+
+    assert result["run_id"] == RUN_ID
+    assert result["fit_gaps"][0]["requirement_key"] == "TENDER-REQ-001"
+    assert result["fit_gaps"][0]["match_status"] == "matched"
+    assert result["fit_gaps"][0]["company_evidence_refs"][0]["evidence_key"] == (
+        "COMPANY-CERT-001"
+    )
+
+
+def test_get_run_fit_gaps_rejects_non_member(monkeypatch: Any) -> None:
+    client = FakeSupabaseClient()
+    settings = SimpleNamespace(
+        supabase_url="https://example.supabase.co",
+        supabase_service_role_key="service-role",
+    )
+    monkeypatch.setattr(api_server, "load_settings", lambda: settings)
+    monkeypatch.setattr(api_server, "_service_role_client", lambda _settings: client)
+
+    response = TestClient(api_server.app).get(
+        f"/api/runs/{RUN_ID}/fit-gaps",
+        headers={"Authorization": "Bearer invalid"},
+    )
+
+    assert response.status_code in {401, 403}
+
+
 def test_start_run_skips_visual_reference_documents_without_chunks(
     monkeypatch: Any,
 ) -> None:
@@ -342,6 +416,7 @@ def test_start_run_skips_visual_reference_documents_without_chunks(
         "company_id": COMPANY_ID,
         "document_ids": [DOCUMENT_ID_1],
     }
+
 
 def test_import_company_website_returns_preview_without_supabase_write(
     monkeypatch: Any,

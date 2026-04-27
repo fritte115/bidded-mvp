@@ -11,6 +11,7 @@ from bidded.db.schema_compat import (
     select_without_requirement_type,
 )
 from bidded.evidence.company_profile import upsert_company_profile_evidence
+from bidded.orchestration.fit_gap import ensure_requirement_fit_gaps_for_run
 from bidded.orchestration.graph import (
     GraphNodeHandlers,
     GraphRunResult,
@@ -234,6 +235,18 @@ def run_worker_once(
             client,
             run_row=selected_run,
             tenant_key=tenant_key,
+        )
+        fit_gap_board = ensure_requirement_fit_gaps_for_run(
+            client,
+            state,
+            tenant_key=tenant_key,
+        )
+        state = state.model_copy(
+            update={
+                "fit_gap_board": [
+                    item.model_dump(mode="json") for item in fit_gap_board
+                ]
+            }
         )
         demo_trace.complete(active_step)
         active_step = None

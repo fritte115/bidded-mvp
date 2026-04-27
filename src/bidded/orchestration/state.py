@@ -316,6 +316,7 @@ class BidRunState(StrictStateModel):
                     "evidence_board",
                     "scout_output",
                     "working_retrieval_results",
+                    "fit_gap_board",
                 }
             ),
             owned_write_fields=_RUNTIME_CONTROL_FIELDS
@@ -336,6 +337,7 @@ class BidRunState(StrictStateModel):
                     "scout_output",
                     "motions",
                     "working_retrieval_results",
+                    "fit_gap_board",
                 }
             ),
             owned_write_fields=_RUNTIME_CONTROL_FIELDS
@@ -357,6 +359,7 @@ class BidRunState(StrictStateModel):
                     "motions",
                     "rebuttals",
                     "validation_errors",
+                    "fit_gap_board",
                 }
             ),
             owned_write_fields=_RUNTIME_CONTROL_FIELDS
@@ -392,6 +395,7 @@ class BidRunState(StrictStateModel):
     run_context: dict[str, Any] = Field(default_factory=dict)
     chunks: list[DocumentChunkState] = Field(default_factory=list)
     evidence_board: list[EvidenceItemState] = Field(default_factory=list)
+    fit_gap_board: list[dict[str, Any]] = Field(default_factory=list)
     scout_output: ScoutOutputState | None = None
     motions: dict[SpecialistRole, SpecialistMotionState] = Field(default_factory=dict)
     rebuttals: dict[SpecialistRole, RebuttalState] = Field(default_factory=dict)

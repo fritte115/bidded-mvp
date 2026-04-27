@@ -27,6 +27,7 @@ from bidded.agents.schemas import (
     ScoutCategory,
 )
 from bidded.orchestration.evidence_scout import EvidenceScoutRequest
+from bidded.orchestration.fit_gap import FitGapMatchStatus, RequirementFitGapItem
 from bidded.orchestration.graph import GraphNodeHandlers, default_graph_node_handlers
 from bidded.orchestration.judge import JudgeDecisionRequest
 from bidded.orchestration.specialist_motions import Round1SpecialistRequest
@@ -48,6 +49,56 @@ def _ref(item: EvidenceItemState) -> dict[str, Any]:
         "source_type": item.source_type.value,
         "evidence_id": str(item.evidence_id),
     }
+
+
+def _fit_gap_ref(ref: Any) -> dict[str, Any]:
+    return {
+        "evidence_key": ref.evidence_key,
+        "source_type": ref.source_type.value,
+        "evidence_id": str(ref.evidence_id) if ref.evidence_id else None,
+    }
+
+
+def _fit_gap_refs(item: RequirementFitGapItem) -> list[dict[str, Any]]:
+    refs = [
+        *_refs_from_fit_gap(item.tender_evidence_refs),
+        *_refs_from_fit_gap(item.company_evidence_refs),
+    ]
+    seen: set[tuple[str, str]] = set()
+    deduped: list[dict[str, Any]] = []
+    for ref in refs:
+        key = (str(ref.get("evidence_key")), str(ref.get("source_type")))
+        if key in seen or ref.get("evidence_id") is None:
+            continue
+        seen.add(key)
+        deduped.append(ref)
+    return deduped
+
+
+def _refs_from_fit_gap(refs: Sequence[Any]) -> list[dict[str, Any]]:
+    return [_fit_gap_ref(ref) for ref in refs]
+
+
+def _primary_gap(
+    gaps: Sequence[RequirementFitGapItem],
+) -> RequirementFitGapItem | None:
+    priority = {
+        FitGapMatchStatus.CONFLICTING_EVIDENCE: 0,
+        FitGapMatchStatus.MISSING_COMPANY_EVIDENCE: 1,
+        FitGapMatchStatus.STALE_EVIDENCE: 2,
+        FitGapMatchStatus.PARTIAL_MATCH: 3,
+        FitGapMatchStatus.NEEDS_HUMAN_REVIEW: 4,
+        FitGapMatchStatus.NOT_APPLICABLE: 5,
+        FitGapMatchStatus.MATCHED: 6,
+    }
+    return min(
+        gaps,
+        key=lambda gap: (
+            priority.get(gap.match_status, 99),
+            gap.requirement_key,
+        ),
+        default=None,
+    )
 
 
 def _truncate(text: str, max_len: int = 220) -> str:
@@ -309,6 +360,7 @@ class EvidenceLockedRound1Model:
             raise ValueError(msg)
 
         role = request.agent_role
+        fit_gap = _primary_gap(request.fit_gap_board)
         n_t = len(tender)
         off = _pick_tender_offset(role, n_t)
         t0 = tender[off % n_t]
@@ -395,6 +447,23 @@ class EvidenceLockedRound1Model:
                     "evidence_refs": [_ref(t0), _ref(c0)],
                 }
             )
+        if (
+            fit_gap is not None
+            and fit_gap.match_status is not FitGapMatchStatus.MATCHED
+        ):
+            refs = _fit_gap_refs(fit_gap)
+            if refs:
+                potential_blockers.append(
+                    {
+                        "claim": (
+                            "Fit-gap review: "
+                            f"{fit_gap.match_status.value} for "
+                            f"{_truncate(fit_gap.requirement)}"
+                        ),
+                        "requirement_type": fit_gap.requirement_type.value,
+                        "evidence_refs": refs,
+                    }
+                )
 
         vote = self._vote_for_role(
             role,
@@ -472,6 +541,24 @@ class EvidenceLockedRound1Model:
             ],
         }
 
+        missing_info = [
+            *missing_r1.get(
+                role,
+                [
+                    "Any unstated customer references or CVs named in tender must "
+                    "be attached."
+                ],
+            ),
+            *(fit_gap.missing_info if fit_gap is not None else ()),
+        ]
+        recommended_actions = [
+            *actions_r1.get(
+                role,
+                ["Cross-walk each shall/must line to an exhibit before submission."],
+            ),
+            *(fit_gap.recommended_actions if fit_gap is not None else ()),
+        ]
+
         return {
             "agent_role": role.value,
             "vote": vote.value,
@@ -487,13 +574,7 @@ class EvidenceLockedRound1Model:
                     "citations."
                 ],
             ),
-            "missing_info": missing_r1.get(
-                role,
-                [
-                    "Any unstated customer references or CVs named in tender must "
-                    "be attached."
-                ],
-            ),
+            "missing_info": missing_info,
             "potential_evidence_gaps": gaps_r1.get(
                 role,
                 [
@@ -501,10 +582,7 @@ class EvidenceLockedRound1Model:
                     "requires them."
                 ],
             ),
-            "recommended_actions": actions_r1.get(
-                role,
-                ["Cross-walk each shall/must line to an exhibit before submission."],
-            ),
+            "recommended_actions": recommended_actions,
             "validation_errors": [],
         }
 
@@ -608,6 +686,7 @@ class EvidenceLockedRound2Model:
         board = request.evidence_board
         motions = request.motions
         role = request.agent_role
+        fit_gap = _primary_gap(request.fit_gap_board)
         tender = _sorted_tender_items(board)
         company = _sorted_company_items(board)
         if not tender:
@@ -770,11 +849,70 @@ class EvidenceLockedRound2Model:
             "revised_stance": revised.value,
             "confidence": r2_confidence,
             "evidence_refs": top_evidence_refs,
-            "missing_info": missing_by_role[role],
-            "potential_evidence_gaps": gaps_by_role[role],
-            "recommended_actions": actions_by_role[role],
+            "missing_info": [
+                *missing_by_role[role],
+                *(fit_gap.missing_info if fit_gap is not None else ()),
+            ],
+            "potential_evidence_gaps": [
+                *gaps_by_role[role],
+                *(
+                    [fit_gap.assessment]
+                    if fit_gap is not None
+                    and fit_gap.match_status is not FitGapMatchStatus.MATCHED
+                    else []
+                ),
+            ],
+            "recommended_actions": [
+                *actions_by_role[role],
+                *(fit_gap.recommended_actions if fit_gap is not None else ()),
+            ],
             "validation_errors": [],
         }
+
+
+def _compliance_status_from_fit_gap(gap: RequirementFitGapItem) -> str:
+    if gap.match_status is FitGapMatchStatus.MATCHED:
+        return "met"
+    if gap.match_status in {
+        FitGapMatchStatus.CONFLICTING_EVIDENCE,
+        FitGapMatchStatus.MISSING_COMPANY_EVIDENCE,
+    }:
+        return "unmet"
+    return "unknown"
+
+
+def _risk_from_fit_gap(gap: RequirementFitGapItem | None) -> dict[str, Any] | None:
+    if gap is None or gap.match_status is FitGapMatchStatus.MATCHED:
+        return None
+    refs = _fit_gap_refs(gap)
+    if not refs:
+        return None
+    return {
+        "risk": f"{gap.match_status.value}: {_truncate(gap.requirement)}",
+        "requirement_type": gap.requirement_type.value,
+        "severity": gap.risk_level,
+        "mitigation": (
+            gap.recommended_actions[0]
+            if gap.recommended_actions
+            else "Resolve the fit-gap before final bid approval."
+        ),
+        "evidence_refs": refs,
+    }
+
+
+def _dedupe_evidence_ids(groups: Sequence[Sequence[Any]]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        for value in group:
+            if value is None:
+                continue
+            key = str(value)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(key)
+    return deduped
 
 
 class EvidenceLockedJudgeModel:
@@ -800,23 +938,38 @@ class EvidenceLockedJudgeModel:
             "specialist votes summarized in vote_summary."
         )
 
-        cm0 = {
-            "requirement": "Material tender obligations vs company proof",
-            "status": "unknown",
-            "assessment": (
-                "Mapped tender language to available evidence_keys; gaps flagged "
-                "in missing_info from motions."
-            ),
-            "evidence_refs": [_ref(t0), _ref(c0)],
-        }
-        cm1 = {
-            "requirement": "Secondary tender clause review",
-            "status": "met",
-            "assessment": f"Reviewed cited clause: {_truncate(t1.excerpt)}",
-            "evidence_refs": [_ref(t1)],
-        }
+        if request.fit_gap_board:
+            compliance_matrix = [
+                {
+                    "requirement": gap.requirement,
+                    "requirement_type": gap.requirement_type.value,
+                    "status": _compliance_status_from_fit_gap(gap),
+                    "assessment": gap.assessment,
+                    "evidence_refs": _fit_gap_refs(gap),
+                }
+                for gap in request.fit_gap_board[:12]
+                if _fit_gap_refs(gap)
+            ]
+        else:
+            compliance_matrix = [
+                {
+                    "requirement": "Material tender obligations vs company proof",
+                    "status": "unknown",
+                    "assessment": (
+                        "Mapped tender language to available evidence_keys; gaps "
+                        "flagged in missing_info from motions."
+                    ),
+                    "evidence_refs": [_ref(t0), _ref(c0)],
+                },
+                {
+                    "requirement": "Secondary tender clause review",
+                    "status": "met",
+                    "assessment": f"Reviewed cited clause: {_truncate(t1.excerpt)}",
+                    "evidence_refs": [_ref(t1)],
+                },
+            ]
 
-        risk = {
+        risk = _risk_from_fit_gap(_primary_gap(request.fit_gap_board)) or {
             "risk": "Residual compliance or staffing proof gaps before award.",
             "severity": "medium",
             "mitigation": "Close gaps with explicit exhibits per evidence board.",
@@ -826,6 +979,19 @@ class EvidenceLockedJudgeModel:
         potential_blockers_out = [
             pb.model_dump(mode="json") for pb in request.potential_blockers
         ]
+        gap_missing = [
+            text for gap in request.fit_gap_board for text in gap.missing_info
+        ]
+        gap_actions = [
+            text for gap in request.fit_gap_board for text in gap.recommended_actions
+        ]
+        evidence_ids = _dedupe_evidence_ids(
+            [
+                *(gap.tender_evidence_ids for gap in request.fit_gap_board),
+                *(gap.company_evidence_ids for gap in request.fit_gap_board),
+                (t0.evidence_id, c0.evidence_id, t1.evidence_id),
+            ]
+        )
 
         return {
             "agent_role": AgentRole.JUDGE.value,
@@ -836,19 +1002,23 @@ class EvidenceLockedJudgeModel:
                 "Specialists diverge on risk appetite; conditional actions align "
                 "with cited evidence."
             ),
-            "compliance_matrix": [cm0, cm1],
+            "compliance_matrix": compliance_matrix,
             "compliance_blockers": [],
             "potential_blockers": potential_blockers_out,
             "risk_register": [risk],
-            "missing_info": list(request.scout_output.missing_info)[:3],
+            "missing_info": [
+                *list(request.scout_output.missing_info)[:3],
+                *gap_missing,
+            ],
             "potential_evidence_gaps": [
                 "Verify all shall/must lines have a matching company exhibit."
             ],
             "recommended_actions": [
                 "Finalize bid only after clearing formal blockers and CV gaps.",
+                *gap_actions,
             ],
             "cited_memo": memo,
-            "evidence_ids": [t0.evidence_id, c0.evidence_id, t1.evidence_id],
+            "evidence_ids": evidence_ids,
             "evidence_refs": [_ref(t0), _ref(c0), _ref(t1)],
             "validation_errors": [],
         }

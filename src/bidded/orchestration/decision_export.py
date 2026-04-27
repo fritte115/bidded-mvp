@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from uuid import UUID
 
+from bidded.orchestration.fit_gap import list_requirement_fit_gaps_for_run
 from bidded.orchestration.pending_run import DEMO_TENANT_KEY
 
 
@@ -66,12 +67,18 @@ def export_decision_bundle(
         decision_row=decision_row,
         agent_outputs=agent_outputs,
     )
+    fit_gap_rows = list_requirement_fit_gaps_for_run(
+        client,
+        run_id=normalized_run_id,
+        tenant_key=tenant_key,
+    )
     payload = _bundle_payload(
         run_id=normalized_run_id,
         tenant_key=tenant_key,
         decision_row=decision_row,
         agent_outputs=agent_outputs,
         evidence_rows=evidence_rows,
+        fit_gap_rows=fit_gap_rows,
     )
 
     markdown_path.parent.mkdir(parents=True, exist_ok=True)
@@ -181,6 +188,7 @@ def _bundle_payload(
     decision_row: Mapping[str, Any],
     agent_outputs: Sequence[Mapping[str, Any]],
     evidence_rows: Sequence[Mapping[str, Any]],
+    fit_gap_rows: Sequence[Any],
 ) -> dict[str, Any]:
     final_decision = _mapping(decision_row.get("final_decision"))
     decision_metadata = _mapping(decision_row.get("metadata"))
@@ -244,7 +252,28 @@ def _bundle_payload(
             _agent_output_export(row, evidence_by_id=evidence_by_id)
             for row in agent_outputs
         ],
+        "fit_gaps": [_fit_gap_export(row) for row in fit_gap_rows],
         "evidence": [_evidence_export(row) for row in evidence_rows],
+    }
+
+
+def _fit_gap_export(item: Any) -> dict[str, Any]:
+    return {
+        "requirement_key": item.requirement_key,
+        "requirement": item.requirement,
+        "requirement_type": item.requirement_type.value,
+        "match_status": item.match_status.value,
+        "risk_level": item.risk_level,
+        "confidence": item.confidence,
+        "assessment": item.assessment,
+        "tender_evidence_keys": [
+            ref.evidence_key for ref in item.tender_evidence_refs
+        ],
+        "company_evidence_keys": [
+            ref.evidence_key for ref in item.company_evidence_refs
+        ],
+        "missing_info": list(item.missing_info),
+        "recommended_actions": list(item.recommended_actions),
     }
 
 
@@ -388,6 +417,7 @@ def _render_markdown(payload: Mapping[str, Any]) -> str:
             _mapping(decision.get("decision_evidence_audit"))
         )
     )
+    lines.extend(_markdown_fit_gap_section(_sequence(payload.get("fit_gaps"))))
     lines.extend(_markdown_evidence_section(_sequence(payload.get("evidence"))))
     return "\n".join(lines).rstrip() + "\n"
 
@@ -460,6 +490,26 @@ def _markdown_decision_evidence_audit_section(
                 _sequence(finding.get("evidence_keys"))
             )
             lines.append(f"  - {kind}: {message} Evidence: {evidence_keys}")
+    lines.append("")
+    return lines
+
+
+def _markdown_fit_gap_section(fit_gaps: Sequence[Any]) -> list[str]:
+    lines = ["## Requirement Fit-Gaps"]
+    if not fit_gaps:
+        return [*lines, "- None", ""]
+    for raw_gap in fit_gaps:
+        gap = _mapping(raw_gap)
+        evidence_keys = [
+            *_sequence(gap.get("tender_evidence_keys")),
+            *_sequence(gap.get("company_evidence_keys")),
+        ]
+        lines.append(
+            "- "
+            f"{gap.get('match_status')} ({gap.get('risk_level')}): "
+            f"{gap.get('requirement')} Evidence: "
+            f"{_format_evidence_keys(evidence_keys)}"
+        )
     lines.append("")
     return lines
 

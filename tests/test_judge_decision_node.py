@@ -614,6 +614,27 @@ def test_potential_blocker_does_not_auto_gate_conditional_bid() -> None:
     ]
 
 
+def test_judge_request_includes_fit_gap_board() -> None:
+    state = _ready_state().model_copy(update={"fit_gap_board": [_fit_gap_payload()]})
+
+    result, judge, _ = _run_judge_scenario(
+        judge_verdict="conditional_bid",
+        votes={
+            AgentRole.COMPLIANCE_OFFICER: "conditional_bid",
+            AgentRole.WIN_STRATEGIST: "conditional_bid",
+            AgentRole.DELIVERY_CFO: "bid",
+            AgentRole.RED_TEAM: "conditional_bid",
+        },
+        state=state,
+    )
+
+    assert result.state.status is AgentRunStatus.SUCCEEDED
+    assert judge.requests[0].fit_gap_board[0].requirement_key == "TENDER-SHALL-001"
+    assert judge.requests[0].fit_gap_board[0].recommended_actions == (
+        "Confirm certificate validity.",
+    )
+
+
 def test_judge_coerces_missing_cited_memo_and_evidence_ids() -> None:
     raw = _judge_payload(
         verdict="bid",
@@ -874,4 +895,26 @@ def _submission_ref() -> dict[str, str]:
         "evidence_key": "TENDER-SUBMISSION-001",
         "source_type": "tender_document",
         "evidence_id": str(SUBMISSION_EVIDENCE_ID),
+    }
+
+
+def _fit_gap_payload() -> dict[str, Any]:
+    return {
+        "agent_run_id": str(RUN_ID),
+        "tender_id": str(TENDER_ID),
+        "company_id": str(COMPANY_ID),
+        "requirement_key": "TENDER-SHALL-001",
+        "requirement": "ISO 27001 certification is mandatory.",
+        "requirement_type": "qualification_requirement",
+        "match_status": "partial_match",
+        "risk_level": "medium",
+        "confidence": 0.68,
+        "assessment": "Company evidence partially supports the requirement.",
+        "tender_evidence_refs": [_tender_ref()],
+        "company_evidence_refs": [_company_ref()],
+        "tender_evidence_ids": [str(TENDER_EVIDENCE_ID)],
+        "company_evidence_ids": [str(COMPANY_EVIDENCE_ID)],
+        "missing_info": ["Certificate expiry date."],
+        "recommended_actions": ["Confirm certificate validity."],
+        "metadata": {"source": "test"},
     }

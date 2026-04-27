@@ -86,6 +86,7 @@ def test_export_succeeded_decision_bundle_writes_markdown_and_json(
         "tenant_key",
         "decision",
         "agent_outputs",
+        "fit_gaps",
         "evidence",
     ]
     assert payload["decision"]["verdict"] == "conditional_bid"
@@ -218,6 +219,68 @@ def test_export_uses_decision_snapshot_when_cited_evidence_was_deleted(
     ]
 
 
+def test_export_includes_requirement_fit_gaps(tmp_path: Path) -> None:
+    client = InMemorySupabaseClient()
+    seed_demo_states(client)
+    succeeded_run = _run_by_state(client, "succeeded")
+    client.rows["requirement_fit_gaps"] = [
+        {
+            "tenant_key": "demo",
+            "agent_run_id": succeeded_run["id"],
+            "tender_id": succeeded_run["tender_id"],
+            "company_id": succeeded_run["company_id"],
+            "requirement_key": "DEMO-REPLAY-TENDER-ISO-27001",
+            "requirement": "Supplier must hold ISO 27001.",
+            "requirement_type": "qualification_requirement",
+            "match_status": "matched",
+            "risk_level": "low",
+            "confidence": 0.91,
+            "assessment": "Company evidence matches the ISO requirement.",
+            "tender_evidence_refs": [
+                {
+                    "evidence_key": "DEMO-REPLAY-TENDER-ISO-27001",
+                    "source_type": "tender_document",
+                    "evidence_id": client.rows["evidence_items"][0]["id"],
+                }
+            ],
+            "company_evidence_refs": [],
+            "tender_evidence_ids": [client.rows["evidence_items"][0]["id"]],
+            "company_evidence_ids": [],
+            "missing_info": [],
+            "recommended_actions": [],
+            "metadata": {},
+        }
+    ]
+
+    export_decision_bundle(
+        client,
+        run_id=succeeded_run["id"],
+        markdown_path=tmp_path / "decision.md",
+        json_path=tmp_path / "decision.json",
+    )
+
+    markdown = (tmp_path / "decision.md").read_text(encoding="utf-8")
+    payload = json.loads((tmp_path / "decision.json").read_text(encoding="utf-8"))
+
+    assert "## Requirement Fit-Gaps" in markdown
+    assert "DEMO-REPLAY-TENDER-ISO-27001" in markdown
+    assert payload["fit_gaps"] == [
+        {
+            "requirement_key": "DEMO-REPLAY-TENDER-ISO-27001",
+            "requirement": "Supplier must hold ISO 27001.",
+            "requirement_type": "qualification_requirement",
+            "match_status": "matched",
+            "risk_level": "low",
+            "confidence": 0.91,
+            "assessment": "Company evidence matches the ISO requirement.",
+            "tender_evidence_keys": ["DEMO-REPLAY-TENDER-ISO-27001"],
+            "company_evidence_keys": [],
+            "missing_info": [],
+            "recommended_actions": [],
+        }
+    ]
+
+
 def test_export_fails_when_run_has_no_persisted_final_decision(
     tmp_path: Path,
 ) -> None:
@@ -331,6 +394,7 @@ class InMemorySupabaseClient:
             "agent_runs": [],
             "agent_outputs": [],
             "bid_decisions": [],
+            "requirement_fit_gaps": [],
         }
 
     def table(self, table_name: str) -> InMemorySupabaseQuery:

@@ -12,6 +12,7 @@ from bidded.orchestration import (
     EvidenceItemState,
     EvidenceSourceType,
     GraphRouteNode,
+    ScoutOutputState,
     SpecialistMotionState,
     SpecialistRole,
     Verdict,
@@ -21,6 +22,7 @@ from bidded.orchestration import (
 from bidded.orchestration.specialist_rebuttals import (
     Round2RebuttalRequest,
     build_round_2_rebuttal_handler,
+    build_round_2_rebuttal_request,
 )
 
 RUN_ID = UUID("11111111-1111-4111-8111-111111111111")
@@ -309,6 +311,24 @@ def test_round_2_rebuttals_read_motions_and_persist_audit_rows() -> None:
     assert red_team_row.payload["revised_stance"] == "no_bid"
 
 
+def test_round_2_request_includes_fit_gap_board() -> None:
+    base = _ready_state()
+    state = base.model_copy(
+        update={
+            "scout_output": ScoutOutputState(),
+            "motions": {
+                role: _round_1_motion(base, role) for role in SpecialistRole
+            },
+            "fit_gap_board": [_fit_gap_payload()],
+        }
+    )
+
+    request = build_round_2_rebuttal_request(state, SpecialistRole.RED_TEAM)
+
+    assert request.fit_gap_board[0].requirement_key == "TENDER-SHALL-001"
+    assert request.fit_gap_board[0].missing_info == ("Certificate expiry date.",)
+
+
 def test_invalid_round_2_rebuttal_drops_hallucinated_disagreement() -> None:
     """A Round 2 rebuttal whose targeted_disagreement cites fully hallucinated
     evidence (unresolvable by key OR id) gets that disagreement dropped rather
@@ -405,3 +425,37 @@ def test_round_2_rebuttal_coerces_structured_string_lists() -> None:
         == ["Ask the bid owner to attach insurance proof. (owner: bid_owner)"]
         for row in rebuttal_rows
     )
+
+
+def _fit_gap_payload() -> dict[str, Any]:
+    return {
+        "agent_run_id": str(RUN_ID),
+        "tender_id": str(TENDER_ID),
+        "company_id": str(COMPANY_ID),
+        "requirement_key": "TENDER-SHALL-001",
+        "requirement": "ISO 27001 certification is mandatory.",
+        "requirement_type": "qualification_requirement",
+        "match_status": "partial_match",
+        "risk_level": "medium",
+        "confidence": 0.68,
+        "assessment": "Company evidence partially supports the requirement.",
+        "tender_evidence_refs": [
+            {
+                "evidence_key": "TENDER-SHALL-001",
+                "source_type": "tender_document",
+                "evidence_id": str(TENDER_EVIDENCE_ID),
+            }
+        ],
+        "company_evidence_refs": [
+            {
+                "evidence_key": "COMPANY-CERT-001",
+                "source_type": "company_profile",
+                "evidence_id": str(COMPANY_EVIDENCE_ID),
+            }
+        ],
+        "tender_evidence_ids": [str(TENDER_EVIDENCE_ID)],
+        "company_evidence_ids": [str(COMPANY_EVIDENCE_ID)],
+        "missing_info": ["Certificate expiry date."],
+        "recommended_actions": ["Confirm certificate validity."],
+        "metadata": {"source": "test"},
+    }
