@@ -13,6 +13,7 @@ from bidded.orchestration import (
     run_bidded_graph_shell,
 )
 from bidded.orchestration.evidence_locked_swarm import evidence_locked_graph_handlers
+from bidded.requirements import RequirementType
 
 RUN_ID = UUID("11111111-1111-4111-8111-111111111111")
 COMPANY_ID = UUID("22222222-2222-4222-8222-222222222222")
@@ -22,6 +23,7 @@ CHUNK_ID = UUID("55555555-5555-4555-8555-555555555555")
 TENDER_EVIDENCE_ID = UUID("66666666-6666-4666-8666-666666666666")
 TENDER_EVIDENCE_ID_B = UUID("66666666-6666-4666-8666-666666666667")
 COMPANY_EVIDENCE_ID = UUID("77777777-7777-4777-8777-777777777777")
+COMPANY_EVIDENCE_ID_B = UUID("77777777-7777-4777-8777-777777777778")
 DOCUMENT_ID_B = UUID("44444444-4444-4444-8444-444444444445")
 CHUNK_ID_B = UUID("55555555-5555-4555-8555-555555555556")
 
@@ -167,3 +169,77 @@ def test_round1_rotates_tender_excerpts_across_roles_when_multiple_pdfs() -> Non
 
     win = next(o for o in motion_outputs if o.agent_role == "win_strategist")
     assert win.payload.get("vote") == "bid"
+
+
+def test_financial_tenders_prefer_multi_year_company_history_over_snapshot() -> None:
+    base = _minimal_evidence_state()
+    financial_tender = EvidenceItemState(
+        evidence_id=TENDER_EVIDENCE_ID,
+        evidence_key="TENDER-FINANCIAL-001",
+        source_type=EvidenceSourceType.TENDER_DOCUMENT,
+        excerpt="Bidders must show stable turnover and margin over recent years.",
+        normalized_meaning="The tender requires financial standing evidence.",
+        category="financial_standing",
+        requirement_type=RequirementType.FINANCIAL_STANDING,
+        confidence=0.94,
+        source_metadata={"source_label": "Tender page 4"},
+        document_id=DOCUMENT_ID,
+        chunk_id=CHUNK_ID,
+        page_start=4,
+        page_end=4,
+    )
+    snapshot = EvidenceItemState(
+        evidence_id=COMPANY_EVIDENCE_ID,
+        evidence_key="COMPANY-FINANCIAL-SNAPSHOT-2024",
+        source_type=EvidenceSourceType.COMPANY_PROFILE,
+        excerpt="2024 public financial snapshot: 24.901 MSEK revenue.",
+        normalized_meaning="Latest annual-account snapshot for 2024.",
+        category="financial_standing",
+        confidence=0.9,
+        source_metadata={"source_label": "Company profile"},
+        company_id=COMPANY_ID,
+        field_path="profile_details.public_financial_snapshot",
+    )
+    history = EvidenceItemState(
+        evidence_id=COMPANY_EVIDENCE_ID_B,
+        evidence_key="COMPANY-FINANCIAL-HISTORY-2020-2024",
+        source_type=EvidenceSourceType.COMPANY_PROFILE,
+        excerpt=(
+            "2020-2024 public financial trend: 2020 revenue 12.970 MSEK, "
+            "EBIT margin 13.4%; 2024 revenue 24.901 MSEK, EBIT margin 0.1%."
+        ),
+        normalized_meaning="Multi-year revenue and EBIT margin history.",
+        category="financial_standing",
+        confidence=0.9,
+        source_metadata={"source_label": "Company profile"},
+        company_id=COMPANY_ID,
+        field_path="profile_details.public_financial_statement_history",
+    )
+    state = base.model_copy(
+        update={
+            "evidence_board": [financial_tender, snapshot, history],
+        }
+    )
+
+    result = run_bidded_graph_shell(
+        state,
+        handlers=evidence_locked_graph_handlers(),
+    )
+
+    assert result.state.status is AgentRunStatus.SUCCEEDED
+    motion_outputs = [
+        o for o in result.state.agent_outputs if o.round_name == "round_1_motion"
+    ]
+    cited_company_keys = {
+        ref["evidence_key"]
+        for output in motion_outputs
+        for ref in output.payload["top_findings"][0]["evidence_refs"]
+        if ref["source_type"] == "company_profile"
+    }
+    assert "COMPANY-FINANCIAL-HISTORY-2020-2024" in cited_company_keys
+    assert "COMPANY-FINANCIAL-SNAPSHOT-2024" not in cited_company_keys
+    assert result.state.final_decision is not None
+    final_refs = result.state.final_decision.evidence_refs
+    assert "COMPANY-FINANCIAL-HISTORY-2020-2024" in {
+        ref.evidence_key for ref in final_refs
+    }
