@@ -19,7 +19,6 @@ const titles: { match: (p: string) => boolean; title: string }[] = [
   { match: (p) => p === "/procurements/new", title: "Register Procurement" },
   { match: (p) => /^\/runs\/[^/]+\/evidence$/.test(p), title: "Evidence Board" },
   { match: (p) => /^\/runs\/[^/]+$/.test(p), title: "Run Detail" },
-  { match: (p) => p === "/decisions", title: "Bid Decisions" },
   { match: (p) => /^\/decisions\/[^/]+$/.test(p), title: "Decision Detail" },
   { match: (p) => p === "/bids", title: "Bids" },
   { match: (p) => p === "/bids/new", title: "New Bid" },

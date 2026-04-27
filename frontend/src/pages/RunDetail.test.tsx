@@ -168,6 +168,11 @@ describe("RunDetail", () => {
     expect(within(sidebar).getByText(/ISO certificate must be attached/)).toBeInTheDocument();
     expect(within(sidebar).getByText("police-modernisation.pdf")).toBeInTheDocument();
     expect(within(sidebar).getByText("Page 11")).toBeInTheDocument();
+    expect(
+      within(sidebar).queryByText("Excerpt-level source content from this run's evidence board."),
+    ).not.toBeInTheDocument();
+    expect(within(sidebar).queryByText("Evidence key")).not.toBeInTheDocument();
+    expect(within(sidebar).queryByText("TENDER.MANDATORY.ISO27001")).not.toBeInTheDocument();
     expect(within(sidebar).getByRole("link", { name: "Open Evidence Board" })).toHaveAttribute(
       "href",
       "/runs/run-123/evidence",

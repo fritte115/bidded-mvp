@@ -31,11 +31,19 @@ export function isDuplicateJudgeDisagreement(
   const normalizedDisagreement = normalizeComparableText(disagreement);
   const normalizedMemo = normalizeComparableText(memo);
 
-  return (
-    normalizedDisagreement.length > 0 &&
-    normalizedMemo.length > 0 &&
-    normalizedDisagreement === normalizedMemo
-  );
+  if (normalizedDisagreement.length === 0 || normalizedMemo.length === 0) {
+    return false;
+  }
+
+  if (normalizedDisagreement === normalizedMemo) {
+    return true;
+  }
+
+  if (isContainedDuplicate(normalizedDisagreement, normalizedMemo)) {
+    return true;
+  }
+
+  return similarityRatio(normalizedDisagreement, normalizedMemo) >= 0.86;
 }
 
 function blocksFromSentence(sentence: string): MemoBlock[] {
@@ -86,6 +94,41 @@ function normalizeComparableText(text: string): string {
     .replace(/[.!?]+$/g, "")
     .trim()
     .toLowerCase();
+}
+
+function isContainedDuplicate(left: string, right: string): boolean {
+  const [shorter, longer] =
+    left.length <= right.length ? [left, right] : [right, left];
+  return (
+    shorter.length >= 80 &&
+    shorter.length / longer.length >= 0.72 &&
+    longer.includes(shorter)
+  );
+}
+
+function similarityRatio(left: string, right: string): number {
+  const maxLength = Math.max(left.length, right.length);
+  if (maxLength === 0) return 1;
+  return 1 - levenshteinDistance(left, right) / maxLength;
+}
+
+function levenshteinDistance(left: string, right: string): number {
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const cost = left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1;
+      current[rightIndex] = Math.min(
+        current[rightIndex - 1] + 1,
+        previous[rightIndex] + 1,
+        previous[rightIndex - 1] + cost,
+      );
+    }
+    previous = current;
+  }
+
+  return previous[right.length];
 }
 
 function cleanSentence(text: string): string {

@@ -73,7 +73,7 @@ export default function DecisionDetail() {
         actions={
           <>
             <Button asChild variant="outline">
-              <Link to="/decisions"><ArrowLeft className="h-4 w-4" /> All decisions</Link>
+              <Link to="/"><ArrowLeft className="h-4 w-4" /> Dashboard</Link>
             </Button>
             <Button asChild>
               <Link to={`/drafts/${run.id}`}>
